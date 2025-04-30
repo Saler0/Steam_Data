@@ -4,7 +4,7 @@ import zipfile
 import os
 
 # URL de la página
-url = "https://www.hacienda.gob.es/es-ES/GobiernoAbierto/Datos%20Abiertos/Paginas/LicitacionesAgregacion.aspx"
+url = "https://www.hacienda.gob.es/es-ES/GobiernoAbierto/Datos%20Abiertos/Paginas/LicitacionesContratante.aspx"
 
 # Directorio donde se guardarán los archivos
 base_dir = "licitaciones_datos"
