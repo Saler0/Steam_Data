@@ -10,43 +10,38 @@ library(xml2); library(dplyr); library(purrr)
 url_catalogo_estados <- "https://contrataciondelestado.es/codice/cl/2.04/SyndicationContractFolderStatusCode-2.04.gc"
 url_catalogo_party_type <- "http://contrataciondelestado.es/codice/cl/2.10/ContractingAuthorityCode-2.10.gc"
 url_catalogo_activity <- "http://contrataciondelestado.es/codice/cl/2.10/ContractingAuthorityActivityCode-2.10.gc"
+url_catalogo_type    <- "http://contrataciondelestado.es/codice/cl/2.08/ContractCode-2.08.gc"
+url_catalogo_subtype <- "http://contrataciondelestado.es/codice/cl/1.04/GoodsContractCode-1.04.gc"
 
-# 2) Leer el XML del catálogo
-cat_doc <- read_xml(url_catalogo_estados)
-party_doc <- read_xml(url_catalogo_party_type)
-activity_doc <- read_xml(url_catalogo_activity)
+# 2) Función genérica para parsear catálogos de la forma Row/Value[@ColumnRef='code']/SimpleValue + 'nombre'
+parse_catalog <- function(url, col_code_name, col_name_name) {
+  doc  <- read_xml(url)
+  rows <- xml_find_all(doc, ".//Row")
+  map_df(rows, function(r) {
+    code   <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='code']/SimpleValue"))
+    nombre <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='nombre']/SimpleValue"))
+    tibble(
+      !!col_code_name := code,
+      !!col_name_name := nombre
+    )
+  })
+}
 
-# 3) Definir namespaces (si los tiene) — en este caso el catálogo usa UBL, pero las etiquetas <Row> vienen sin prefijo
-#    Así que podemos simplemente buscar las filas directamente
-status_rows <- xml_find_all(cat_doc, ".//Row")
-party_rows <- xml_find_all(party_doc, ".//Row")
-activity_rows <- xml_find_all(activity_doc, ".//Row")
+# 3) Genera todos los lookups con una sola llamada cada uno
+status_lookup   <- parse_catalog(url_catalogo_estados,      "status_code",   "status_name")
+party_lookup    <- parse_catalog(url_catalogo_party_type,   "party_type_code", "party_type_name")
+activity_lookup <- parse_catalog(url_catalogo_activity,     "activity_code", "activity_name")
+type_lookup     <- parse_catalog(url_catalogo_type,         "type_code",     "type_name")
+subtype_lookup  <- parse_catalog(url_catalogo_subtype,      "subtype_code",  "subtype_name")
 
-# 4) Extraer code y nombre de cada <Row>
-status_lookup <- map_df(status_rows, function(r) {
-  code   <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='code']/SimpleValue"))
-  nombre <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='nombre']/SimpleValue"))
-  tibble(status_code = code, status_name = nombre)
-})
-
-party_lookup <- map_df(party_rows, function(r) {
-  code   <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='code']/SimpleValue"))
-  nombre <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='nombre']/SimpleValue"))
-  tibble(party_type_code = code, party_type_name = nombre)
-})
-
-activity_lookup <- map_df(activity_rows, function(r) {
-  code   <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='code']/SimpleValue"))
-  nombre <- xml_text(xml_find_first(r, ".//Value[@ColumnRef='nombre']/SimpleValue"))
-  tibble(activity_code = code, activity_name = nombre)
-})
-
-# 5) Vistazo al lookup
+# 4) Compruebarlos alguno de ellos
 print(status_lookup)
 print(party_lookup)
 print(activity_lookup)
+print(type_lookup)
+print(subtype_lookup)
 
-# -----------------------ARCHIVOS ATOM-----------------------------------
+# -----------------------FUNCION DE PARSING ATOM-----------------------------------
 
 # 1) Define manualmente los namespaces que usa tu XML
 ns <- c(
@@ -117,8 +112,14 @@ parsear_atom <- function(path) {
       ## Cadena de padres (jerarquía)
       contracting_party_hierarchy       = parent_chain,
       
-      importe_base   = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TaxExclusiveAmount",       ns)),
-      importe_total  = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TotalAmount",               ns)),
+      # Extrae los códigos de tipo y subtipo
+      type_code         = text_or_na(xml_find_first(e, ".//cac:ProcurementProject//cbc:TypeCode",    ns)),
+      subtype_code      = text_or_na(xml_find_first(e, ".//cac:ProcurementProject//cbc:SubTypeCode", ns)),      
+      
+      estimated_overall_amount   = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:EstimatedOverallContractAmount", ns)),
+      TaxExclusiveAmount   = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TaxExclusiveAmount",       ns)),
+      TotalAmount  = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TotalAmount",               ns)),
+  
       cpv            = text_or_na(xml_find_first(e, ".//cac:RequiredCommodityClassification//cbc:ItemClassificationCode", ns)),
       adjudicatario  = text_or_na(xml_find_first(e, ".//cac:TenderResult//cac:WinningParty//cbc:Name",    ns)),
       contratante    = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cac:PartyName//cbc:Name", ns))
@@ -126,15 +127,18 @@ parsear_atom <- function(path) {
   })
 }
 
+
+# -----------------------MONTA EL DATAFRAME-----------------------------------
+
 # 4) Aplica a todos los .atom de la carpeta
 ruta_carpeta  <- "licitaciones_datos/licitacionesPerfilesContratanteCompleto3_202504/licitacionesPerfilesContratanteCompleto3_202504"
 archivos_atom <- list.files(ruta_carpeta, pattern="\\.atom$", full.names=TRUE)
+
 
 # 6) Hacer el parseo
 licitaciones_df <- map_df(archivos_atom, parsear_atom)
 
 # 7) Ahora, tras haber parseado tus .atom en `licitaciones_df` (que incluye columna `status_code`), basta hacer:
-library(dplyr)
 
 licitaciones_df <- licitaciones_df %>%
   # Une el lookup de estados
@@ -145,8 +149,10 @@ licitaciones_df <- licitaciones_df %>%
   relocate(party_type_name, .after = party_type_code) %>%
   # Une el nuevo lookup de actividad
   left_join(activity_lookup, by = "activity_code") %>%
-  relocate(activity_name,   .after = activity_code)
-           
+  relocate(activity_name,   .after = activity_code) %>%
+  # Une el nuevo lookup de type/subtype           
+  left_join(type_lookup,    by = "type_code")    %>% relocate(type_name,    .after = type_code)   %>%
+  left_join(subtype_lookup, by = "subtype_code") %>% relocate(subtype_name, .after = subtype_code)
 
 # 5) Comprueba el resultado
 print(head(licitaciones_df), width = Inf)
