@@ -15,3 +15,15 @@
 ## otros:
 * frecuencia de actualización diaria
 * necesidad de limpieza: una misma licitación puede aparecer tantas veces como modificaciones se hayan producido en los datos de dicha licitación
+
+---
+
+## Problema real que resuelves
+"Soy una empresa que vende servicios/productos al sector público y no tengo tiempo ni recursos para analizar cientos de concursos todos los días. A veces me presento a concursos que no tengo posibilidad real de ganar."
+
+## Solucion
+Una plataforma inteligente que detecta automáticamente licitaciones públicas adecuadas al perfil de cada empresa y les da herramientas para competir con más eficacia.
+
+## Datos usar para alimentar la plataforma
+
+
