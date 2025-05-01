@@ -72,10 +72,24 @@ parsear_atom <- function(path) {
   entries <- xml_find_all(doc, ".//atom:entry", ns)
   
   map_df(entries, function(e) {
+    
+    # Extraemos todos los nombres dentro de ParentLocatedParty
+    parent_nodes <- xml_find_all(
+      e,
+      ".//cpe:LocatedContractingParty//cpe:ParentLocatedParty//cac:PartyName//cbc:Name",
+      ns
+    )
+    parent_chain <- if (length(parent_nodes)==0) {
+      NA_character_
+    } else {
+      paste(xml_text(parent_nodes), collapse = " > ")
+    }
+    
     tibble(
       id             = text_or_na(xml_find_first(e, ".//atom:id",                                        ns)),
       resumen        = text_or_na(xml_find_first(e, ".//atom:summary",                                   ns)),
       titulo         = text_or_na(xml_find_first(e, ".//atom:title",                                     ns)),
+      fecha          = text_or_na(xml_find_first(e, ".//atom:updated",                                   ns)),
       status_code    = text_or_na(xml_find_first(e, ".//cpe:ContractFolderStatus//cbcpe:ContractFolderStatusCode", ns)),
       party_type_code= text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cbc:ContractingPartyTypeCode", ns)),
       activity_code      = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cbc:ActivityCode",               ns)),  
@@ -99,8 +113,10 @@ parsear_atom <- function(path) {
       party_contact_name       = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cac:Party//cac:Contact/cbc:Name", ns)),
       party_contact_telephone  = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cac:Party//cac:Contact/cbc:Telephone", ns)),
       party_contact_email      = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cac:Party//cac:Contact/cbc:ElectronicMail", ns)),
+
+      ## Cadena de padres (jerarquía)
+      contracting_party_hierarchy       = parent_chain,
       
-      fecha          = text_or_na(xml_find_first(e, ".//atom:updated",                                   ns)),
       importe_base   = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TaxExclusiveAmount",       ns)),
       importe_total  = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TotalAmount",               ns)),
       cpv            = text_or_na(xml_find_first(e, ".//cac:RequiredCommodityClassification//cbc:ItemClassificationCode", ns)),
