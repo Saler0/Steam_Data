@@ -1,8 +1,8 @@
 setwd("C:/Proyectos/Licitaciones_Publicas")
 
 # 1) Instala/carga librerías
-install.packages(c("xml2", "dplyr", "purrr"))
-library(xml2); library(dplyr); library(purrr)
+install.packages(c("xml2", "dplyr", "purrr","tidyr"))
+library(xml2); library(dplyr); library(purrr); library(tidyr)
 
 # -------------------CATALOGOS---------------------------------------
 
@@ -12,6 +12,20 @@ url_catalogo_party_type <- "http://contrataciondelestado.es/codice/cl/2.10/Contr
 url_catalogo_activity <- "http://contrataciondelestado.es/codice/cl/2.10/ContractingAuthorityActivityCode-2.10.gc"
 url_catalogo_type    <- "http://contrataciondelestado.es/codice/cl/2.08/ContractCode-2.08.gc"
 url_catalogo_subtype <- "http://contrataciondelestado.es/codice/cl/1.04/GoodsContractCode-1.04.gc"
+url_catalogo_cpv <- "https://contrataciondelestado.es/codice/cl/2.04/CPV2008-2.04.gc"
+CountrySubentityCode <- "http://contrataciondelestado.es/codice/cl/2.08/NUTS-2021.gc"
+IdentificationCode_country <- "http://contrataciondelestado.es/codice/cl/2.08/CountryIdentificationCode-2.08.gc"
+FundingProgramCode <- "http://contrataciondelestado.es/codice/cl/2.08/FundingProgramCode-2.08.gc"
+ProcurementNationalLegislationCode <- "https://contrataciondelestado.es/codice/cl/2.08/ProcurementNationalLegislationCode-2.08.gc"
+EvaluationCriteriaTypeCode_technical <- "http://contrataciondelestado.es/codice/cl/2.0/TechnicalCapabilityTypeCode-2.0.gc"
+EvaluationCriteriaTypeCode_financial <- "http://contrataciondelestado.es/codice/cl/2.0/FinancialCapabilityTypeCode-2.0.gc"
+RequirementTypeCode <- "http://contrataciondelestado.es/codice/cl/2.08/DeclarationTypeCode-2.08.gc"
+ProcedureCode <- "https://contrataciondelestado.es/codice/cl/2.07/SyndicationTenderingProcessCode-2.07.gc"
+ContractingSystemCode <- "http://contrataciondelestado.es/codice/cl/2.08/ContractingSystemTypeCode-2.08.gc"
+SubmissionMethodCode <- "http://contrataciondelestado.es/codice/cl/1.04/TenderDeliveryCode-1.04.gc"
+NoticeTypeCode <- "http://contrataciondelestado.es/codice/cl/2.11/TenderingNoticeTypeCode-2.11.gc"
+DocumentTypeCode <- "http://contrataciondelestado.es/codice/cl/2.08/GeneralContractDocuments-2.08.gc"
+
 
 # 2) Función genérica para parsear catálogos de la forma Row/Value[@ColumnRef='code']/SimpleValue + 'nombre'
 parse_catalog <- function(url, col_code_name, col_name_name) {
@@ -33,6 +47,7 @@ party_lookup    <- parse_catalog(url_catalogo_party_type,   "party_type_code", "
 activity_lookup <- parse_catalog(url_catalogo_activity,     "activity_code", "activity_name")
 type_lookup     <- parse_catalog(url_catalogo_type,         "type_code",     "type_name")
 subtype_lookup  <- parse_catalog(url_catalogo_subtype,      "subtype_code",  "subtype_name")
+cpv_lookup <- parse_catalog(url_catalogo_cpv, "cpv", "cpv_name")
 
 # 4) Compruebarlos alguno de ellos
 print(status_lookup)
@@ -40,6 +55,7 @@ print(party_lookup)
 print(activity_lookup)
 print(type_lookup)
 print(subtype_lookup)
+print(cpv_lookup)
 
 # -----------------------FUNCION DE PARSING ATOM-----------------------------------
 
@@ -79,6 +95,17 @@ parsear_atom <- function(path) {
     } else {
       paste(xml_text(parent_nodes), collapse = " > ")
     }
+    
+    # Captura _todos_ los códigos CPV
+    cpv_nodes <- xml_find_all(
+      e,
+      ".//cac:RequiredCommodityClassification//cbc:ItemClassificationCode",
+      ns
+    )
+    # Extrae los textos y los pega con coma
+    cpv_codes <- xml_text(cpv_nodes)
+    cpv_concat <- if (length(cpv_codes)==0) NA_character_ else paste(cpv_codes, collapse = ",")
+    
     
     tibble(
       id             = text_or_na(xml_find_first(e, ".//atom:id",                                        ns)),
@@ -120,7 +147,7 @@ parsear_atom <- function(path) {
       TaxExclusiveAmount   = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TaxExclusiveAmount",       ns)),
       TotalAmount  = text_or_na(xml_find_first(e, ".//cac:BudgetAmount//cbc:TotalAmount",               ns)),
   
-      cpv            = text_or_na(xml_find_first(e, ".//cac:RequiredCommodityClassification//cbc:ItemClassificationCode", ns)),
+      cpv           = cpv_concat,
       adjudicatario  = text_or_na(xml_find_first(e, ".//cac:TenderResult//cac:WinningParty//cbc:Name",    ns)),
       contratante    = text_or_na(xml_find_first(e, ".//cpe:LocatedContractingParty//cac:PartyName//cbc:Name", ns))
       )
@@ -152,7 +179,20 @@ licitaciones_df <- licitaciones_df %>%
   relocate(activity_name,   .after = activity_code) %>%
   # Une el nuevo lookup de type/subtype           
   left_join(type_lookup,    by = "type_code")    %>% relocate(type_name,    .after = type_code)   %>%
-  left_join(subtype_lookup, by = "subtype_code") %>% relocate(subtype_name, .after = subtype_code)
+  left_join(subtype_lookup, by = "subtype_code") %>% relocate(subtype_name, .after = subtype_code) %>%
+  # Une el nuevo lookup de cpv 
+  mutate(cpv_list = strsplit(cpv, ",")) %>%
+  unnest(cpv_list) %>%                               # una fila por cada código
+  left_join(cpv_lookup, by = c("cpv_list" = "cpv")) %>%  # trae cpv_name
+  # agrupamos todo excepto los campos de cpv para volver a aplanar
+  group_by(across(-c(cpv, cpv_list, cpv_name))) %>%
+  summarize(
+    cpv         = paste(unique(cpv_list), collapse = ","),    # vuelve a concatenar
+    cpv_name    = paste(unique(cpv_name), collapse = ","),    # concatena nombres
+    .groups     = "drop"
+  ) %>%
+  ungroup() %>%
+  relocate(cpv_name, .after = cpv)  # opcional: para que cpv_name quede junto a cpv
 
 # 5) Comprueba el resultado
 print(head(licitaciones_df), width = Inf)
