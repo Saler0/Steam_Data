@@ -176,3 +176,5 @@ cython_debug/
 licitaciones_datos/
 .RData
 .Rhistory
+
+anotaciones.txt
