@@ -14,8 +14,13 @@ def get_game_details(appid):
         url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=english"
         res = requests.get(url, timeout=10)
         data = res.json().get(str(appid), {})
+
+        if not isinstance(data, dict):
+            return None, False # no hay detalles disponibles
+
         if data.get("success") is False:
-            return None, False  # no hay detalles disponibles
+            return None, False # no hay detalles disponibles
+        
         return data.get("data", None), False  # sin error
     except Exception as e:
         print(f"❌ Error al obtener detalles para {appid}: {e}")
