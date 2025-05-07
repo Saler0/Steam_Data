@@ -2,7 +2,10 @@ import requests
 import json
 import time
 import os
-from datetime import datetime, timezone
+import glob
+
+MAX_PER_PART = 5200
+
 
 def get_all_games():
     url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
@@ -52,26 +55,69 @@ def get_game_reviews(appid, num=100):
         print(f"❌ Error al obtener reseñas para {appid}: {e}")
         return [], True  # hubo error
 
-# Cargar progreso anterior si existe
-def load_existing_data(filename):
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+
+# Detecta archivos steam_games_data_part1.json, part2.json, …
+def find_existing_parts():
+    parts = glob.glob("steam_games_data_part*.json")
+
+    # Devuelve lista de tuplas (número, nombre archivo), ordenada
+    result = []
+    for p in parts:
+        name = os.path.basename(p)
+        try:
+            n = int(name.replace("steam_games_data_part", "").replace(".json",""))
+            result.append((n,p))
+        except:
+            pass
+    return sorted(result, key=lambda x: x[0])
+
+def load_part(file):
+    with open(file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_part(data, part_num):
+    fname = f"steam_games_data_part{part_num}.json"
+    with open(fname, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print(f"💾 Guardado parte {part_num}: {len(data)} juegos → {fname}")
 
 
 # MAIN
 if __name__ == "__main__":
-    output_file = "steam_games_data.json"
-    juegos_extraidos = load_existing_data(output_file)
-    juegos_procesados = {j["appid"] for j in juegos_extraidos}
 
+    # 1) Detectar partes y cargar processed set completo
+    parts = find_existing_parts()
+    juegos_procesados = set()
+    if parts:
+        # Carga todos los appid de todas las partes
+        for _, part_file in parts:
+            data = load_part(part_file)
+            juegos_procesados.update(j["appid"] for j in data)
+        # Decide si continuar la última parte o arrancar una nueva
+        last_part_num, last_file = parts[-1]
+        last_data = load_part(last_file)
+        if len(last_data) < MAX_PER_PART:
+            juegos_extraidos = last_data
+            print(f"🔄 Reanudando parte {last_part_num}, {len(juegos_extraidos)} juegos ya extraídos")
+        else:
+            last_part_num += 1
+            juegos_extraidos = []
+            print(f"✨ Todas las partes previas llenas, arrancando parte {last_part_num}")
+    else:
+        last_part_num = 1
+        juegos_extraidos = []
+        print("✨ Comenzando en parte 1")
+
+
+    # 2) Obtener lista de todos los juegos
     games = get_all_games()
-    print(f"🎮 Total de juegos encontrados: {len(games)}")
-    
+    print(f"🎮 Total de juegos disponibles: {len(games)}")
+
+
+    # 3) Iterar y llenar partes
     for i, game in enumerate(games):
         appid = game.get("appid")
-        name = game.get("name", "").strip()
+        name  = game.get("name","").strip()
 
         if not name or appid in juegos_procesados:
             print(f"[{i+1}] ⏩ App sin nombre o ya procesado ({appid}), se omite.")
@@ -79,43 +125,35 @@ if __name__ == "__main__":
 
         print(f"\n[{i+1}] 📦 Procesando: {name} ({appid})")
 
+        # si la parte actual ya llegó a MAX_PER_PART, la guardo y avanzo
+        if len(juegos_extraidos) >= MAX_PER_PART:
+            save_part(juegos_extraidos, last_part_num)
+            last_part_num += 1
+            juegos_extraidos = []
+            print(f"➡️ Pasando a parte {last_part_num}")
+
+        # Procesar este juego
+        details, err_d = get_game_details(appid)
+        reviews, err_r = get_game_reviews(appid)
+
         juego_info = {
             "appid": appid,
             "name": name,
+            "details": details if details else None,
+            "error_details": bool(err_d),
+            "reviews": reviews if reviews else [],
+            "error_reviews": bool(err_r)
         }
-
-        # Detalles del juego
-        details, details_error = get_game_details(appid)
-        if details_error:
-            juego_info["error_details"] = True
-        elif details:
-            juego_info["details"] = details
-        else:
-            juego_info["no_details_available"] = True
-
-        # Reseñas
-        reviews, reviews_error = get_game_reviews(appid)
-        if reviews_error:
-            juego_info["error_reviews"] = True
-            juego_info["reviews"] = []
-        elif not reviews:
-            juego_info["no_reviews_available"] = True
-            juego_info["reviews"] = []
-        else:
-            juego_info["reviews"] = reviews
-
         juegos_extraidos.append(juego_info)
+        juegos_procesados.add(appid)
 
-        # Guardado parcial cada 100 juegos
         if len(juegos_extraidos) % 100 == 0:
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(juegos_extraidos, f, indent=2, ensure_ascii=False)
-            print(f"💾 Guardado parcial: {len(juegos_extraidos)} juegos")
-        
+            save_part(juegos_extraidos, last_part_num)
+            print(f"💾 Guardado parcial dentro de parte {last_part_num}: {len(juegos_extraidos)} juegos")
+
+        # Sleep para respetar rate limits
         time.sleep(0.9)
 
-    # Guardado final
-    with open("steam_games_data.json", "w", encoding="utf-8") as f:
-        json.dump(juegos_extraidos, f, indent=2, ensure_ascii=False)
-
-    print(f"\n✅ Datos guardados de {len(juegos_extraidos)} juegos en steam_games_data.json")
+    # 4) Guardado final de la última parte
+    save_part(juegos_extraidos, last_part_num)
+    print("✅ Proceso completado.")
