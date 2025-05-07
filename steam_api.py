@@ -13,15 +13,24 @@ def get_game_details(appid):
     try:
         url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=english"
         res = requests.get(url, timeout=10)
-        data = res.json().get(str(appid), {})
+        # 1) Parseo seguro del JSON
+        raw = res.json()
+        if not isinstance(raw, dict):
+            # la respuesta no es un dict: nada que procesar
+            return None, False
 
-        if not isinstance(data, dict):
-            return None, False # no hay detalles disponibles
+        # 2) Extraigo la sección de este appid
+        app_section = raw.get(str(appid))
+        if not isinstance(app_section, dict):
+            # viene null, o un tipo inesperado
+            return None, False
 
-        if data.get("success") is False:
-            return None, False # no hay detalles disponibles
-        
-        return data.get("data", None), False  # sin error
+        # 3) Compruebo el success
+        if app_section.get("success") is not True:
+            return None, False
+
+        # 4) Devuelvo todos los datos crudos
+        return app_section.get("data"), False
     except Exception as e:
         print(f"❌ Error al obtener detalles para {appid}: {e}")
         return None, True  # hubo error
