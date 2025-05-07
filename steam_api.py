@@ -60,14 +60,12 @@ if __name__ == "__main__":
     games = get_all_games()
     print(f"🎮 Total de juegos encontrados: {len(games)}")
     
-    juegos_extraidos = []
-
     for i, game in enumerate(games):
         appid = game.get("appid")
         name = game.get("name", "").strip()
 
-        if not name:
-            print(f"[{i+1}] ⏩ App sin nombre ({appid}), se omite.")
+        if not name or appid in juegos_procesados:
+            print(f"[{i+1}] ⏩ App sin nombre o ya procesado ({appid}), se omite.")
             continue
 
         print(f"\n[{i+1}] 📦 Procesando: {name} ({appid})")
