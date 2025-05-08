@@ -178,3 +178,5 @@ licitaciones_datos/
 .Rhistory
 
 anotaciones.txt
+
+*.json
