@@ -180,3 +180,8 @@ licitaciones_datos/
 anotaciones.txt
 
 steam_games_data_part*.json
+
+steam_games_data_milenko_part*.json
+steam_games_data_alejandro_part*.json
+steam_games_data_gustavo_part*.json
+steam_games_data_yoel_part*.json
