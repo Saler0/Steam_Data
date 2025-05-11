@@ -60,8 +60,17 @@ def main():
     processed = load_processed_appids()
     print(f"✔️ Appids procesados encontrados: {len(processed)}")
 
-    remaining = [aid for aid in all_appids_list if aid not in processed]
-    print(f"⏳ Te faltan por procesar {len(remaining)} appids")
+    # 1. Deduplicar por appid, quedarte con un único nombre por appid
+    appid_map = {}
+    for g in games:
+        appid = g["appid"]
+        name = g.get("name", "").strip()
+        if appid not in processed and name and appid not in appid_map:
+            appid_map[appid] = name
+
+    # 2. Convertir a lista de dicts
+    remaining = [{"appid": aid, "name": appid_map[aid]} for aid in sorted(appid_map)]
+    print(f"⏳ Juegos restantes únicos por procesar: {len(remaining)}")
 
     chunks = split_list(remaining, parts=MAX_PARTS)
     save_splits(chunks, names)
