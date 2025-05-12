@@ -13,7 +13,9 @@ def get_game_details(appid):
         url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=english"
         res = requests.get(url, timeout=10)
         # 1) Parseo seguro del JSON
-        raw = res.json()
+        raw_text = res.content.decode("utf-8-sig")
+        raw = json.loads(raw_text)
+
         if not isinstance(raw, dict):
             # la respuesta no es un dict: nada que procesar
             return None, False
@@ -45,7 +47,8 @@ def get_game_reviews(appid, num=100):
             "language": "english"
         }
         res = requests.get(url, params=params, timeout=10)
-        data = res.json()
+        raw_text = res.content.decode("utf-8-sig")
+        data = json.loads(raw_text)
         return data.get("reviews", []), False  # sin error
     except Exception as e:
         print(f"❌ Error al obtener reseñas para {appid}: {e}")
@@ -152,7 +155,7 @@ if __name__ == "__main__":
             print(f"💾 Guardado parcial dentro de parte {last_part_num}: {len(juegos_extraidos)} juegos")
 
         # Sleep para respetar rate limits
-        time.sleep(0.9)
+        time.sleep(0.8)
 
     # 4) Guardado final de la última parte
     save_part(juegos_extraidos, last_part_num)
