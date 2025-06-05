@@ -2,6 +2,8 @@ import ndjson
 from pymongo import MongoClient
 import os
 import csv
+import json
+
 
 # Conexión a MongoDB
 client = MongoClient("mongodb://localhost:27017")
@@ -47,13 +49,68 @@ with open("errores.csv", "w", newline='', encoding="utf-8") as f:
 print("Exportado errores.csv")
 
 # 2. Exportar juegos (details.type == "game")
-juegos_query = {"details.type": "game"}
-juegos_cursor = collection.find(juegos_query, {"appid": 1, "name": 1, "_id": 0})
+# juegos_cursor = collection.find(
+#     {"details.type": "game"},
+#     {
+#         "_id": 0,
+#         "error_details": 0,
+#         "reviews": 0,
+#         "error_reviews": 0,
+#         "details.screenshots": 0,
+#         "details.movies": 0,
+#         "details.achievements": 0,
+#         "details.background": 0,
+#         "details.background_raw": 0,
+#         "details.steam_appid": 0,
+#         "details.header_image": 0,
+#         "details.capsule_image": 0,
+#         "details.capsule_imagev5": 0,
+#         "details.support_info": 0
+#     }
+# )
 
-with open("juegos.csv", "w", newline='', encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=["appid", "name"])
-    writer.writeheader()
-    for doc in juegos_cursor:
-        writer.writerow(doc)
+# # Convertir cursor a lista de diccionarios
+# juegos_lista = list(juegos_cursor)
 
-print("Exportado juegos.csv")
+# # Guardar en archivo JSON
+# with open("juegos.json", "w", encoding="utf-8") as f:
+#     json.dump(juegos_lista, f, ensure_ascii=False, indent=4)
+
+# print("Exportado juegos.json sin screenshots, movies ni achievements")
+
+
+
+# 3. ¿Cuál es el juego con mayor número de géneros?
+pipeline = [
+    {
+        "$project": {
+            "appid": 1,
+            "name": 1,
+            # Si details.genres no existe, lo sustituimos por [] para que $size siempre reciba un arreglo
+            "num_genres": { "$size": { "$ifNull": ["$details.genres", []] } }
+        }
+    },
+    { "$sort": { "num_genres": -1 } },
+    { "$limit": 1 }
+]
+
+resultado = list(collection.aggregate(pipeline))
+
+if resultado:
+    juego = resultado[0]
+    print("\nJuego con más géneros:")
+    print(f"  appid: {juego['appid']}")
+    print(f"  name: {juego['name']}")
+    print(f"  número de géneros: {juego['num_genres']}")
+else:
+    print("No se encontró ningún juego con géneros.")
+
+
+# 4. Cantidad total de generos de steam
+generos_unicos = collection.distinct("details.genres.description")
+
+# Si prefieres basarte en el ID de género, usa:
+# generos_unicos = collection.distinct("details.genres.id")
+
+total_generos = len(generos_unicos)
+print(f"\nNúmero total de géneros distintos: {total_generos}")
