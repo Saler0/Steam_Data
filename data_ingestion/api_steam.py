@@ -14,8 +14,8 @@ class ApiSteam:
 
         # Conexión a MongoDB
         client = MongoClient("mongodb://localhost:27017")
-        db = client["steam_data"]
-        self.collection_juegos        = db["steam_data"]
+        db = client["juegos_steam"]
+        self.collection_juegos        = db["juegos_steam"]
         self.reviews_collection = db["steam_reviews"]
         self.log_collection    = db["import_log"]
 
