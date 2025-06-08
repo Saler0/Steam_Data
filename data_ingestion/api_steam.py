@@ -19,6 +19,23 @@ class ApiSteam:
         self.reviews_collection = db["steam_reviews"]
         self.log_collection    = db["import_log"]
 
+    def get_game_details(self, appid):
+        try:
+            url = (
+                f"https://store.steampowered.com/api/appdetails"
+                f"?appids={appid}&cc={self.country_code}&l=english"
+            )
+            res = requests.get(url, timeout=10)
+            res.raise_for_status()
+            raw = res.json()
+            section = raw.get(str(appid), {})
+            if not section.get("success", False):
+                return None, False
+            return section["data"], False
+        except Exception as e:
+            self.logger.error(f"Error al obtener detalles para {appid}: {e}")
+            return None, True
+        
     def get_all_game_reviews(self, appid):
         try:
             all_reviews = []
