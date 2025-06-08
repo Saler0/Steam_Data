@@ -1,134 +1,121 @@
 import requests
 import json
 import time
-import os
-import glob
+import logging
+from datetime import datetime
+from pymongo import MongoClient
 
 class ApiSteam:
-    MAX_PER_PART = 5200
 
-    def __init__(self):
-        self.juegos_procesados = set()
-        self.juegos_extraidos = []
-        self.last_part_num = 1
+    def __init__(self, appids_to_process):
+        self.appids = appids_to_process
+        self.reviews_per_game =  100
+        self.country_code     =  "us"
 
-    def get_all_games(self):
-        url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
-        res = requests.get(url)
-        return res.json()["applist"]["apps"]
+        # Conexión a MongoDB
+        client = MongoClient("mongodb://localhost:27017")
+        db = client["steam_data"]
+        self.collection_juegos        = db["steam_data"]
+        self.reviews_collection = db["steam_reviews"]
+        self.log_collection    = db["import_log"]
 
-    def get_game_details(self, appid):
+    def get_all_game_reviews(self, appid):
         try:
-            url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=english"
-            res = requests.get(url, timeout=10)
-            raw_text = res.content.decode("utf-8-sig")
-            raw = json.loads(raw_text)
-            app_section = raw.get(str(appid))
-            if not isinstance(app_section, dict) or app_section.get("success") is not True:
-                return None, False
-            return app_section.get("data"), False
-        except Exception as e:
-            print(f"❌ Error al obtener detalles para {appid}: {e}")
-            return None, True
+            all_reviews = []
+            cursor = "*"   # primera llamada
+            while True:
+                params = {
+                    "json": 1,
+                    "num_per_page": self.reviews_per_game,  # hasta 100
+                    "filter": "recent",                     # o "updated"
+                    "language": "english",
+                    "cursor": cursor
+                }
+                res = requests.get(f"https://store.steampowered.com/appreviews/{appid}", 
+                                params=params, timeout=10)
+                res.raise_for_status()
+                page = res.json()
+                reviews = page.get("reviews", [])
+                if not reviews:
+                    break
+                all_reviews.extend(reviews)
+                cursor = page.get("cursor")  # siguiente página
+                time.sleep(0.8)              # para respetar rate limits
 
-    def get_game_reviews(self, appid, num=100):
-        try:
-            url = f"https://store.steampowered.com/appreviews/{appid}"
-            params = {
-                "json": 1,
-                "num_per_page": num,
-                "filter": "recent",
-                "language": "english"
-            }
-            res = requests.get(url, params=params, timeout=10)
-            raw_text = res.content.decode("utf-8-sig")
-            data = json.loads(raw_text)
-            return data.get("reviews", []), False
+            return all_reviews, False
+        
         except Exception as e:
-            print(f"❌ Error al obtener reseñas para {appid}: {e}")
+            logging.error(f"❌ Error al obtener detalles para {appid}: {e}")
             return [], True
 
-    def find_existing_parts(self):
-        parts = glob.glob("steam_games_data_part*.json")
-        result = []
-        for p in parts:
-            name = os.path.basename(p)
-            try:
-                n = int(name.replace("steam_games_data_part", "").replace(".json", ""))
-                result.append((n, p))
-            except:
-                pass
-        return sorted(result, key=lambda x: x[0])
-
-    def load_part(self, file):
-        with open(file, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def save_part(self):
-        fname = f"steam_games_data_part{self.last_part_num}.json"
-        with open(fname, "w", encoding="utf-8") as f:
-            json.dump(self.juegos_extraidos, f, indent=2, ensure_ascii=False)
-        print(f"💾 Guardado parte {self.last_part_num}: {len(self.juegos_extraidos)} juegos → {fname}")
-
-    def resume_or_start(self):
-        parts = self.find_existing_parts()
-        if parts:
-            for _, file in parts:
-                data = self.load_part(file)
-                self.juegos_procesados.update(j["appid"] for j in data)
-            self.last_part_num, last_file = parts[-1]
-            last_data = self.load_part(last_file)
-            if len(last_data) < self.MAX_PER_PART:
-                self.juegos_extraidos = last_data
-                print(f"🔄 Reanudando parte {self.last_part_num}, {len(self.juegos_extraidos)} juegos ya extraídos")
-            else:
-                self.last_part_num += 1
-                self.juegos_extraidos = []
-                print(f"✨ Todas las partes previas llenas, arrancando parte {self.last_part_num}")
-        else:
-            print("✨ Comenzando en parte 1")
 
     def run(self):
-        self.resume_or_start()
-        games = self.get_all_games()
-        print(f"🎮 Total de juegos disponibles: {len(games)}")
 
-        for i, game in enumerate(games):
-            appid = game.get("appid")
-            name = game.get("name", "").strip()
-
-            if not name or appid in self.juegos_procesados:
-                print(f"[{i+1}] ⏩ App sin nombre o ya procesado ({appid}), se omite.")
-                continue
-
-            print(f"\n[{i+1}] 📦 Procesando: {name} ({appid})")
-
-            if len(self.juegos_extraidos) >= self.MAX_PER_PART:
-                self.save_part()
-                self.last_part_num += 1
-                self.juegos_extraidos = []
-                print(f"➡️ Pasando a parte {self.last_part_num}")
-
+        for appid in self.appids:
+            logging.info(f"Procesando appid {appid}…")
+            
+            # 1) Obtener detalles
             details, err_d = self.get_game_details(appid)
-            reviews, err_r = self.get_game_reviews(appid)
 
-            juego_info = {
-                "appid": appid,
-                "name": name,
-                "details": details if details else None,
-                "error_details": bool(err_d),
-                "reviews": reviews if reviews else [],
-                "error_reviews": bool(err_r)
+    
+
+
+            # 2) Guardar JSON individual de detalles
+            filename = f"steam_game_{appid}.json"
+            juego_info = { "appid": appid,
+                           "details": details, 
+                           "error_details": err_d }
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(juego_info, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"💾 Guardado fichero {filename}")
+
+
+            # 3) Insertar en colección steam_data
+            exists_main = self.collection_juegos.find_one({"appid": appid}) is not None
+            if not exists_main:
+                self.collection_juegos.insert_one(juego_info)
+                inserted_main = True
+                self.logger.info(f"✔ Insertado appid {appid} en steam_data")
+            else:
+                inserted_main = False
+                self.logger.info(f"⚠ appid {appid} ya existía en steam_data; se omite")
+
+            # 4) Obtener todas las reseñas
+            reviews, err_r = self.get_all_game_reviews(appid)
+
+            # 5) Insertar cada reseña como documento independiente
+            inserted_rev = 0
+            for rev in reviews:
+                rev_doc = {
+                    "appid":       appid,
+                    "review":      rev,
+                }
+
+                rec_id = rev.get("recommendationid")
+                if rec_id and not self.reviews_collection.find_one({
+                    "appid": appid, "review.recommendationid": rec_id
+                }):
+                    self.reviews_collection.insert_one(rev_doc)
+                    inserted_rev += 1
+
+            self.logger.info(f"✔ Insertadas {inserted_rev}/{len(reviews)} reseñas en steam_reviews")
+
+            # 6) Registrar en import_log
+            log_entry = {
+                "appid":            appid,
+                "inserted_main":    inserted_main,
+                "inserted_reviews": inserted_rev,
+                "total_reviews":    len(reviews),
+                "error_details":    err_d,
+                "error_reviews":    err_r,
+                "timestamp":        datetime.utcnow(),
+                "file":             filename
             }
+            self.log_collection.insert_one(log_entry)
 
-            self.juegos_extraidos.append(juego_info)
-            self.juegos_procesados.add(appid)
 
-            if len(self.juegos_extraidos) % 100 == 0:
-                self.save_part()
-                print(f"💾 Guardado parcial dentro de parte {self.last_part_num}: {len(self.juegos_extraidos)} juegos")
-
+            # 7) Pausa para rate-limit
             time.sleep(0.8)
 
-        self.save_part()
-        print("✅ Proceso completado.")
+        logging.info("✅ Todos los juegos procesados.")
+

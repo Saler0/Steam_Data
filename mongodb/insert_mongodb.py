@@ -7,8 +7,8 @@ import json
 
 # Conexión a MongoDB
 client = MongoClient("mongodb://localhost:27017")
-db = client["steam_data"]
-collection = db["steam_data"]
+db = client["juegos_steam"]
+collection = db["juegos_steam"]
 log_collection = db["import_log"]  # Para rastrear archivos insertados
 
 # Ruta de la carpeta con los archivos .ndjson
