@@ -34,6 +34,9 @@ def main():
 
     # get_all_games_steam() -> una funcion que obtendria todos los juegos de steam actualmente. luego en el cronjob del batch deberia obtener el datos de los juegos ya aun no han sido guardados en nuestra base de datos 
 
+    # la logica de obtener todo el historico debe ser un poco diferente que la de obtener los ultimos cambios (esto es mas notorio en las reseñas)
+
+
     # Lista de APPIDs a procesar
     appids_to_process = [
         570940,
