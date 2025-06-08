@@ -33,7 +33,7 @@ class ApiSteam:
                 return None, False
             return section["data"], False
         except Exception as e:
-            self.logger.error(f"Error al obtener detalles para {appid}: {e}")
+            logging.error(f"Error al obtener detalles para {appid}: {e}")
             return None, True
         
     def get_all_game_reviews(self, appid):
@@ -84,7 +84,7 @@ class ApiSteam:
                            "error_details": err_d }
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(juego_info, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"💾 Guardado fichero {filename}")
+            logging.info(f"💾 Guardado fichero {filename}")
 
 
             # 3) Insertar en colección steam_data
@@ -92,10 +92,10 @@ class ApiSteam:
             if not exists_main:
                 self.collection_juegos.insert_one(juego_info)
                 inserted_main = True
-                self.logger.info(f"✔ Insertado appid {appid} en steam_data")
+                logging.info(f"✔ Insertado appid {appid} en steam_data")
             else:
                 inserted_main = False
-                self.logger.info(f"⚠ appid {appid} ya existía en steam_data; se omite")
+                logging.info(f"⚠ appid {appid} ya existía en steam_data; se omite")
 
             # 4) Obtener todas las reseñas
             reviews, err_r = self.get_all_game_reviews(appid)
@@ -115,7 +115,7 @@ class ApiSteam:
                     self.reviews_collection.insert_one(rev_doc)
                     inserted_rev += 1
 
-            self.logger.info(f"✔ Insertadas {inserted_rev}/{len(reviews)} reseñas en steam_reviews")
+            logging.info(f"✔ Insertadas {inserted_rev}/{len(reviews)} reseñas en steam_reviews")
 
             # 6) Registrar en import_log
             log_entry = {
