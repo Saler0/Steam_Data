@@ -3,30 +3,24 @@ import json
 import time
 import logging
 from datetime import datetime
-import pymongo
-from pymongo import MongoClient
+from .mongodb import MongoDBClient
+
 
 
 class ApiSteam:
 
     def __init__(self, appids_to_process):
+
+        # Parámetros
         self.appids = appids_to_process
         self.reviews_per_game =  100
         self.country_code     =  "us"
 
         # Conexión a MongoDB
-        client = MongoClient("mongodb://localhost:27017")
-        db = client["juegos_steam"]
-        self.collection_juegos        = db["juegos_steam"]
-        self.reviews_collection = db["steam_reviews"]
-        self.log_collection    = db["import_log"]
-
-        self.collection_juegos.create_index("appid", unique=True)
-        self.reviews_collection.create_index(
-            [("appid", 1), ("review.recommendationid", 1)],
-            unique=True,
-            sparse=True
-        )
+        mongo = MongoDBClient()
+        self.collection_juegos   = mongo.juegos
+        self.reviews_collection  = mongo.reviews
+        self.log_collection      = mongo.import_log
 
     def get_game_details(self, appid):
         try:
