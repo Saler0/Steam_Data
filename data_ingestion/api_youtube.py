@@ -99,12 +99,20 @@ class ApiYoutube:
     def run(self):
 
         for juego in self.game_names:
-            logging.info(f"🔍 Buscando vídeos para: {juego}")
-            # 1) Search
-            items = self.buscar_videos(juego)
-            self.guardar_search_ndjson(juego, items)
+            safe = self.slugify(juego)
 
-            # IDs extraídos
+            # 1) Search
+            path_search = os.path.join(self.lz_dir, f"search_{safe}.ndjson")
+            if os.path.exists(path_search) and os.path.getsize(path_search) > 0:
+                logging.info(f"≡ Saltando search para «{juego}»: ya existe {path_search}")
+                # opcional: cargar items desde el fichero
+                with open(path_search, encoding="utf-8") as f:
+                    items = [json.loads(l) for l in f]
+            else:
+                logging.info(f"🔍 Buscando vídeos para: {juego}")
+                items = self.buscar_videos(juego)
+                self.guardar_search_ndjson(juego, items)
+
             video_ids = [
                 itm["id"]["videoId"]
                 for itm in items
@@ -113,12 +121,21 @@ class ApiYoutube:
 
             # 2) Transcripciones
             for vid in video_ids:
+                path_trans = os.path.join(self.lz_dir, f"transcript_{vid}.ndjson")
+                if os.path.exists(path_trans) and os.path.getsize(path_trans) > 0:
+                    logging.info(f"≡ Saltando transcript para {vid}: ya existe {path_trans}")
+                    continue
                 logging.info(f"💬 Obteniendo transcript para: {vid}")
                 segmentos = self.obtener_transcripcion(vid)
                 self.guardar_transcript_ndjson(vid, segmentos)
 
             # 3) Comentarios
             for vid in video_ids:
+                path_comm = os.path.join(self.lz_dir, f"comments_{vid}.ndjson")
+                if os.path.exists(path_comm) and os.path.getsize(path_comm) > 0:
+                    logging.info(f"≡ Saltando comments para {vid}: ya existe {path_comm}")
+                    continue
+
                 logging.info(f"💬 Obteniendo comentarios para: {vid}")
                 all_comments = []
                 token = None
@@ -126,14 +143,14 @@ class ApiYoutube:
                     try:
                         resp = (
                             self.yt.commentThreads()
-                                   .list(
-                                       part="snippet",
-                                       videoId=vid,
-                                       maxResults=100,
-                                       textFormat="plainText",
-                                       pageToken=token
-                                   )
-                                   .execute()
+                                .list(
+                                    part="snippet",
+                                    videoId=vid,
+                                    maxResults=100,
+                                    textFormat="plainText",
+                                    pageToken=token
+                                )
+                                .execute()
                         )
                     except Exception as e:
                         logging.warning(f"Error comments {vid}: {e}")
