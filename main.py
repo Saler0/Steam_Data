@@ -1,6 +1,11 @@
 import logging
 import os
 from data_ingestion.api_steam import ApiSteam
+from data_ingestion.api_youtube import ApiYoutube
+from dotenv import load_dotenv
+
+# Carga las variables de entorno del archivo .env
+load_dotenv()
 
 
 def setup_logging(log_dir="logs", log_file="pipeline.log"):
@@ -18,11 +23,19 @@ def setup_logging(log_dir="logs", log_file="pipeline.log"):
 class PipelineIngest:
     def __init__(self, appids):
         self.appids = appids
+        self.appi_key_youtube = os.getenv("YOUTUBE_API_KEY")
 
     def run(self):
+
         logging.info(f"Iniciando ingesta de {len(self.appids)} juegos en ApiSteam…")
-        steam = ApiSteam(appids_to_process=self.appids)
-        steam.run()
+        steam = ApiSteam(self.appids)
+        nombre_juegos = steam.run()
+
+        logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
+        youtube = ApiYoutube(nombre_juegos,self.appi_key_youtube)
+        youtube.run()
+
+
 
 
 def main():
@@ -52,10 +65,19 @@ def main():
     ]
 
     setup_logging()
-    pipeline = PipelineIngest(appids_to_process)
-    pipeline.run()
+    # ===== INGESTA DE DATOS  --> LANDING ZONE =====
+    pipelineI = PipelineIngest(appids_to_process)
+    pipelineI.run()
 
+    # ===== LANDING ZONE --> TRUSTED ZONE =====
+    
+    # pielineLT = PipelineLandingTustedZone
+    # pipelineLT.run()
 
+    # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
+
+    # pielineTE = PipelineTustedExplotationZone
+    # pipelineTE.run()
 
 if __name__ == "__main__":
     main()

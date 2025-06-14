@@ -3,26 +3,22 @@ import json
 import time
 import logging
 from datetime import datetime
-import pymongo
-from .mongodb import MongoDBClient
-
+import os
 
 
 
 class ApiSteam:
 
-    def __init__(self, appids_to_process):
+    def __init__(self, appids):
 
         # Parámetros
-        self.appids = appids_to_process
+        self.appids = appids
         self.reviews_per_game =  100
         self.country_code     =  "us"
 
-        # Conexión a MongoDB
-        mongo = MongoDBClient()
-        self.collection_juegos   = mongo.juegos
-        self.reviews_collection  = mongo.reviews
-        self.log_collection      = mongo.import_log
+        # Paths de landing zone
+        self.lz_games_dir   = os.path.join("landing_zone", "api_steam")
+        os.makedirs(self.lz_games_dir, exist_ok=True)
 
     def get_game_details(self, appid):
         try:
@@ -41,11 +37,11 @@ class ApiSteam:
             logging.error(f"Error al obtener detalles para {appid}: {e}")
             return None, True
         
-    def get_reviews_since_ts(self, appid, since_ts):
+    def get_reviews_since_ts(self, appid, since_ts=0):
         try:
             cursor = "*"
             page = 1
-            new_reviews = []
+            all_reviews = []
 
             while True:
                 logging.info(f"🔍 Página {page} de reseñas (cursor={cursor[:10]}…) para {appid}")
@@ -66,19 +62,17 @@ class ApiSteam:
                 if not reviews:
                     break
 
-                for rev in reviews:
-                    ts = rev.get("timestamp_created", 0)
-                    # si esta reseña ya era vieja, detenemos TODO
-                    if ts <= since_ts:
+                for r in reviews:
+                    if r.get("timestamp_created",0) <= since_ts:
                         logging.info("⏹ Reseña antigua detectada; paro descarga.")
-                        return new_reviews, False
-                    new_reviews.append(rev)
+                        return all_reviews, False
+                    all_reviews.append(r)
 
                 cursor = data.get("cursor")
                 page += 1
                 time.sleep(0.8)  # respetar rate-limit
 
-            return new_reviews, False
+            return all_reviews, False
         
         except Exception as e:
             logging.error(f"❌ Error al obtener detalles para {appid}: {e}")
@@ -86,82 +80,79 @@ class ApiSteam:
 
 
     def run(self):
+        games_ndjson_path = os.path.join(self.lz_games_dir, "steam_games.ndjson")
 
+        # 0) cargar appids ya procesados
+        processed = set()
+        if os.path.exists(games_ndjson_path):
+            with open(games_ndjson_path, "r", encoding="utf-8") as fg:
+                for line in fg:
+                    try:
+                        rec = json.loads(line)
+                        processed.add(rec.get("appid"))
+                    except json.JSONDecodeError:
+                        continue
+
+        # 1)  abrir en modo append (solo añade los que falten)
+        with open(games_ndjson_path, "a", encoding="utf-8") as fg:
+            for appid in self.appids:
+                if appid in processed:
+                    logging.info(f"≡ Saltando {appid}: ya está en {games_ndjson_path}")
+                    continue
+
+                logging.info(f"📦 Fetch details {appid}")
+                details, err = self.get_game_details(appid)
+                record = {
+                    "appid":   appid,
+                    "details": details,
+                    "error":   err
+                }
+                fg.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        logging.info(f"✔ Creado NDJSON de juegos en {games_ndjson_path}")
+
+        # 2) reviews: un NDJSON por cada appid
         for appid in self.appids:
-            logging.info(f"Procesando appid {appid}…")
-            
-            # ——————————————————————————————————————
-            # 1) Detalles: solo fetch/insert cuando no haya en Mongo
-            # ——————————————————————————————————————
-            existing_game = self.collection_juegos.find_one({"appid": appid})
-            if not existing_game:
-                # no había, vamos a la API
-                details, err_d = self.get_game_details(appid)
+            logging.info(f"⭐ Fetch reviews {appid}")
+            reviews_path = os.path.join(self.lz_games_dir, f"reviews_{appid}.ndjson")
+            last_ts = 0
+            if os.path.exists(reviews_path):
+                with open(reviews_path, encoding="utf-8") as fr_old:
+                    for line in fr_old:
+                        try:
+                            r = json.loads(line)
+                            ts = r.get("timestamp_created", 0)
+                            if ts > last_ts:
+                                last_ts = ts
+                        except json.JSONDecodeError:
+                            continue
 
-                # guardamos JSON local
-                filename = f"steam_game_{appid}.json"
-                with open(filename, "w", encoding="utf-8") as f:
-                    json.dump({
-                        "appid": appid,
-                        "details": details,
-                        "error_details": err_d
-                    }, f, indent=2, ensure_ascii=False)
-                logging.info(f"💾 Guardado fichero {filename}")
+            logging.info(f"⭐ Fetch reviews {appid} desde ts={last_ts}")
+            reviews, err = self.get_reviews_since_ts(appid, last_ts)
+            if err:
+                logging.warning(f"❌ No se pudieron bajar reseñas para {appid}")
+                continue
 
-                # insertamos en Mongo
-                self.collection_juegos.insert_one({
-                    "appid":         appid,
-                    "details":       details,
-                    "error_details": err_d,
-                    "fetched_at":    datetime.utcnow()
-                })
-                logging.info(f"✔ Insertado appid {appid} en steam_data")
-            else:
-                # ya existían
-                err_d = existing_game.get("error_details", False)
-                logging.info(f"ℹ Detalles de appid {appid} ya en cache; omito API.")
+            # Grabo sólo las reseñas nuevas
+            mode = "a" if os.path.exists(reviews_path) else "w"
+            with open(reviews_path, mode, encoding="utf-8") as fr:
+                for r in reviews:
+                    fr.write(json.dumps(r, ensure_ascii=False) + "\n")
+            logging.info(f"✔ Creado NDJSON de reseñas en {reviews_path}")
 
-            # ——————————————————————————————————————
-            # 2) Reseñas: fetch incremental aunque el juego ya estuviera
-            # ——————————————————————————————————————
-            # obtenemos el timestamp máximo que ya tenemos
-            last = self.reviews_collection.find_one(
-                {"appid": appid},
-                sort=[("review.timestamp_created", pymongo.DESCENDING)],
-                projection={"review.timestamp_created": 1}
-            )
-            since_ts = last["review"]["timestamp_created"] if last else 0
 
-            # llamamos al método incremental
-            new_revs, err_r = self.get_reviews_since_ts(appid, since_ts)
+        # 3) extraigo nombres para devolverlos al pipeline
+        game_names = []
+        for line in open(games_ndjson_path, encoding="utf-8"):
+            obj = json.loads(line)
+            det = obj.get("details") or {}
+            name = det.get("name")
+            if name:
+                game_names.append(name)
 
-            # insertamos en bloque (ordered=False salta duplicados)
-            inserted_rev = 0
-            if new_revs:
-                docs = [{"appid": appid, "review": rev} for rev in new_revs]
-                try:
-                    result = self.reviews_collection.insert_many(docs, ordered=False)
-                    inserted_rev = len(result.inserted_ids)
-                except pymongo.errors.BulkWriteError as bwe:
-                    # contamos cuántos entraron de verdad (descartar 11000)
-                    errors = bwe.details.get("writeErrors", [])
-                    inserted_rev = len(docs) - sum(1 for e in errors if e["code"] == 11000)
-            logging.info(f"✔ Insertadas {inserted_rev} reseñas nuevas de {appid}")
+        logging.info("🎮 Nombres de juegos procesados:")
+        for n in game_names:
+            logging.info(f"   • {n}")
 
-            # ——————————————————————————————————————
-            # 3) Log
-            # ——————————————————————————————————————
-            self.log_collection.insert_one({
-                "appid":            appid,
-                "details_cached":   bool(existing_game),
-                "new_reviews":      inserted_rev,
-                "error_details":    err_d,
-                "error_reviews":    err_r,
-                "timestamp":        datetime.utcnow()
-            })
-
-            # rate-limit
-            time.sleep(0.8)
-
-        logging.info("✅ Todos los juegos procesados.")
+        return game_names
 
