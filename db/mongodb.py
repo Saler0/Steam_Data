@@ -14,7 +14,7 @@ class MongoDBClient:
         db = client[db_name]
 
         # Steam
-        self.juegos    = db[juegos_coll]
+        self.juegos  = db[juegos_coll]
         self.reviews   = db[reviews_coll]
         self.import_log = db[log_coll]
 
