@@ -4,7 +4,7 @@ class MongoDBClient:
     """Gestiona la conexión a MongoDB y expone las colecciones."""
     def __init__(self,
                  uri: str = "mongodb://localhost:27017",
-                 db_name: str = "juegos_steam",
+                 db_name: str = "trusted_zone",
                  juegos_coll: str = "juegos_steam",
                  reviews_coll: str = "steam_reviews",
                  video_youtube_coll: str = "video_youtube",
