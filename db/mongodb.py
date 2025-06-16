@@ -10,7 +10,12 @@ class MongoDBClient:
                  video_youtube_coll: str = "video_youtube",
                  comentarios_youtube_coll: str = "comentarios_youtube",
                  log_coll: str = "import_log"):
+        
+        # Guardamos URI y nombre de la BD para usos externos (p. ej. Spark)
+        self.uri     = uri
+        self.db_name = db_name
         client = MongoClient(uri)
+
         db = client[db_name]
 
         # Steam

@@ -6,9 +6,11 @@ from html import unescape
 from datetime import datetime
 from googletrans import Translator
 from pyspark.sql.functions import col, from_unixtime, udf, struct
-from pyspark.sql.types import StringType
 from db.mongodb import MongoDBClient
-
+from pyspark.sql.types import (
+    StructType, StructField, StringType, IntegerType,
+    BooleanType, ArrayType, MapType
+)
 # ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
 
 translator = Translator()
@@ -44,9 +46,11 @@ clean_and_translate_udf = udf(clean_and_translate, StringType())
 # =============================================================
 
 class PipelineLandingToTrusted:
-    def __init__(self, spark, mongo_uri, db_name):
+    def __init__(self, spark):
         self.spark = spark
-        self.mongo = MongoDBClient(uri=mongo_uri, db_name=db_name)
+        self.mongo     = MongoDBClient()
+        self.mongo_uri  = self.mongo.uri
+        self.mongo_db   = self.mongo.db_name
 
     def load_ndjson_files(self, folder_path, prefix):
         files = [os.path.join(folder_path, f) for f in os.listdir(folder_path)
@@ -81,55 +85,126 @@ class PipelineLandingToTrusted:
         if not os.path.exists(path):
             logging.warning("No se encontró steam_games.ndjson")
             return
-
+        
         df = self.spark.read.json(path)
 
         def clean_game_json(game_json):
-            details = game_json.get("details", {})
-            cleaned = {}
+            details = game_json.get("details") or {}
+            if not isinstance(details, dict):
+                try:
+                    details = details.asDict()
+                except:
+                    details = {}
 
-            for field in ["name", "detailed_description", "about_the_game", "short_description", "supported_languages", "legal_notice"]:
-                cleaned[field] = clean_text(details.get(field, ""))
-
-            for platform in ["pc_requirements", "mac_requirements", "linux_requirements"]:
-                cleaned[platform] = {}
-                platform_data = details.get(platform, {})
-                if isinstance(platform_data, dict):
-                    for req_type in ["minimum", "recommended"]:
-                        cleaned[platform][req_type] = clean_text(platform_data.get(req_type, ""))
-                else:
-                    cleaned[platform]["minimum"] = clean_text(str(platform_data))
-                    cleaned[platform]["recommended"] = ""
-
-            cleaned["appid"] = game_json.get("appid")
-            cleaned["is_free"] = details.get("is_free", False)
-            cleaned["required_age"] = details.get("required_age", "")
-            cleaned["developers"] = details.get("developers", [])
-            cleaned["publishers"] = details.get("publishers", [])
-            cleaned["price_overview"] = details.get("price_overview", {})
-            cleaned["platforms"] = details.get("platforms", {})
-            cleaned["categories"] = [cat.get("description") for cat in details.get("categories", [])]
-            cleaned["genres"] = [gen.get("description") for gen in details.get("genres", [])]
-
-            release_date = details.get("release_date", {}).get("date", "")
+            # parse release_date
+            raw_date = (details.get("release_date") or {}).get("date", "")
             try:
-                cleaned["release_date"] = datetime.strptime(release_date, "%b %d, %Y").strftime("%Y-%m-%d")
+                cleaned_release_date = datetime.strptime(raw_date, "%b %d, %Y") \
+                                            .strftime("%Y-%m-%d")
             except:
-                cleaned["release_date"] = release_date
+                cleaned_release_date = raw_date
 
-            cleaned["recommendations_total"] = details.get("recommendations", {}).get("total", 0)
-            cleaned["metacritic_score"] = details.get("metacritic", {}).get("score")
-            cleaned["age_rating"] = None  # normalización futura
-            return cleaned
+            # helpers para cada plataforma
+            def parse_requirements(key):
+                raw = details.get(key)
+                if isinstance(raw, dict):
+                    return (
+                        clean_text(raw.get("minimum","")),
+                        clean_text(raw.get("recommended",""))
+                    )
+                else:
+                    s = clean_text(str(raw or ""))
+                    return s, ""
 
-        df = df.rdd.map(lambda row: clean_game_json(row.asDict())).toDF()
-        df.write \
-          .format("mongo") \
-          .mode("append") \
-          .option("uri", self.mongo.uri) \
-          .option("database", self.mongo.db_name) \
-          .option("collection", self.mongo.juegos.name) \
-          .save()
+            pc_min, pc_rec = parse_requirements("pc_requirements")
+            mac_min, mac_rec = parse_requirements("mac_requirements")
+            li_min, li_rec = parse_requirements("linux_requirements")
+            mc = details.get("metacritic") or {}
+
+            return {
+                "name": clean_text(details.get("name","")),
+                "detailed_description": clean_text(details.get("detailed_description","")),
+                "about_the_game":      clean_text(details.get("about_the_game","")),
+                "short_description":   clean_text(details.get("short_description","")),
+                "supported_languages": clean_text(details.get("supported_languages","")),
+                "legal_notice":        clean_text(details.get("legal_notice","")),
+
+                "pc_requirements": {
+                    "minimum":     pc_min,
+                    "recommended": pc_rec,
+                },
+                "mac_requirements": {
+                    "minimum":     mac_min,
+                    "recommended": mac_rec,
+                },
+                "linux_requirements": {
+                    "minimum":     li_min,
+                    "recommended": li_rec,
+                },
+
+                "appid":                 game_json.get("appid"),
+                "is_free":               details.get("is_free", False),
+                "required_age":          details.get("required_age", ""),
+                "developers":            details.get("developers", []),
+                "publishers":            details.get("publishers", []),
+                "price_overview":        details.get("price_overview", {}),
+                "platforms":             details.get("platforms", {}),
+                "categories":            [c.get("description","") for c in (details.get("categories") or [])],
+                "genres":                [g.get("description","") for g in (details.get("genres") or [])],
+                "release_date":          cleaned_release_date,
+                "recommendations_total": (details.get("recommendations") or {}).get("total", 0),
+                "metacritic_score":      mc.get("score"),
+                "age_rating":            None
+            }
+        
+        # 1) definimos el esquema
+        schema = StructType([
+            StructField("name", StringType(), True),
+            StructField("detailed_description", StringType(), True),
+            StructField("about_the_game", StringType(), True),
+            StructField("short_description", StringType(), True),
+            StructField("supported_languages", StringType(), True),
+            StructField("legal_notice", StringType(), True),
+            StructField("pc_requirements", StructType([
+                StructField("minimum", StringType(), True),
+                StructField("recommended", StringType(), True),
+            ]), True),
+            StructField("mac_requirements", StructType([
+                StructField("minimum", StringType(), True),
+                StructField("recommended", StringType(), True),
+            ]), True),
+            StructField("linux_requirements", StructType([
+                StructField("minimum", StringType(), True),
+                StructField("recommended", StringType(), True),
+            ]), True),
+            StructField("appid", IntegerType(), True),
+            StructField("is_free", BooleanType(), True),
+            StructField("required_age", StringType(), True),
+            StructField("developers", ArrayType(StringType()), True),
+            StructField("publishers", ArrayType(StringType()), True),
+            StructField("price_overview", MapType(StringType(), StringType()), True),
+            StructField("platforms", MapType(StringType(), BooleanType()), True),
+            StructField("categories", ArrayType(StringType()), True),
+            StructField("genres", ArrayType(StringType()), True),
+            StructField("release_date", StringType(), True),
+            StructField("recommendations_total", IntegerType(), True),
+            StructField("metacritic_score", IntegerType(), True),
+            StructField("age_rating", StringType(), True),
+        ])
+
+        # creamos el RDD limpio y aplicamos el esquema
+        clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
+        df_clean = self.spark.createDataFrame(clean_rdd, schema)
+
+        # escribimos en Mongo
+        df_clean.write \
+            .format("mongo") \
+            .mode("append") \
+            .option("uri", self.mongo_uri) \
+            .option("database", self.mongo_db) \
+            .option("collection", self.mongo.juegos.name) \
+            .save()
+
 
         logging.info("Juegos insertados en MongoDB usando escritura distribuida.")
 
@@ -140,7 +215,7 @@ class PipelineLandingToTrusted:
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
-        self.run_reviews()
+        #self.run_reviews()
 
     def stop(self):
         """
