@@ -22,6 +22,6 @@ echo Contenedores en ejecución:
 docker ps
 
 echo logs:
-docker compose logs -f
+docker compose logs -f app
 
 pause
