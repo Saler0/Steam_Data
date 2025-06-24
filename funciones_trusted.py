@@ -184,7 +184,7 @@ class PipelineLandingToTrusted:
         return self.spark.read.json(files)
 
     def run_reviews(self):
-        logging.info("🔄 Iniciando carga de reseñas desde landing_zone/api_steam/")
+        logging.info("Iniciando carga de reseñas desde landing_zone/api_steam/")
         df = self.load_ndjson_files("landing_zone/api_steam/", "reviews_")
         if df is None:
             logging.warning("⚠️ No se encontraron archivos de reseñas.")
@@ -226,7 +226,7 @@ class PipelineLandingToTrusted:
             new_reviews = df_unique
 
         count_new = new_reviews.count()
-        logging.info(f"🆕 Reseñas nuevas a insertar: {count_new}")
+        logging.info(f"Reseñas nuevas a insertar: {count_new}")
 
         if count_new:
             new_reviews.coalesce(10) \
@@ -237,9 +237,9 @@ class PipelineLandingToTrusted:
                 .option("database", self.mongo_db) \
                 .option("collection", self.mongo.reviews.name) \
                 .save()
-            logging.info("✅ Inserción completada.")
+            logging.info("Inserción completada.")
         else:
-            logging.info("ℹ️ No hay reseñas nuevas para insertar.")
+            logging.info("No hay reseñas nuevas para insertar.")
 
     def run_steam_games(self):
         path = "landing_zone/api_steam/steam_games.ndjson"
@@ -301,6 +301,55 @@ class PipelineLandingToTrusted:
 
         logging.info("Juegos insertados en MongoDB usando escritura distribuida.")
 
+
+
+    def run_youtube_comments(self):
+        """
+        Procesa comentarios de YouTube: limpieza, traducción y deduplicación.
+        """
+        df = self.load_ndjson_files("landing_zone/api_youtube/", "comments_")
+        if df is None:
+            logging.warning("No se encontraron comentarios.")
+            return
+
+        def extract_comment(data):
+            snippet = data.get("snippet", {}).get("topLevelComment", {}).get("snippet", {})
+            return {
+                "videoId": snippet.get("videoId"),
+                "author": snippet.get("authorDisplayName"),
+                "text": snippet.get("textOriginal"),
+                "text_clean": self.clean_and_translate(snippet.get("textOriginal", "")),
+                "publishedAt": snippet.get("publishedAt", "")[:10],
+                "likeCount": snippet.get("likeCount", 0)
+            }
+
+        records = df.toJSON().map(lambda r: extract_comment(json.loads(r))).collect()
+        if records:
+            self.mongo.comentarios_youtube.insert_many(records)
+            logging.info(f"{len(records)} comentarios de YouTube insertados en MongoDB.")
+
+    def run_youtube_transcripts(self):
+        """
+        Une líneas de transcripción por vídeo y las inserta como campo en comentarios.
+        """
+        df = self.load_ndjson_files("landing_zone/api_youtube/", "transcript_")
+        if df is None:
+            logging.warning("No se encontraron transcripciones.")
+            return
+
+        rows = df.toJSON().map(lambda r: json.loads(r)).collect()
+        grouped = {}
+        for entry in rows:
+            video_id = entry.get("video_id", "unknown")
+            grouped.setdefault(video_id, []).append(entry["text"])
+
+        for video_id in grouped:
+            self.mongo.videos_youtube.update_many(
+                {"videoId": video_id},
+                {"$set": {"transcription": " ".join(grouped[video_id])}}
+            )
+        logging.info(f"Transcripciones procesadas e insertadas en comentarios.")
+
     def run(self):
         """
         Ejecuta todo el pipeline de trusted zone.
@@ -309,6 +358,8 @@ class PipelineLandingToTrusted:
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
         self.run_reviews()
+        self.run_youtube_comments()
+        self.run_youtube_transcripts()
 
     def stop(self):
         """
