@@ -82,6 +82,8 @@ def main():
     pipelineLT.mongo      = mongodb_client
     pipelineLT.mongo_uri  = mongo_uri
     pipelineLT.mongo_db   = mongo_db
+    pipelineLT.client = mongodb_client.client
+    pipelineLT.db     = mongodb_client.db
     pipelineLT.run()
     pipelineLT.stop()
     logging.info("===== PIPELINE DE LIMPIEZA COMPLETADO =====")

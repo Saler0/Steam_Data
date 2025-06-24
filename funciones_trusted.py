@@ -11,6 +11,10 @@ from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType,
     BooleanType, ArrayType, MapType
 )
+import asyncio
+from pymongo import MongoClient
+
+
 # ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
 
 translator = Translator()
@@ -30,7 +34,9 @@ def translate_to_english(text):
     if not text or not isinstance(text, str):
         return ""
     try:
-        translated = translator.translate(text, dest="en")
+        # traducimos “sincronizando” la coroutine
+        coro = translator.translate(text, dest="en")
+        translated = asyncio.get_event_loop().run_until_complete(coro)
         return translated.text
     except Exception as e:
         logging.warning(f"Error translating: {e}")
@@ -164,10 +170,11 @@ clean_and_translate_udf = udf(clean_and_translate, StringType())
 class PipelineLandingToTrusted:
     def __init__(self, spark):
         self.spark = spark
-        self.mongo     = MongoDBClient()
-        self.mongo_uri  = self.mongo.uri
-        self.mongo_db   = self.mongo.db_name
-
+        self.mongo     = MongoDBClient()       # ahora incluye client y db
+        self.mongo_uri = self.mongo.uri
+        self.mongo_db  = self.mongo.db_name
+        self.client    = self.mongo.client     # PyMongo auténtico
+        self.db        = self.mongo.db         # base de datos ya selecciona
     
     def load_ndjson_files(self, folder_path, prefix):
         files = [os.path.join(folder_path, f) for f in os.listdir(folder_path)
@@ -177,26 +184,62 @@ class PipelineLandingToTrusted:
         return self.spark.read.json(files)
 
     def run_reviews(self):
+        logging.info("🔄 Iniciando carga de reseñas desde landing_zone/api_steam/")
         df = self.load_ndjson_files("landing_zone/api_steam/", "reviews_")
         if df is None:
-            logging.warning("No se encontraron reseñas.")
+            logging.warning("⚠️ No se encontraron archivos de reseñas.")
             return
 
+        # Contar, limpiar y traducir
+        count_raw = df.count()
+        logging.info(f"📑 Reseñas leídas: {count_raw}")
         df = df.withColumn("review_clean", clean_and_translate_udf(col("review"))) \
                .withColumn("timestamp_created", from_unixtime(col("timestamp_created")).cast("date")) \
-               .withColumn("timestamp_updated", from_unixtime(col("timestamp_updated")).cast("date"))
+               .withColumn("timestamp_updated", from_unixtime(col("timestamp_updated")).cast("date")) \
+               .cache()
+        count_trans = df.count()
+        logging.info(f"✏️ Reseñas tras limpiar y traducir: {count_trans}")
 
-        df.dropDuplicates(["recommendationid"]) \
-          .write \
-          .format("mongo") \
-          .mode("append") \
-          .option("uri", self.mongo.uri) \
-          .option("database", self.mongo.db_name) \
-          .option("collection", self.mongo.reviews.name) \
-          .save()
+        # Quito duplicados en batch
+        df_unique = df.dropDuplicates(["recommendationid"])
+        count_unique = df_unique.count()
+        logging.info(f"🔍 Reseñas únicas a insertar: {count_unique}")
 
-        logging.info("Reviews insertadas en MongoDB usando escritura distribuida.")
+        # ¿Ya hay algo en Mongo?
+        coll = self.db[self.mongo.reviews.name]
+        total_in_mongo = coll.estimated_document_count()
 
+        if total_in_mongo > 0:
+            # obtengo IDs existentes con PyMongo y los llevo a Spark
+            existing_list = coll.distinct("recommendationid")
+            existing_df = (
+                self.spark
+                    .createDataFrame([(rid,) for rid in existing_list], StringType())
+                    .toDF("recommendationid")
+            )
+            # left_anti join para quedarme solo con los nuevos
+            new_reviews = df_unique.join(existing_df,
+                                        on="recommendationid",
+                                        how="left_anti")
+        else:
+            # si está vacío, todas las filas son nuevas
+            new_reviews = df_unique
+
+        count_new = new_reviews.count()
+        logging.info(f"🆕 Reseñas nuevas a insertar: {count_new}")
+
+        if count_new:
+            new_reviews.coalesce(10) \
+                .write \
+                .format("mongo") \
+                .mode("append") \
+                .option("uri",      self.mongo_uri) \
+                .option("database", self.mongo_db) \
+                .option("collection", self.mongo.reviews.name) \
+                .save()
+            logging.info("✅ Inserción completada.")
+        else:
+            logging.info("ℹ️ No hay reseñas nuevas para insertar.")
 
     def run_steam_games(self):
         path = "landing_zone/api_steam/steam_games.ndjson"
@@ -265,7 +308,7 @@ class PipelineLandingToTrusted:
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
-        #self.run_reviews()
+        self.run_reviews()
 
     def stop(self):
         """
