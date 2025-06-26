@@ -29,7 +29,7 @@ def clean_text(text):
     return text_clean.strip()
 
 def correct_spelling(text):
-    return text  # placeholder
+    return text  # muy compleja de usar por ahora
 
 def translate_to_english(text):
     if not text or not isinstance(text, str):
