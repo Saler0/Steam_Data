@@ -239,23 +239,23 @@ class PipelineLandingToTrusted:
         logging.info("Iniciando carga de reseñas desde landing_zone/api_steam/")
         df = self.load_ndjson_files("landing_zone/api_steam/", "reviews_")
         if df is None:
-            logging.warning("⚠️ No se encontraron archivos de reseñas.")
+            logging.warning("No se encontraron archivos de reseñas.")
             return
 
         # Contar, limpiar y traducir
         count_raw = df.count()
-        logging.info(f"📑 Reseñas leídas: {count_raw}")
+        logging.info(f"Reseñas leídas: {count_raw}")
         df = df.withColumn("review_clean", clean_and_translate_udf(col("review"))) \
                .withColumn("timestamp_created", from_unixtime(col("timestamp_created")).cast("date")) \
                .withColumn("timestamp_updated", from_unixtime(col("timestamp_updated")).cast("date")) \
                .cache()
         count_trans = df.count()
-        logging.info(f"✏️ Reseñas tras limpiar y traducir: {count_trans}")
+        logging.info(f"Reseñas tras limpiar y traducir: {count_trans}")
 
         # Quito duplicados en batch
         df_unique = df.dropDuplicates(["recommendationid"])
         count_unique = df_unique.count()
-        logging.info(f"🔍 Reseñas únicas a insertar: {count_unique}")
+        logging.info(f"Reseñas únicas a insertar: {count_unique}")
 
         # ¿Ya hay algo en Mongo?
         coll = self.db[self.mongo.reviews.name]
@@ -308,17 +308,17 @@ class PipelineLandingToTrusted:
             try:
                 df_file = self.spark.read.json(f)
                 if df_file.rdd.isEmpty():
-                    logging.warning(f"⚠️ Archivo vacío: {f}")
+                    logging.warning(f"Archivo vacío: {f}")
                     continue
 
                 video_id = os.path.basename(f).replace("transcript_", "").replace(".ndjson", "")
                 df_file = df_file.withColumn("video_id", lit(video_id))
                 dfs.append(df_file)
             except Exception as e:
-                logging.warning(f"❌ Error al procesar {f}: {e}")
+                logging.warning(f"Error al procesar {f}: {e}")
 
         if not dfs:
-            logging.warning("❌ No se pudo cargar ningún transcript válido.")
+            logging.warning("No se pudo cargar ningún transcript válido.")
             return
 
         df = dfs[0] if len(dfs) == 1 else reduce(lambda a, b: a.unionByName(b), dfs)
@@ -337,7 +337,7 @@ class PipelineLandingToTrusted:
                 upsert=True
             )
 
-        logging.info("✅ Transcripciones procesadas e insertadas correctamente.")
+        logging.info("Transcripciones procesadas e insertadas correctamente.")
 
 
     def run(self):
