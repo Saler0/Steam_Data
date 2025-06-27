@@ -1,0 +1,16 @@
+# Ignorar entornos virtuales locales
+venv/
+
+# Cachés de Python
+__pycache__/
+*.py[cod]
+
+# Datos y logs locales
+logs/
+landing_zone/
+
+# Archivos de configuración privados
+.env
+
+# Git
+.git/

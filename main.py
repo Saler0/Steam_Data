@@ -2,11 +2,14 @@ import logging
 import os
 from data_ingestion.api_steam import ApiSteam
 from data_ingestion.api_youtube import ApiYoutube
+from funciones_trusted import PipelineLandingToTrusted
+from pyspark.sql import SparkSession
 from dotenv import load_dotenv
+from db.mongodb import MongoDBClient
+
 
 # Carga las variables de entorno del archivo .env
 load_dotenv()
-
 
 def setup_logging(log_dir="logs", log_file="pipeline.log"):
     os.makedirs(log_dir, exist_ok=True)
@@ -15,8 +18,8 @@ def setup_logging(log_dir="logs", log_file="pipeline.log"):
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(full_path, mode="a", encoding="utf-8"),  # Guarda en archivo
-            logging.StreamHandler()  # Muestra en consola
+            logging.FileHandler(full_path, mode="a", encoding="utf-8"),
+            logging.StreamHandler()
         ]
     )
 
@@ -26,30 +29,15 @@ class PipelineIngest:
         self.appi_key_youtube = os.getenv("YOUTUBE_API_KEY")
 
     def run(self):
-
         logging.info(f"Iniciando ingesta de {len(self.appids)} juegos en ApiSteam…")
         steam = ApiSteam(self.appids)
         nombre_juegos = steam.run()
 
         logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
-        youtube = ApiYoutube(nombre_juegos,self.appi_key_youtube)
+        youtube = ApiYoutube(nombre_juegos, self.appi_key_youtube)
         youtube.run()
 
-
-
-
 def main():
-
-
-    # para hacerlo realista se deberia hacer la parte de obtener todos los juegos de steam 
-    # luego con eso hacer un clustering y tomar appids de juegos parecidos y obtener sus reviews
-    # esta lista de appids serian una lista de juegos ya parecidos
-
-    # get_all_games_steam() -> una funcion que obtendria todos los juegos de steam actualmente. luego en el cronjob del batch deberia obtener el datos de los juegos ya aun no han sido guardados en nuestra base de datos 
-
-    # la logica de obtener todo el historico debe ser un poco diferente que la de obtener los ultimos cambios (esto es mas notorio en las reseñas)
-
-
     # Lista de APPIDs a procesar
     appids_to_process = [
         570940,
@@ -65,19 +53,47 @@ def main():
     ]
 
     setup_logging()
-    # ===== INGESTA DE DATOS  --> LANDING ZONE =====
-    pipelineI = PipelineIngest(appids_to_process)
-    pipelineI.run()
+
+    logging.info("========== INICIO DE PIPELINE ==========")
+
+    # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
+    # logging.info("===== INICIO DE PIPELINE DE INGESTA =====")
+    # pipelineI = PipelineIngest(appids_to_process)
+    # pipelineI.run()
 
     # ===== LANDING ZONE --> TRUSTED ZONE =====
-    
-    # pielineLT = PipelineLandingTustedZone
-    # pipelineLT.run()
+    logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
+
+    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+    mongo_db  = os.getenv("MONGO_DB",  "trusted_zone")
+    mongodb_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db)
+
+
+    spark = (
+        SparkSession.builder
+            .appName("TrustedZone")
+            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
+            .config("spark.mongodb.output.uri", f"{mongo_uri}/{mongo_db}.juegos_steam")
+            .getOrCreate()
+)
+
+
+    pipelineLT = PipelineLandingToTrusted(spark)
+    pipelineLT.mongo      = mongodb_client
+    pipelineLT.mongo_uri  = mongo_uri
+    pipelineLT.mongo_db   = mongo_db
+    pipelineLT.client = mongodb_client.client
+    pipelineLT.db     = mongodb_client.db
+    pipelineLT.run()
+    pipelineLT.stop()
+    logging.info("===== PIPELINE DE LIMPIEZA COMPLETADO =====")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
-
-    # pielineTE = PipelineTustedExplotationZone
+    # logging.info("===== INICIO DE PIPELINE DE EXPLOTACIÓN =====")
+    # pipelineTE = PipelineTustedExplotationZone()
     # pipelineTE.run()
+
+    logging.info("========== PIPELINE COMPLETO ==========")
 
 if __name__ == "__main__":
     main()
