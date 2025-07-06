@@ -37,6 +37,9 @@ class PipelineIngest:
         youtube = ApiYoutube(nombre_juegos, self.appi_key_youtube)
         youtube.run()
 
+        # PARA EL WEBSCRAPING DE STEAM_BASE SE DEBE USAR COMO INPUT NDJONS DE LA LANDING ZONE
+        # SE DEBE LLAMAR AL ARCHIVO steambase_appname.py (donde comienza todo)
+
 class PipelineTustedExplotationZone:
     def __init__(self, trusted_client: MongoDBClient, explo_client: MongoDBClient):
         pass
@@ -90,9 +93,9 @@ def main():
             .getOrCreate()
     )
 
-    pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
-    pipelineLT.run()
-    pipelineLT.stop()
+    # pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
+    # pipelineLT.run()
+    # pipelineLT.stop()
     logging.info("✅ PIPELINE DE LANDING ZONE A TRSUTED ZONE COMPLETADO")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
