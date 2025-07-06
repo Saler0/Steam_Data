@@ -2,7 +2,7 @@ import logging
 import os
 from data_ingestion.api_steam import ApiSteam
 from data_ingestion.api_youtube import ApiYoutube
-from funciones_trusted import PipelineLandingToTrusted
+from landing_to_trusted.funciones_trusted import PipelineLandingToTrusted
 from pyspark.sql import SparkSession
 from dotenv import load_dotenv
 from db.mongodb import MongoDBClient
@@ -57,12 +57,13 @@ def main():
     logging.info("========== INICIO DE PIPELINE ==========")
 
     # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
-    # logging.info("===== INICIO DE PIPELINE DE INGESTA =====")
+    logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS =====")
     # pipelineI = PipelineIngest(appids_to_process)
     # pipelineI.run()
+    logging.info("✅ DATOS EXTRAIDOS Y GUARDADOS EN LA LANDING ZONE")
 
     # ===== LANDING ZONE --> TRUSTED ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
+    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRSUTED ZONE =====")
 
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     mongo_db  = os.getenv("MONGO_DB",  "trusted_zone")
@@ -84,16 +85,17 @@ def main():
     pipelineLT.mongo_db   = mongo_db
     pipelineLT.client = mongodb_client.client
     pipelineLT.db     = mongodb_client.db
-    pipelineLT.run()
-    pipelineLT.stop()
-    logging.info("===== PIPELINE DE LIMPIEZA COMPLETADO =====")
+    # pipelineLT.run()
+    # pipelineLT.stop()
+    logging.info("✅ PIPELINE DE LANDING ZONE A TRSUTED ZONE COMPLETADO")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
-    # logging.info("===== INICIO DE PIPELINE DE EXPLOTACIÓN =====")
+    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE A EXPLOTATION ZONE =====")
     # pipelineTE = PipelineTustedExplotationZone()
     # pipelineTE.run()
-
-    logging.info("========== PIPELINE COMPLETO ==========")
+    logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
+    
+    logging.info("✅ PIPELINE COMPLETO ")
 
 if __name__ == "__main__":
     main()
