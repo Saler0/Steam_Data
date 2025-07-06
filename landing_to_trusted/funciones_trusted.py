@@ -143,11 +143,11 @@ def clean_game_json(game_json):
 clean_and_translate_udf = udf(clean_and_translate, StringType())
 
 class PipelineLandingToTrusted:
-    def __init__(self, spark):
+    def __init__(self, spark, mongo_client: MongoDBClient):
         self.spark = spark
-        self.mongo = MongoDBClient()
-        self.mongo_uri = self.mongo.uri
-        self.mongo_db = self.mongo.db_name
+        self.mongo     = mongo_client
+        self.mongo_uri = mongo_client.uri
+        self.mongo_db  = mongo_client.db_name
         self.client = self.mongo.client
         self.db = self.mongo.db
 
