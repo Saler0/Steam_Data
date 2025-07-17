@@ -97,9 +97,9 @@ def main():
             .getOrCreate()
     )
 
-    # pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
-    # pipelineLT.run()
-    # pipelineLT.stop()
+    pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
+    pipelineLT.run()
+    pipelineLT.stop()
     logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
@@ -109,8 +109,8 @@ def main():
     trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
     exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_explotation)
 
-    pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
-    pipelineTE.run()
+    # pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
+    # pipelineTE.run()
     logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
     
     logging.info("✅ PIPELINE COMPLETO ")

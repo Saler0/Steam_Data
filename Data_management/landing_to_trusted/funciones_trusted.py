@@ -114,7 +114,12 @@ def clean_game_json(game_json):
     mc = details.get("metacritic") or {}
 
     game = {
+        "type": clean_text(details.get("type", "")),
         "name": clean_text(details.get("name", "")),
+        "appid": game_json.get("appid"),
+        "required_age": details.get("required_age", ""),
+        "is_free": details.get("is_free", False),
+        "controller_support": clean_text(details.get("controller_support", "")),
         "detailed_description": clean_text(details.get("detailed_description", "")),
         "about_the_game": clean_text(details.get("about_the_game", "")),
         "short_description": clean_text(details.get("short_description", "")),
@@ -123,9 +128,6 @@ def clean_game_json(game_json):
         "pc_requirements": {"minimum": pc_min, "recommended": pc_rec},
         "mac_requirements": {"minimum": mac_min, "recommended": mac_rec},
         "linux_requirements": {"minimum": li_min, "recommended": li_rec},
-        "appid": game_json.get("appid"),
-        "is_free": details.get("is_free", False),
-        "required_age": details.get("required_age", ""),
         "developers": details.get("developers", []),
         "publishers": details.get("publishers", []),
         "price_overview": details.get("price_overview", {}),
@@ -167,7 +169,12 @@ class PipelineLandingToTrusted:
         df = self.spark.read.json(path)
 
         schema = StructType([
+            StructField("type", StringType(), True),
             StructField("name", StringType(), True),
+            StructField("appid", IntegerType(), True),
+            StructField("required_age", StringType(), True),
+            StructField("is_free", BooleanType(), True),
+            StructField("controller_support", StringType(), True),
             StructField("detailed_description", StringType(), True),
             StructField("about_the_game", StringType(), True),
             StructField("short_description", StringType(), True),
@@ -185,9 +192,6 @@ class PipelineLandingToTrusted:
                 StructField("minimum", StringType(), True),
                 StructField("recommended", StringType(), True),
             ]), True),
-            StructField("appid", IntegerType(), True),
-            StructField("is_free", BooleanType(), True),
-            StructField("required_age", StringType(), True),
             StructField("developers", ArrayType(StringType()), True),
             StructField("publishers", ArrayType(StringType()), True),
             StructField("price_overview", MapType(StringType(), StringType()), True),
