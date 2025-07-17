@@ -33,9 +33,13 @@ class PipelineIngest:
         steam = ApiSteam(self.appids)
         nombre_juegos = steam.run()
 
-        logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
-        youtube = ApiYoutube(nombre_juegos, self.appi_key_youtube)
-        youtube.run()
+        # POR LIMITACIONES DE RECURSOS SE OBTENDRA REVIEWS SOLO ALGUNOS APPIDS QUE CAEN EN EL MISMA CLASIFICACION SEGUN EL CLUSTER
+        # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
+        
+
+        # logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
+        # youtube = ApiYoutube(nombre_juegos, self.appi_key_youtube)
+        # youtube.run()
 
         # PARA EL WEBSCRAPING DE STEAM_BASE SE DEBE USAR COMO INPUT NDJONS DE LA LANDING ZONE
         # SE DEBE LLAMAR AL ARCHIVO steambase_appname.py (donde comienza todo)
@@ -81,7 +85,7 @@ def main():
     logging.info("✅ DATOS EXTRAIDOS Y GUARDADOS EN LA LANDING ZONE")
 
     # ===== LANDING ZONE --> TRUSTED ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRSUTED ZONE =====")
+    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE =====")
 
     trusted_client    = MongoDBClient(uri=mongo_uri, db_name="trusted_zone")
 
@@ -96,7 +100,7 @@ def main():
     # pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
     # pipelineLT.run()
     # pipelineLT.stop()
-    logging.info("✅ PIPELINE DE LANDING ZONE A TRSUTED ZONE COMPLETADO")
+    logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
     logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE A EXPLOTATION ZONE =====")
