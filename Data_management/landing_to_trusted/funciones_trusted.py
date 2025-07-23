@@ -4,7 +4,6 @@ import json
 import logging
 from html import unescape
 from datetime import datetime
-from googletrans import Translator
 from functools import reduce
 from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit
 from db.mongodb import MongoDBClient
@@ -15,10 +14,11 @@ from pyspark.sql.types import (
 import asyncio
 import glob
 from pymongo import MongoClient
+import requests
+from langdetect import detect, DetectorFactory
+
 
 # ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
-
-translator = Translator()
 
 def clean_text(text):
     if not text:
@@ -28,24 +28,55 @@ def clean_text(text):
     text_clean = unescape(text_no_html)
     return text_clean.strip()
 
-def correct_spelling(text):
-    return text  # muy compleja de usar por ahora
+def call_google_translate(text: str) -> str:
+    """Llama al endpoint público y devuelve la traducción."""
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": "auto",
+        "tl": "en",
+        "dt": "t",
+        "q": text
+    }
+    resp = requests.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    return "".join(seg[0] for seg in data[0])
 
-def translate_to_english(text):
-    if not text or not isinstance(text, str):
-        return ""
-    try:
-        coro = translator.translate(text, dest="en")
-        translated = asyncio.get_event_loop().run_until_complete(coro)
-        return translated.text
-    except Exception as e:
-        logging.warning(f"Error translating: {e}")
-        return text
-
-def clean_and_translate(text):
+def translate_to_english(text: str, appid: int) -> str:
+    """
+    - Si el texto es corto (< MIN_LEN_TO_DETECT), traduce siempre.
+    - Si es largo, detecta idioma; sólo traduce si no es inglés.
+    """
     cleaned = clean_text(text)
-    corrected = correct_spelling(cleaned)
-    return corrected
+    if not cleaned:
+        return ""
+
+    # 1) Textos muy cortos: traducir directamente
+    if len(cleaned) < 50:
+        return call_google_translate(cleaned)
+
+    # 2) Para el resto, detectar idioma
+    try:
+        lang = detect(cleaned)
+    except Exception:
+        lang = "auto"
+
+    # 3) Si ya es inglés (o detect falló), devolvemos el texto limpio
+    if lang == "en":
+        return cleaned
+
+    # 4) Si no es inglés, traducimos
+    try:
+        return call_google_translate(cleaned)
+    except Exception as e:
+        logging.error(f"Error traduciendo appid={appid}, texto {cleaned}")
+        
+        return cleaned
+
+def clean_and_translate(text,appid):
+    cleaned = clean_text(text)
+    return translate_to_english(cleaned,appid)
 
 def standardize_age_rating(ratings_dict):
     rating_map = {
@@ -120,9 +151,9 @@ def clean_game_json(game_json):
         "required_age": details.get("required_age", ""),
         "is_free": details.get("is_free", False),
         "controller_support": clean_text(details.get("controller_support", "")),
-        "detailed_description": clean_text(details.get("detailed_description", "")),
-        "about_the_game": clean_text(details.get("about_the_game", "")),
-        "short_description": clean_text(details.get("short_description", "")),
+        "detailed_description": clean_and_translate(details.get("detailed_description", ""),game_json.get("appid")),
+        "about_the_game": clean_and_translate(details.get("about_the_game", ""), game_json.get("appid")),
+        "short_description": clean_and_translate(details.get("short_description", ""), game_json.get("appid")),
         "supported_languages": clean_text(details.get("supported_languages", "")),
         "legal_notice": clean_text(details.get("legal_notice", "")),
         "pc_requirements": {"minimum": pc_min, "recommended": pc_rec},
@@ -163,7 +194,7 @@ class PipelineLandingToTrusted:
     def run_steam_games(self):
         path = "landing_zone/api_steam/steam_games.ndjson"
         if not os.path.exists(path):
-            logging.warning("No se encontró steam_games.ndjson")
+            logging.error("No se encontró steam_games.ndjson")
             return
 
         df = self.spark.read.json(path)
