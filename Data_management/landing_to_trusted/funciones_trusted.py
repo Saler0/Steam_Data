@@ -31,7 +31,7 @@ def clean_text(text):
 
 def call_google_translate(text: str) -> str:
     """Llama al endpoint público y devuelve la traducción."""
-    time.sleep(1.4) # para evitar saturar la API
+    time.sleep(1.5) # para evitar saturar la API
     url = "https://translate.googleapis.com/translate_a/single"
     params = {
         "client": "gtx",
