@@ -43,7 +43,8 @@ echo.
 echo Contenedores en ejecución:
 docker ps
 
-echo logs:
-docker compose logs -f app
-
+echo.
+echo Siguiendo logs de “app” (pantalla + app.log)...
+powershell -NoLogo -Command ^
+  "docker compose logs -f app | Tee-Object -FilePath 'app.log'"
 pause

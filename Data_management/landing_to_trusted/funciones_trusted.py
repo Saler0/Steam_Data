@@ -16,6 +16,7 @@ import glob
 from pymongo import MongoClient
 import requests
 from langdetect import detect, DetectorFactory
+import time
 
 
 # ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
@@ -30,6 +31,7 @@ def clean_text(text):
 
 def call_google_translate(text: str) -> str:
     """Llama al endpoint público y devuelve la traducción."""
+    time.sleep(1.4) # para evitar saturar la API
     url = "https://translate.googleapis.com/translate_a/single"
     params = {
         "client": "gtx",
@@ -70,12 +72,14 @@ def translate_to_english(text: str, appid: int) -> str:
     try:
         return call_google_translate(cleaned)
     except Exception as e:
-        logging.error(f"Error traduciendo appid={appid}, texto {cleaned}")
+        logging.error(f"Error traduciendo appid={appid}")
         
         return cleaned
 
 def clean_and_translate(text,appid):
     cleaned = clean_text(text)
+    if not cleaned or not isinstance(cleaned, str) or cleaned.strip() == "":
+        return ""
     return translate_to_english(cleaned,appid)
 
 def standardize_age_rating(ratings_dict):
