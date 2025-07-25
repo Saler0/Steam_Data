@@ -5,6 +5,28 @@ REM -------------------------------------------------
 
 cd /d %~dp0
 
+
+
+echo.
+echo ============================
+echo Parando cualquier contenedor existente...
+echo ============================
+docker stop mongo steam_data-app 2>nul
+
+echo.
+echo ============================
+echo Eliminando contenedores detenidos...
+echo ============================
+docker rm mongo steam_data-app 2>nul
+
+
+echo.
+echo ============================
+echo Deteniendo y eliminando contenedores del compose…
+echo ============================
+docker compose down
+
+
 echo.
 echo ============================
 echo Reconstruyendo y levantando...
@@ -21,7 +43,8 @@ echo.
 echo Contenedores en ejecución:
 docker ps
 
-echo logs:
-docker compose logs -f app
-
+echo.
+echo Siguiendo logs de “app” (pantalla + app.log)...
+powershell -NoLogo -Command ^
+  "docker compose logs -f app | Tee-Object -FilePath 'app.log'"
 pause

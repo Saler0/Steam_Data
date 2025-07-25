@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING
 
 class MongoDBClient:
     """    Gestiona conexiones a MongoDB:
@@ -22,6 +22,14 @@ class MongoDBClient:
 
             # Steam
             self.juegos  = self.db["juegos_steam"]
+            
+            # Crea indice sólo si no existe
+            self.juegos.create_index(
+                [("appid", ASCENDING)],
+                unique=True,        # evita duplicados
+                background=True     # lo construye en segundo plano
+            )
+
             self.reviews   = self.db["steam_reviews"]
 
             # Youtube
