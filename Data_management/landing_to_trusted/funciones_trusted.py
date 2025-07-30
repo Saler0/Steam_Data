@@ -3,7 +3,6 @@ import os
 import json
 import logging
 from html import unescape
-from datetime import datetime
 from functools import reduce
 from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit
 from db.mongodb import MongoDBClient
@@ -17,6 +16,7 @@ from pymongo import MongoClient
 import requests
 from langdetect import detect, DetectorFactory
 import time
+from datetime import date
 
 
 # ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
@@ -128,7 +128,7 @@ def clean_game_json(game_json):
 
     raw_date = (details.get("release_date") or {}).get("date", "")
     try:
-        cleaned_release_date = datetime.strptime(raw_date, "%b %d, %Y").strftime("%Y-%m-%d")
+        cleaned_release_date = date.strptime(raw_date, "%b %d, %Y").strftime("%Y-%m-%d")
     except:
         cleaned_release_date = raw_date
 
@@ -196,7 +196,9 @@ class PipelineLandingToTrusted:
         return self.spark.read.json(files)
 
     def run_steam_games(self):
-        path = "landing_zone/api_steam/steam_games.ndjson"
+        fecha_actual = date.today()
+        fecha_formateada = fecha_actual.strftime("%Y_%m_%d")
+        path = f"landing_zone/api_steam/steam_games_{fecha_formateada}.ndjson"
         if not os.path.exists(path):
             logging.error("No se encontró steam_games.ndjson")
             return
@@ -383,9 +385,9 @@ class PipelineLandingToTrusted:
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
-        self.run_reviews()
-        self.run_youtube_comments()
-        self.run_youtube_transcripts()
+        # self.run_reviews()
+        # self.run_youtube_comments()
+        # self.run_youtube_transcripts()
 
     def stop(self):
         self.spark.stop()

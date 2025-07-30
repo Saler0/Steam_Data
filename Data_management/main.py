@@ -86,18 +86,18 @@ def main():
 
 
 
-    # spark = (
-    #     SparkSession.builder
-    #         .appName("TrustedZone")
-    #         .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
-    #         .config("spark.mongodb.output.uri", f"{mongo_uri}/{mongo_db_trusted}.juegos_steam")
-    #         .getOrCreate()
-    # )
+    spark = (
+        SparkSession.builder
+            .appName("TrustedZone")
+            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
+            .config("spark.mongodb.output.uri", f"{mongo_uri}/{mongo_db_trusted}.juegos_steam")
+            .getOrCreate()
+    )
 
-    # pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
-    # pipelineLT.run()
-    # pipelineLT.stop()
-    # logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
+    pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
+    pipelineLT.run()
+    pipelineLT.stop()
+    logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
     logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE A EXPLOTATION ZONE =====")
