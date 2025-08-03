@@ -3,6 +3,9 @@ FROM python:3.11-slim
 
 # 2) Variables de entorno
 ENV PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     SPARK_HOME=/opt/spark \
     PATH="/opt/spark/bin:$PATH" \

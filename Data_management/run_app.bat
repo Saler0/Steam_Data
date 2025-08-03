@@ -45,6 +45,6 @@ docker ps
 
 echo.
 echo Siguiendo logs de “app” (pantalla + app.log)...
-powershell -NoLogo -Command ^
-  "docker compose logs -f app | Tee-Object -FilePath 'app.log'"
+docker compose logs -f app
+docker compose logs app > app.log
 pause

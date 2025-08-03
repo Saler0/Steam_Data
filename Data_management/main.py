@@ -6,7 +6,8 @@ from landing_to_trusted.funciones_trusted import PipelineLandingToTrusted
 from pyspark.sql import SparkSession
 from dotenv import load_dotenv
 from db.mongodb import MongoDBClient
-
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
 
 # Carga las variables de entorno del archivo .env
 load_dotenv()
@@ -24,18 +25,24 @@ def setup_logging(log_dir="logs", log_file="pipeline.log"):
     )
 
 class PipelineIngest:
-    def __init__(self, appids):
-        self.appids = appids
+    def __init__(self, trusted_client):
+        self.trusted_client = trusted_client
         self.appi_key_youtube = os.getenv("YOUTUBE_API_KEY")
-
-    def run(self):
-        logging.info(f"Iniciando ingesta de {len(self.appids)} juegos en ApiSteam…")
-        steam = ApiSteam(self.appids)
-        nombre_juegos = steam.run()
-
         # POR LIMITACIONES DE RECURSOS SE OBTENDRA REVIEWS SOLO ALGUNOS APPIDS QUE CAEN EN EL MISMA CLASIFICACION SEGUN EL CLUSTER
         # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
-        
+        self.modo='MVP'
+        if self.modo == 'MVP': # se capturara todas las reviews de un grupo selecto de APPIDs
+            self.appids_to_process_reviews=[]
+        else: # Modo Realista
+            self.appids_to_process_reviews = None
+
+            
+
+    def run(self):
+        logging.info(f"Iniciando ingesta de juegos y reviews en ApiSteam…")
+        steam = ApiSteam(self.trusted_client,self.appids_to_process_reviews)
+        nombre_juegos = steam.run()
+
 
         # logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
         # youtube = ApiYoutube(nombre_juegos, self.appi_key_youtube)
@@ -56,38 +63,28 @@ class PipelineTustedExplotationZone:
 
 
 def main():
-    # Lista de APPIDs a procesar
-    appids_to_process = [
-        570940,
-        374320,
-        335300,
-        1245620,
-        1627720,
-        1903340,
-        814380,
-        2680010,
-        1501750,
-        236430,
-    ]
+
 
     setup_logging()
 
     mongo_uri = "mongodb://host.docker.internal:27017"
     mongo_db_trusted = "trusted_zone"
     mongo_db_explotation = "explotation_zone"
+    trusted_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
 
     logging.info("========== INICIO DE PIPELINE ==========")
 
     # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
     logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS =====")
-    # pipelineI = PipelineIngest(appids_to_process)
-    # pipelineI.run()
+    
+    pipelineI = PipelineIngest(trusted_client)
+    pipelineI.run()
     logging.info("✅ DATOS EXTRAIDOS Y GUARDADOS EN LA LANDING ZONE")
 
     # ===== LANDING ZONE --> TRUSTED ZONE =====
     logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE =====")
 
-    trusted_client    = MongoDBClient(uri=mongo_uri, db_name="trusted_zone")
+
 
     spark = (
         SparkSession.builder
