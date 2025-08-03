@@ -30,7 +30,6 @@ def register_pipeline_metadata():
 
     # 3) Registrar servicio de pipelines (igual que antes) …
     service = PipelineService(
-        id=None,
         name="SteamDataPipeline",
         serviceType=PipelineServiceType.CustomPipeline,
         connection=None,
