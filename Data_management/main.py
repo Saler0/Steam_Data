@@ -110,6 +110,13 @@ def main():
     # pipelineTE.run()
     logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
     
+    # OPEN METADATA
+    try:
+        from metadata_register import register_pipeline_metadata
+        register_pipeline_metadata()
+    except Exception as e:
+        logging.warning(f"No se pudo registrar metadata en OpenMetadata: {e}")
+
     logging.info("✅ PIPELINE COMPLETO ")
 
 if __name__ == "__main__":
