@@ -191,3 +191,5 @@ juegos.json
 *.json
 
 landing_zone/
+
+docker-volume/

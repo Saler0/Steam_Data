@@ -13,6 +13,7 @@ from pyspark.sql.types import (
 import asyncio
 import glob
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 import requests
 from langdetect import detect, DetectorFactory
 import time
@@ -244,15 +245,36 @@ class PipelineLandingToTrusted:
         clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
         df_clean = self.spark.createDataFrame(clean_rdd, schema)
 
-        df_clean.write \
-            .format("mongo") \
-            .mode("append") \
-            .option("uri", self.mongo_uri) \
-            .option("database", self.mongo_db) \
-            .option("collection", self.mongo.juegos.name) \
-            .save()
+        # Obtén la lista de appid ya en trusted_zone
+        existing_appids = self.mongo.juegos.distinct("appid")
+        if existing_appids:
+            # Creamos un DataFrame con una única columna llamada "appid"
+            existing_df = (
+                self.spark
+                    .createDataFrame(
+                        [(aid,) for aid in existing_appids],  # datos
+                        ["appid"]                              # nombres de las columnas
+                    )
+            )
+            df_to_insert = df_clean.join(existing_df, on="appid", how="left_anti")
+        else:
+            df_to_insert = df_clean
 
-        logging.info("Juegos insertados en MongoDB usando escritura distribuida.")
+
+        count_to_insert = df_to_insert.count()
+        logging.info(f"🚀 Juegos realmente nuevos a insertar: {count_to_insert}")
+
+        if count_to_insert:
+            df_to_insert.write \
+                .format("mongo") \
+                .mode("append") \
+                .option("uri", self.mongo_uri) \
+                .option("database", self.mongo_db) \
+                .option("collection", self.mongo.juegos.name) \
+                .save()
+            logging.info("✅ Inserción distribuida completada sin duplicados.")
+        else:
+            logging.info("ℹ️ No hay juegos nuevos para insertar.")
 
     def run_youtube_comments(self):
         df = self.load_ndjson_files("landing_zone/api_youtube/", "comments_")
