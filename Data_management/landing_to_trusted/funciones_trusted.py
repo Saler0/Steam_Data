@@ -162,6 +162,20 @@ def clean_game_json(game_json):
     else:
         dlc_ids = []
 
+    # juego base para los type: "dlc"
+    fullgame_obj = details.get("fullgame") or {}
+    fullgame_parsed = None
+    if isinstance(fullgame_obj, dict):
+        fg_appid = fullgame_obj.get("appid")
+        try:
+            fg_appid = int(str(fg_appid)) if fg_appid is not None else None
+        except Exception:
+            fg_appid = None
+        fullgame_parsed = {
+            "appid": fg_appid,
+            "name": clean_text(fullgame_obj.get("name", "")),
+        } if (fg_appid is not None or fullgame_obj.get("name")) else None
+
     game = {
         "type": clean_text(details.get("type", "")),
         "name": clean_text(details.get("name", "")),
@@ -188,6 +202,7 @@ def clean_game_json(game_json):
         "metacritic_score": mc.get("score"),
         "age_rating": age_rating,
         "dlc": dlc_ids,
+        "fullgame": fullgame_parsed,
     }
 
     return validate_constraints(game)
@@ -255,6 +270,10 @@ class PipelineLandingToTrusted:
             StructField("metacritic_score", IntegerType(), True),
             StructField("age_rating", StringType(), True),
             StructField("dlc", ArrayType(IntegerType()), True),
+            StructField("fullgame", StructType([
+                StructField("appid", IntegerType(), True),
+                StructField("name",  StringType(),  True),
+            ]), True),
         ])
 
         clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
