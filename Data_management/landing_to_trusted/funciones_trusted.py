@@ -149,6 +149,19 @@ def clean_game_json(game_json):
     li_min, li_rec = parse_requirements("linux_requirements")
     mc = details.get("metacritic") or {}
 
+    # normalizar dlc -> lista[int], y campos derivados
+    dlc_raw = details.get("dlc") or []
+    if isinstance(dlc_raw, list):
+        dlc_ids = []
+        for x in dlc_raw:
+            # aceptar int o string numérica
+            try:
+                dlc_ids.append(int(str(x).strip()))
+            except Exception:
+                continue
+    else:
+        dlc_ids = []
+
     game = {
         "type": clean_text(details.get("type", "")),
         "name": clean_text(details.get("name", "")),
@@ -173,7 +186,8 @@ def clean_game_json(game_json):
         "release_date": cleaned_release_date,
         "recommendations_total": (details.get("recommendations") or {}).get("total", 0),
         "metacritic_score": mc.get("score"),
-        "age_rating": age_rating
+        "age_rating": age_rating,
+        "dlc": dlc_ids,
     }
 
     return validate_constraints(game)
@@ -240,6 +254,7 @@ class PipelineLandingToTrusted:
             StructField("recommendations_total", IntegerType(), True),
             StructField("metacritic_score", IntegerType(), True),
             StructField("age_rating", StringType(), True),
+            StructField("dlc", ArrayType(IntegerType()), True),
         ])
 
         clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
