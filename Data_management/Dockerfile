@@ -1,5 +1,5 @@
-# 1) Imagen base
-FROM python:3.11-slim
+# 1) Imagen base estable con Java17 disponible
+FROM python:3.11-slim-bookworm
 
 # 2) Variables de entorno
 ENV PYTHONUNBUFFERED=1 \
@@ -14,8 +14,9 @@ ENV PYTHONUNBUFFERED=1 \
 # 3) Instalar Java, curl y otras utilidades
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       default-jre-headless curl procps ca-certificates gnupg \
-    && rm -rf /var/lib/apt/lists/*
+        openjdk-17-jre-headless curl procps ca-certificates gnupg \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -x "$JAVA_HOME/bin/java" && "$JAVA_HOME/bin/java" -version
 
 # 4) Instalar Spark 3.5.1
 RUN curl -fsSL https://archive.apache.org/dist/spark/spark-3.5.1/spark-3.5.1-bin-hadoop3.tgz -o spark.tgz \
