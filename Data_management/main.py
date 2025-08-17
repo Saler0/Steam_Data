@@ -3,6 +3,7 @@ import os
 from data_ingestion.api_steam import ApiSteam
 from data_ingestion.api_youtube import ApiYoutube
 from landing_to_trusted.funciones_trusted import PipelineLandingToTrusted
+from trusted_to_explotation.explotation_zone import TrustedToExploitation
 from pyspark.sql import SparkSession
 from dotenv import load_dotenv
 from db.mongodb import MongoDBClient
@@ -53,12 +54,23 @@ class PipelineIngest:
 
 class PipelineTustedExplotationZone:
     def __init__(self, trusted_client: MongoDBClient, explo_client: MongoDBClient):
-        pass
+        self.trusted_client = trusted_client
+        self.explo_client = explo_client
 
 
     def run(self):
         logging.info(f"Comienza la extraccion de trusted_zone para mover a explotation_zone")
+        spark = (
+            SparkSession.builder
+            .appName("TrustedToExploitation")
+            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
+            .getOrCreate()
+        )
 
+        job = TrustedToExploitation(spark, self.trusted_client, self.explo_client)
+        job.run()
+        
+        spark.stop()
 
 
 
@@ -79,7 +91,7 @@ def main():
     
     pipelineI = PipelineIngest(trusted_client)
     pipelineI.run()
-    logging.info("✅ DATOS EXTRAIDOS Y GUARDADOS EN LA LANDING ZONE")
+    logging.info("✅ INGESTA ➜ LANDING ")
 
     # ===== LANDING ZONE --> TRUSTED ZONE =====
     logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE =====")
@@ -97,20 +109,20 @@ def main():
     pipelineLT = PipelineLandingToTrusted(spark,trusted_client)
     pipelineLT.run()
     pipelineLT.stop()
-    logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
+    logging.info("✅ LANDING ➜ TRUSTED ")
 
     # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE A EXPLOTATION ZONE =====")
+    logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
     # Creamos un cliente PARA CADA ZONA:
     trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
     exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_explotation)
 
-    # pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
-    # pipelineTE.run()
-    logging.info("✅ PIPELINE DE LANDING ZONE A TRUSTED ZONE COMPLETADO")
+    pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
+    pipelineTE.run()
+    logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
     
-    logging.info("✅ PIPELINE COMPLETO ")
+    logging.info("✅ PIPELINE COMPLETO MANAGEMENT ")
 
 if __name__ == "__main__":
     main()
