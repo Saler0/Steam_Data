@@ -99,11 +99,19 @@ class TrustedToExploitation:
         # ========== 1) Elegir 1 'game' por nombre con ventana liviana ==========
         games_min = (
             df.where(F.col("type") == "game")
-              .select(
-                  F.col("appid").cast("int").alias("appid"),
-                  "name",
-                  F.coalesce(F.col("recommendations_total").cast("long"), F.lit(0)).alias("rec_tot_norm")
-              )
+              .withColumn("appid", F.col("appid").cast("int"))
+              # nombre normalizado: trim + quitar símbolos comunes + colapsar espacios + minúsculas
+              .withColumn("nname",
+                          F.lower(
+                              F.regexp_replace(
+                                  F.regexp_replace(F.trim(F.col("name")), r"[™®]", ""),
+                                  r"\s+", " "
+                              )
+                          ))
+              .withColumn("rec_tot_norm", F.coalesce(F.col("recommendations_total").cast("long"), F.lit(0)))
+              .withColumn("dlc_len", F.size(F.coalesce(F.col("dlc"), F.array())))
+              .withColumn("has_dlc_list", (F.col("dlc_len") > 0).cast("int"))
+              .select("appid", "name", "nname", "rec_tot_norm", "has_dlc_list")
         )
 
         # referencias desde DLC (solo ids) para elegir el winner
@@ -116,6 +124,7 @@ class TrustedToExploitation:
               .where(F.col("fullgame_appid").isNotNull())
               .dropDuplicates(["dlc_appid", "fullgame_appid"])
         )
+
 
         refs_per_game = (
             dlc_refs_min.groupBy("fullgame_appid")
@@ -131,9 +140,10 @@ class TrustedToExploitation:
         )
 
         # repartir por 'name' y aplicar ventana
-        ge = ge.repartition(64, "name")
-        w = Window.partitionBy("name").orderBy(
+        ge = ge.repartition(64, "nname")
+        w = Window.partitionBy("nname").orderBy(
             F.desc("is_referenced"),
+            F.desc("has_dlc_list"),
             F.desc("dlc_ref_count"),
             F.desc("rec_tot_norm"),
             F.desc("appid"),
@@ -141,7 +151,7 @@ class TrustedToExploitation:
         winners_min = (
             ge.withColumn("rn", F.row_number().over(w))
               .where(F.col("rn") == 1)
-              .select("appid", "name")
+              .select("appid", "name", "nname")
         )
 
         # ========== 2) Traer TODOS los campos del juego ganador ==========
@@ -167,14 +177,43 @@ class TrustedToExploitation:
             dlcs_raw.join(F.broadcast(winners_keys),
                           F.col("fullgame_appid") == F.col("base_appid"),
                           "inner")
-                    .dropDuplicates(["base_appid", "appid"])   # 1 dlc por base_appid+appid
+                    .dropDuplicates(["base_appid", "appid"])
         )
+        # Orden y subconjunto EXACTO para cada DLC
+        dlc_order = [
+            "appid",
+            "type",
+            "name",
+            "required_age",
+            "is_free",
+            "controller_support",
+            "detailed_description",
+            "about_the_game",
+            "short_description",
+            "supported_languages",
+            "legal_notice",
+            "pc_requirements",
+            "mac_requirements",
+            "linux_requirements",
+            "developers",
+            "publishers",
+            "platforms",
+            "categories",
+            "genres",
+            "release_date",
+            "recommendations_total",
+            "metacritic_score",
+            "fullgame_appid",
+        ]
+        # Helper: columna si existe; si no, null con alias
+        def _col_or_null(dfcols, name):
+            return F.col(name) if name in dfcols else F.lit(None).alias(name)
 
         # Estructura con TODO el documento DLC (incluye _id, type, etc.)
-        dlc_cols = [c for c in dlcs_filtered.columns if c not in {"base_appid"}]
+        dlc_struct_cols = [_col_or_null(dlcs_filtered.columns, c) for c in dlc_order]
         dlcs_embedded = (
             dlcs_filtered
-            .withColumn("dlc_doc", F.struct(*[F.col(c) for c in dlc_cols]))
+            .withColumn("dlc_doc", F.struct(*dlc_struct_cols))
             .repartition(128, "base_appid")
             .groupBy("base_appid")
             .agg(F.collect_list("dlc_doc").alias("dlc"))
