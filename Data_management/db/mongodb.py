@@ -36,7 +36,7 @@ class MongoDBClient:
             self.videos_youtube     = self.db["video_youtube"]
             self.comentarios_youtube = self.db["comentarios_youtube"]
 
-        elif db_name == "explotation_zone":
+        elif db_name == "exploitation_zone":
             # COLLECCIONES DE LA EXPLOTATION ZONE
             pass
 
