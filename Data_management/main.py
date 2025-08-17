@@ -62,8 +62,14 @@ class PipelineTustedExplotationZone:
         logging.info(f"Comienza la extraccion de trusted_zone para mover a explotation_zone")
         spark = (
             SparkSession.builder
-            .appName("TrustedToExploitation")
-            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
+            .appName("TrustedToExploitation") \
+            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
+            .config("spark.sql.shuffle.partitions", "128") \
+            .config("spark.driver.memory", "4g") \
+            .config("spark.executor.memory", "4g") \
+            .config("spark.memory.fraction", "0.6") \
+            .config("spark.memory.offHeap.enabled", "true") \
+            .config("spark.memory.offHeap.size", "1g") \
             .getOrCreate()
         )
 
