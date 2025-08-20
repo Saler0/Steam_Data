@@ -278,6 +278,7 @@ class PipelineLandingToTrusted:
 
         clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
         df_clean = self.spark.createDataFrame(clean_rdd, schema)
+        df_clean = df_clean.withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))  # "YYYY-MM-DD"
 
         # Obtén la lista de appid ya en trusted_zone
         existing_appids = self.mongo.juegos.distinct("appid")
