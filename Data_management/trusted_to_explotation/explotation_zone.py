@@ -268,7 +268,10 @@ class TrustedToExploitation:
         - full refresh: replace_one con documento completo (incluye 'dlc').
         - incremental: $set de campos del juego (SIN 'dlc') para no pisar la lista existente.
         """
-        uri, dbname, collname = self.explo.uri, self.explo.db_name, self.explo_coll_name
+        uri      = self.explo.uri
+        dbname   = self.explo.db_name
+        collname = self.explo_coll_name
+        is_full  = self.is_full_refresh 
         set_fields = [
             "appid","type","name","required_age","is_free","controller_support",
             "detailed_description","about_the_game","short_description",
@@ -279,10 +282,11 @@ class TrustedToExploitation:
         ]
 
         def _write(rows):
-            client = MongoClient(uri); coll = client[dbname][collname]
+            client = MongoClient(uri)
+            coll = client[dbname][collname]
             for r in rows:
                 rd = r.asDict(recursive=True)
-                if self.is_full_refresh:
+                if is_full:
                     # replace completo (puede traer 'dlc' si fue construido en transform)
                     coll.replace_one({"appid": rd["appid"]}, rd, upsert=True)
                 else:
