@@ -7,6 +7,7 @@ from db.mongodb import MongoDBClient
 import json
 from collections import OrderedDict
 from datetime import date
+from pymongo.errors import DuplicateKeyError
 
 class TrustedToExploitation:
     """
@@ -113,69 +114,71 @@ class TrustedToExploitation:
           - final_games: DataFrame de 'game' deduplicados (si full refresh con 'dlc' embebido; si incremental sin 'dlc')
           - dlcs_to_attach: DataFrame [base_appid, dlc_doc] para $addToSet (solo incremental)
         """
-        # ===== 1) elegir winner por nombre (solo games) =====
-        games_min = (
-            df.where(F.col("type") == "game")
-              .withColumn("appid", F.col("appid").cast("int"))
-              .withColumn("nname",
-                          F.lower(
-                              F.regexp_replace(
-                                  F.regexp_replace(F.trim(F.col("name")), r"[™®]", ""),
-                                  r"\s+", " "
-                              )))
-              .withColumn("rec_tot_norm", F.coalesce(F.col("recommendations_total").cast("long"), F.lit(0)))
-              .withColumn("dlc_len", F.size(F.coalesce(F.col("dlc"), F.array())))
-              .withColumn("has_dlc_list", (F.col("dlc_len") > 0).cast("int"))
-              .select("appid", "name", "nname", "rec_tot_norm", "has_dlc_list")
-        )
-
-        dlc_refs_min = (
-            df.where(F.col("type") == "dlc")
-              .select(
-                  F.col("appid").cast("int").alias("dlc_appid"),
-                  F.col("fullgame.appid").cast("int").alias("fullgame_appid")
-              )
-              .where(F.col("fullgame_appid").isNotNull())
-              .dropDuplicates(["dlc_appid", "fullgame_appid"])
-        )
-
-        refs_per_game = dlc_refs_min.groupBy("fullgame_appid").agg(F.countDistinct("dlc_appid").alias("dlc_ref_count"))
-
-        ge = (games_min.alias("g")
-              .join(refs_per_game.alias("r"), F.col("g.appid") == F.col("r.fullgame_appid"), "left")
-              .drop("fullgame_appid")
-              .withColumn("dlc_ref_count", F.coalesce(F.col("dlc_ref_count"), F.lit(0)))
-              .withColumn("is_referenced", (F.col("dlc_ref_count") > 0).cast("int")))
-
-        ge = ge.repartition(64, "nname")
-        w = Window.partitionBy("nname").orderBy(
-            F.desc("is_referenced"),
-            F.desc("has_dlc_list"),
-            F.desc("dlc_ref_count"),
-            F.desc("rec_tot_norm"),
-            F.desc("appid"),
-        )
-        winners_min = (ge.withColumn("rn", F.row_number().over(w))
-                         .where(F.col("rn") == 1)
-                         .select("appid", "name", "nname"))
-
-        games_full = df.where(F.col("type") == "game").withColumn("appid", F.col("appid").cast("int"))
-        winners_full = (winners_min.alias("w")
-                        .join(games_full.alias("gf"), F.col("w.appid") == F.col("gf.appid"), "left")
-                        .select("gf.*"))
-        winners_full = winners_full.drop("dlc")
-
-        # ===== 2) DLCs =====
-        winners_keys = winners_min.select(F.col("appid").alias("base_appid"))
-        dlcs_raw = (
-            df.where(F.col("type") == "dlc")
-              .withColumn("appid", F.col("appid").cast("int"))
-              .withColumn("fullgame_appid", F.col("fullgame.appid").cast("int"))
-              .where(F.col("fullgame_appid").isNotNull())
-        )
-
         # --- full refresh: embebo TODOS los DLC que apunten a winners y hago replace_one ---
         if self.is_full_refresh:
+
+            # ===== 1) elegir winner por nombre (solo games) =====
+            games_min = (
+                df.where(F.col("type") == "game")
+                .withColumn("appid", F.col("appid").cast("int"))
+                .withColumn("nname",
+                            F.lower(
+                                F.regexp_replace(
+                                    F.regexp_replace(F.trim(F.col("name")), r"[™®]", ""),
+                                    r"\s+", " "
+                                )))
+                .withColumn("rec_tot_norm", F.coalesce(F.col("recommendations_total").cast("long"), F.lit(0)))
+                .withColumn("dlc_len", F.size(F.coalesce(F.col("dlc"), F.array())))
+                .withColumn("has_dlc_list", (F.col("dlc_len") > 0).cast("int"))
+                .select("appid", "name", "nname", "rec_tot_norm", "has_dlc_list")
+            )
+
+            dlc_refs_min = (
+                df.where(F.col("type") == "dlc")
+                .select(
+                    F.col("appid").cast("int").alias("dlc_appid"),
+                    F.col("fullgame.appid").cast("int").alias("fullgame_appid")
+                )
+                .where(F.col("fullgame_appid").isNotNull())
+                .dropDuplicates(["dlc_appid", "fullgame_appid"])
+            )
+
+            refs_per_game = dlc_refs_min.groupBy("fullgame_appid").agg(F.countDistinct("dlc_appid").alias("dlc_ref_count"))
+
+            ge = (games_min.alias("g")
+                .join(refs_per_game.alias("r"), F.col("g.appid") == F.col("r.fullgame_appid"), "left")
+                .drop("fullgame_appid")
+                .withColumn("dlc_ref_count", F.coalesce(F.col("dlc_ref_count"), F.lit(0)))
+                .withColumn("is_referenced", (F.col("dlc_ref_count") > 0).cast("int")))
+
+            ge = ge.repartition(64, "nname")
+            w = Window.partitionBy("nname").orderBy(
+                F.desc("is_referenced"),
+                F.desc("has_dlc_list"),
+                F.desc("dlc_ref_count"),
+                F.desc("rec_tot_norm"),
+                F.desc("appid"),
+            )
+            winners_min = (ge.withColumn("rn", F.row_number().over(w))
+                            .where(F.col("rn") == 1)
+                            .select("appid", "name", "nname"))
+
+            games_full = df.where(F.col("type") == "game").withColumn("appid", F.col("appid").cast("int"))
+            winners_full = (winners_min.alias("w")
+                            .join(games_full.alias("gf"), F.col("w.appid") == F.col("gf.appid"), "left")
+                            .select("gf.*"))
+            winners_full = winners_full.drop("dlc")
+
+            # ===== 2) DLCs =====
+            winners_keys = winners_min.select(F.col("appid").alias("base_appid"))
+            dlcs_raw = (
+                df.where(F.col("type") == "dlc")
+                .withColumn("appid", F.col("appid").cast("int"))
+                .withColumn("fullgame_appid", F.col("fullgame.appid").cast("int"))
+                .where(F.col("fullgame_appid").isNotNull())
+            )
+
+
             dlc_order = [
                 "appid","type","name","required_age","is_free","controller_support",
                 "detailed_description","about_the_game","short_description",
@@ -199,7 +202,8 @@ class TrustedToExploitation:
             final_games = (winners_full.alias("wf")
                            .join(dlcs_embedded, F.col("wf.appid") == F.col("base_appid"), "left")
                            .drop("base_appid")
-                           .withColumn("type", F.lit("game")))
+                           .withColumn("dlc", F.coalesce(F.col("dlc"), F.array()))
+            )
 
             # _id = appid
             if "_id" in final_games.columns:
@@ -224,28 +228,12 @@ class TrustedToExploitation:
 
         # --- incremental: NO embebemos 'dlc' (evita pisar). Adjuntamos todos los DLC de hoy por $addToSet ---
         # construir dlc_doc (mismo orden que arriba)
-        dlc_order = [
-            "appid","type","name","required_age","is_free","controller_support",
-            "detailed_description","about_the_game","short_description",
-            "supported_languages","legal_notice",
-            "pc_requirements","mac_requirements","linux_requirements",
-            "developers","publishers","platforms","categories","genres",
-            "release_date","recommendations_total","metacritic_score","fullgame_appid",
-        ]
-        def _col_or_null(dfcols, name): return F.col(name) if name in dfcols else F.lit(None).alias(name)
-
-        dlcs_today = dlcs_raw  # ya está filtrado por updated_at en load_trusted
-        dlc_struct_cols = [_col_or_null(dlcs_today.columns, c) for c in dlc_order]
-        dlcs_to_attach = (dlcs_today
-                          .withColumn("base_appid", F.col("fullgame_appid"))
-                          .withColumn("dlc_doc", F.struct(*dlc_struct_cols))
-                          .select("base_appid", "dlc_doc")
-                          .dropDuplicates(["base_appid", "dlc_doc"]))
-
-        # final_games SIN 'dlc' (solo setear campos del juego)
-        final_games = (winners_full
-                       .withColumn("type", F.lit("game"))
-                       .withColumn("_id", F.col("appid")))
+        games_today = (
+            df.where(F.col("type") == "game")
+            .withColumn("appid", F.col("appid").cast("int"))
+            .withColumn("type", F.lit("game"))
+            .withColumn("_id", F.col("appid"))
+        )
 
         desired_no_dlc = [
             "appid","type","name","required_age","is_free","controller_support",
@@ -256,9 +244,34 @@ class TrustedToExploitation:
             "release_date","recommendations_total","metacritic_score",
         ]
         for c in desired_no_dlc:
-            if c not in final_games.columns:
-                final_games = final_games.withColumn(c, F.lit(None))
-        final_games = final_games.select(*desired_no_dlc, "_id")
+            if c not in games_today.columns:
+                games_today = games_today.withColumn(c, F.lit(None))
+        final_games = games_today.select(*desired_no_dlc, "_id")
+
+        # DLC de hoy → attach al juego base por fullgame.appid
+        dlc_order = [
+            "appid","type","name","required_age","is_free","controller_support",
+            "detailed_description","about_the_game","short_description",
+            "supported_languages","legal_notice",
+            "pc_requirements","mac_requirements","linux_requirements",
+            "developers","publishers","platforms","categories","genres",
+            "release_date","recommendations_total","metacritic_score","fullgame_appid",
+        ]
+        dlcs_today = (
+            df.where(F.col("type") == "dlc")
+            .withColumn("appid", F.col("appid").cast("int"))
+            .withColumn("fullgame_appid", F.col("fullgame.appid").cast("int"))
+            .where(F.col("fullgame_appid").isNotNull())
+        )
+        def _col_or_null(dfcols, name): 
+            return F.col(name) if name in dfcols else F.lit(None).alias(name)
+
+        dlc_struct_cols = [_col_or_null(dlcs_today.columns, c) for c in dlc_order]
+        dlcs_to_attach = (dlcs_today
+                        .withColumn("base_appid", F.col("fullgame_appid"))
+                        .withColumn("dlc_doc", F.struct(*dlc_struct_cols))
+                        .select("base_appid", "dlc_doc")
+                        .dropDuplicates(["base_appid", "dlc_doc"]))
 
         return final_games, dlcs_to_attach
     
@@ -271,7 +284,7 @@ class TrustedToExploitation:
         uri      = self.explo.uri
         dbname   = self.explo.db_name
         collname = self.explo_coll_name
-        is_full  = self.is_full_refresh 
+        is_full  = self.is_full_refresh
         set_fields = [
             "appid","type","name","required_age","is_free","controller_support",
             "detailed_description","about_the_game","short_description",
@@ -282,17 +295,39 @@ class TrustedToExploitation:
         ]
 
         def _write(rows):
-            client = MongoClient(uri)
-            coll = client[dbname][collname]
+            client = MongoClient(uri); coll = client[dbname][collname]
             for r in rows:
                 rd = r.asDict(recursive=True)
                 if is_full:
-                    # replace completo (puede traer 'dlc' si fue construido en transform)
+                    # full refresh: documento completo (puede traer 'dlc')
                     coll.replace_one({"appid": rd["appid"]}, rd, upsert=True)
-                else:
-                    # incremental: seteo campos sin tocar 'dlc'
-                    payload = {k: rd.get(k) for k in set_fields if k in rd}
-                    coll.update_one({"appid": rd["appid"]}, {"$set": payload}, upsert=True)
+                    continue
+
+                # incremental: nunca tocar el array dlc aquí
+                payload = {k: rd.get(k) for k in set_fields if k in rd}
+
+                # 1) intenta actualizar por appid (sin upsert)
+                res = coll.update_one({"appid": rd["appid"]}, {"$set": payload}, upsert=False)
+                if res.matched_count > 0:
+                    continue
+
+                # 2) intenta actualizar por (name,type) (sin upsert) para no chocar con índice único
+                res2 = coll.update_one({"name": rd.get("name"), "type": rd.get("type")}, {"$set": payload}, upsert=False)
+                if res2.matched_count > 0:
+                    # opcional: si quieres asegurar que appid quede correcto cuando coincida por nombre/type:
+                    # coll.update_one({"name": rd["name"], "type": rd["type"]}, {"$set": {"appid": rd["appid"]}})
+                    continue
+
+                # 3) no existe ni por appid ni por (name,type) → inserta nuevo (sin tocar 'dlc')
+                try:
+                    # Inserta doc mínimo con appid y payload
+                    doc = {"appid": rd["appid"], "dlc": [], **payload}
+                    coll.insert_one(doc)
+                except DuplicateKeyError:
+                    # Rara condición de carrera: alguien insertó (name,type) mientras tanto.
+                    # En ese caso, actualiza por (name,type).
+                    coll.update_one({"name": rd.get("name"), "type": rd.get("type")}, {"$set": payload}, upsert=False)
+
             client.close()
 
         df_games.foreachPartition(_write)
