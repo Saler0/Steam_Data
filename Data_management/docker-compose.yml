@@ -11,7 +11,7 @@ services:
     build: .
     volumes:
       - ./landing_zone:/app/landing_zone
-    container_name: steam_data-app
+    container_name: data_management_pipeline
     depends_on:
       - mongo
     environment:

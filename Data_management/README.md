@@ -3,6 +3,7 @@
 El pipeline de Managemente pasa por las siguiente etapas:
 
 1. Ingesta: Captura los datos que aún no han sido guardados en la trusted zone. Captura de APIs de Steam y Youtube.
+# voy a tener que hacer que se vuelva a perdir los appdis que aun no se ha lanzado (que digan "Coming soon") para que se updaten el lugar de insertarse.
 
 2. Lading Zone: Es la zona de almacenamiento donde se colocan los datos recién ingeridos nuevos, en su formato original (raw), antes de ser procesados o validados.
 

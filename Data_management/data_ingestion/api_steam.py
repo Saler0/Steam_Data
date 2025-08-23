@@ -140,7 +140,7 @@ class ApiSteam:
         logging.info(f"✔ Creado/actualizado NDJSON de juegos en {games_ndjson_path}")
 
         
-        # 3) Reseñas: para *todos* los appids a menos que este en modo MVP
+        # 3) Reseñas: para *todos* los appids (incluyendo los que esta en o no estan la base de datos) a menos que este en modo MVP
 
         if self.appids_to_process_reviews is not None:
             all_appids=self.appids_to_process_reviews

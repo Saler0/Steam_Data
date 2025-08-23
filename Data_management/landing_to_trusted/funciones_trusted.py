@@ -149,6 +149,33 @@ def clean_game_json(game_json):
     li_min, li_rec = parse_requirements("linux_requirements")
     mc = details.get("metacritic") or {}
 
+    # normalizar dlc -> lista[int], y campos derivados
+    dlc_raw = details.get("dlc") or []
+    if isinstance(dlc_raw, list):
+        dlc_ids = []
+        for x in dlc_raw:
+            # aceptar int o string numérica
+            try:
+                dlc_ids.append(int(str(x).strip()))
+            except Exception:
+                continue
+    else:
+        dlc_ids = []
+
+    # juego base para los type: "dlc"
+    fullgame_obj = details.get("fullgame") or {}
+    fullgame_parsed = None
+    if isinstance(fullgame_obj, dict):
+        fg_appid = fullgame_obj.get("appid")
+        try:
+            fg_appid = int(str(fg_appid)) if fg_appid is not None else None
+        except Exception:
+            fg_appid = None
+        fullgame_parsed = {
+            "appid": fg_appid,
+            "name": clean_text(fullgame_obj.get("name", "")),
+        } if (fg_appid is not None or fullgame_obj.get("name")) else None
+
     game = {
         "type": clean_text(details.get("type", "")),
         "name": clean_text(details.get("name", "")),
@@ -173,7 +200,9 @@ def clean_game_json(game_json):
         "release_date": cleaned_release_date,
         "recommendations_total": (details.get("recommendations") or {}).get("total", 0),
         "metacritic_score": mc.get("score"),
-        "age_rating": age_rating
+        "age_rating": age_rating,
+        "dlc": dlc_ids,
+        "fullgame": fullgame_parsed,
     }
 
     return validate_constraints(game)
@@ -240,10 +269,16 @@ class PipelineLandingToTrusted:
             StructField("recommendations_total", IntegerType(), True),
             StructField("metacritic_score", IntegerType(), True),
             StructField("age_rating", StringType(), True),
+            StructField("dlc", ArrayType(IntegerType()), True),
+            StructField("fullgame", StructType([
+                StructField("appid", IntegerType(), True),
+                StructField("name",  StringType(),  True),
+            ]), True),
         ])
 
         clean_rdd = df.rdd.map(lambda row: clean_game_json(row.asDict(recursive=True)))
         df_clean = self.spark.createDataFrame(clean_rdd, schema)
+        df_clean = df_clean.withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))  # "YYYY-MM-DD"
 
         # Obtén la lista de appid ya en trusted_zone
         existing_appids = self.mongo.juegos.distinct("appid")

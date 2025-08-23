@@ -36,9 +36,23 @@ class MongoDBClient:
             self.videos_youtube     = self.db["video_youtube"]
             self.comentarios_youtube = self.db["comentarios_youtube"]
 
-        elif db_name == "exploitation_zone":
-            # COLLECCIONES DE LA EXPLOTATION ZONE
-            pass
+
+        elif db_name == "explotation_zone":
+
+            # Steam
+            self.juegos_explo  = self.db["juegos_steam"]
+            
+            # Crea indice sólo si no existe
+            self.juegos_explo.create_index(
+                [("appid", ASCENDING)],
+                unique=True,        # evita duplicados
+                background=True     # lo construye en segundo plano
+            )
+            self.juegos_explo.create_index(
+                [("name", 1), ("type", 1)],
+                unique=True,
+                background=True)
+
 
         else:
             raise ValueError(f"DB desconocida: {db_name}")
