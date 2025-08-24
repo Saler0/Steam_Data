@@ -1,3 +1,4 @@
+name: data_management
 services:
   mongo:
     image: mongo:6.0
@@ -6,12 +7,19 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   app:
     build: .
     volumes:
       - ./landing_zone:/app/landing_zone
     container_name: data_management_pipeline
+    restart: "no"
     depends_on:
       - mongo
     environment:

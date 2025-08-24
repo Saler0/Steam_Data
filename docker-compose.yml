@@ -1,0 +1,72 @@
+name: proyecto_steam
+
+services:
+  # --- MongoDB ---
+  mongo:
+    image: mongo:6.0
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/27017'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --- Job de sembrado (se ejecuta solo cuando tú quieras) ---
+  app:
+    build:
+      context: ./Data_management
+      dockerfile: Dockerfile
+    container_name: data_management_pipeline
+    volumes:
+      - ./Data_management/landing_zone:/app/landing_zone
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=trusted_zone
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"         # que haga su trabajo y termine
+    profiles: ["seed"]    # <-- solo se incluye si activas el profile "seed"
+
+  # --- MLflow ---
+  mlflow:
+    build:
+      context: ./modelos_steam_data2/mlflow
+      dockerfile: Dockerfile
+    container_name: steam_mlflow
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  # --- Analytics (puede correr solo, con Mongo y opcionalmente MLflow) ---
+  analytics:
+    build:
+      context: ./modelos_steam_data2
+      dockerfile: Dockerfile
+    container_name: steam_analytics
+    env_file: ./modelos_steam_data2/.env
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mlflow:
+        condition: service_started    # quita esto si analytics no usa MLflow
+    volumes:
+      - ./:/app
+      - analytics_outputs:/app/outputs
+      - analytics_data:/app/data
+      - analytics_models:/app/models
+      - gcp_secrets:/secrets:ro
+    command: ["/bin/bash", "-lc", "sleep infinity"]
+
+volumes:
+  mongo_data:
+    name: mongo_data
+  gcp_secrets:
+  analytics_outputs:
+  analytics_data:
+  analytics_models:
