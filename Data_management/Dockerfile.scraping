@@ -1,0 +1,26 @@
+# Usar una imagen base de Python ligera
+FROM python:3.9-slim
+
+# Establecer el directorio de trabajo dentro del contenedor
+WORKDIR /app
+
+# Instalar las dependencias necesarias para el scraping
+# Se instalan directamente para no depender de un requirements.txt que pueda tener librerías de más (como Spark)
+RUN pip install --no-cache-dir pandas beautifulsoup4 requests
+
+# Copiar el código de la aplicación al contenedor
+COPY main_mensual.py .
+COPY db/sqllite.py db/
+COPY data_ingestion/ data_ingestion/
+COPY entrypoint.sh .
+
+# Dar permisos de ejecución al script de entrypoint
+RUN chmod +x entrypoint.sh
+
+# Define el punto de entrada del contenedor
+ENTRYPOINT ["./entrypoint.sh"]
+
+# Comando por defecto que se pasará al entrypoint.
+# Apunta a la ruta de la base de datos definida en db/sqllite.py
+# y a un archivo de entrada de ejemplo.
+CMD ["--input", "landing_zone/unprocessed_games.ndjson", "--database", "data/steam_data.db"]

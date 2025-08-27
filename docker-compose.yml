@@ -33,6 +33,20 @@ services:
     restart: "no"         # que haga su trabajo y termine
     profiles: ["seed"]    # <-- solo se incluye si activas el profile "seed"
 
+  # --- Job de scraping mensual (se ejecuta solo cuando tú quieras) ---
+  monthly-scraper:
+    build:
+      context: ./Data_management
+      dockerfile: Dockerfile.scraping
+    container_name: monthly_scraper_job
+    volumes:
+      # Mapea la carpeta 'data' local a la del contenedor para persistir la BD SQLite
+      - ./Data_management/data:/app/data
+      # Mapea la carpeta de landing_zone por si necesitas leer archivos de entrada desde ahí
+      - ./Data_management/landing_zone:/app/landing_zone
+    restart: "no"         # que haga su trabajo y termine
+    profiles: ["scraping"] # <-- solo se incluye si activas el profile "scraping"
+
   # --- MLflow ---
   mlflow:
     build:
