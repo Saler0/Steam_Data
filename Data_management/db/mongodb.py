@@ -20,7 +20,7 @@ class MongoDBClient:
         if db_name == "trusted_zone":
             # COLLECCIONES DE LA TRUSTED ZONE
 
-            # Steam
+            #  == Steam juegos ==
             self.juegos  = self.db["juegos_steam"]
             
             # Crea indice sólo si no existe
@@ -30,7 +30,19 @@ class MongoDBClient:
                 background=True     # lo construye en segundo plano
             )
 
+            #  == Reviews juegos ==
             self.reviews   = self.db["steam_reviews"]
+
+            #  == Notiicas juegos ==
+            self.news_games = self.db["news_games"]
+
+            # Crea indice sólo si no existe
+            self.news_games.create_index(
+                [("gid", ASCENDING)],
+                unique=True,        # evita duplicados
+                background=True     # lo construye en segundo plano
+            )
+
 
             # Youtube
             self.videos_youtube     = self.db["video_youtube"]

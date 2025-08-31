@@ -33,15 +33,15 @@ class PipelineIngest:
         # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
         self.modo='MVP'
         if self.modo == 'MVP': # se capturara todas las reviews de un grupo selecto de APPIDs
-            self.appids_to_process_reviews=[]
+            self.appids_to_process=[570,413150]
         else: # Modo Realista
-            self.appids_to_process_reviews = None
+            self.appids_to_process = None
 
             
 
     def run(self):
-        logging.info(f"Iniciando ingesta de juegos y reviews en ApiSteam…")
-        steam = ApiSteam(self.trusted_client,self.appids_to_process_reviews)
+        logging.info(f"Iniciando ingesta de juegos, reviews y news en ApiSteam…")
+        steam = ApiSteam(self.trusted_client,self.appids_to_process)
         nombre_juegos = steam.run()
 
 
