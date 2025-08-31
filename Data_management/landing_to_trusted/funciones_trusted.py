@@ -4,12 +4,9 @@ import json
 import logging
 from html import unescape
 from functools import reduce
-from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit
+from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit, when
 from db.mongodb import MongoDBClient
-from pyspark.sql.types import (
-    StructType, StructField, StringType, IntegerType,
-    BooleanType, ArrayType, MapType
-)
+from pyspark.sql.types import ( StructType, StructField, StringType, IntegerType,BooleanType, ArrayType, MapType, LongType)
 import asyncio
 import glob
 from pymongo import MongoClient
@@ -25,10 +22,26 @@ from datetime import date
 def clean_text(text):
     if not text:
         return ""
-    text_no_urls = re.sub(r'https?://\S+', '', text)
-    text_no_html = re.sub(r'<.*?>', '', text_no_urls)
-    text_clean = unescape(text_no_html)
-    return text_clean.strip()
+    text = re.sub(r'https?://\S+', '', text)  # Quitar URLs "planas" http/https
+    text = re.sub(r'\{STEAM_[A-Z_]+\}/\S*', '', text) # Quitar placeholders típicos de Steam (imágenes de clan, etc.)
+
+    # Quitar bullets BBCode explícitos [*] y [/ *]
+    text = re.sub(r'\[\*\]', '', text)
+    text = re.sub(r'\[/\*\]', '', text)
+
+
+    text = re.sub(r'\[/?[a-zA-Z0-9]+(?:=[^\]]+)?\]', '', text) # Quitar BBCode (ej: [p], [/p], [h3], [url="..."], [img src="..."], [list], [*], [b], etc.)
+    text = re.sub(r'<.*?>', '', text) # Quitar tags HTML si quedara algo (por si mezclan)
+    text = unescape(text) # Unescape entidades HTML (&amp;, &quot;, etc.)
+
+    # Normalizar espacios y saltos de línea
+    text = re.sub(r'[ \t]+', ' ', text)          # colapsar espacios
+    text = re.sub(r'\s*\n\s*', '\n', text)       # limpiar bordes de líneas
+    text = re.sub(r'\n{3,}', '\n\n', text)       # evitar 3+ saltos seguidos
+
+    return text.strip()
+
+clean_text_udf = udf(clean_text, StringType())
 
 def call_google_translate(text: str) -> str:
     """Llama al endpoint público y devuelve la traducción."""
@@ -437,12 +450,99 @@ class PipelineLandingToTrusted:
 
         logging.info("Transcripciones procesadas e insertadas correctamente.")
 
+    def run_news(self):
+        """
+        Lee landing_zone/api_steam/steam_news_{YYYY_MM_DD}.ndjson, limpia y transforma,
+        y escribe en trusted_zone.news_games únicamente (gid, title, contents, date, appid, updated_at).
+        - contents: limpio de HTML (clean_text)
+        - date: convertido a 'yyyy-MM-dd' desde epoch (Steam entrega segundos)
+        - updated_at: fecha actual 'yyyy-MM-dd' (momento de inserción en trusted)
+        Dedup por gid contra lo que ya exista en Mongo.
+        """
+        fecha_actual = date.today()
+        fecha_formateada = fecha_actual.strftime("%Y_%m_%d")
+        path = f"landing_zone/api_steam/steam_news_{fecha_formateada}.ndjson"
+
+        if not os.path.exists(path):
+            logging.warning(f"No se encontró {path}; omitiendo carga de news.")
+            return
+
+        # 1) Leer el NDJSON del día
+        df = self.spark.read.json(path)
+
+        if df.rdd.isEmpty():
+            logging.warning("Archivo de news vacío; no se insertará nada.")
+            return
+
+        # 2) Estandarizar columnas y tipos mínimos que nos interesan
+        #    - gid (string)
+        #    - title (string)
+        #    - contents (string) -> limpiar HTML
+        #    - date (epoch int/long) -> yyyy-MM-dd
+        #    - appid (int)
+        #    - updated_at (yyyy-MM-dd)
+        df_sel = (
+            df
+            .select(
+                col("gid").cast(LongType()).alias("gid"),
+                col("title").cast(StringType()).alias("title"),
+                col("contents").cast(StringType()).alias("contents"),
+                col("date").cast("long").alias("date_epoch"),
+                col("appid").cast(IntegerType()).alias("appid")
+            )
+            .withColumn("contents", clean_text_udf(col("contents")))
+            .withColumn("date", from_unixtime(col("date_epoch"), "yyyy-MM-dd").cast(StringType()))
+            .drop("date_epoch")
+            .withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))
+        )
+
+        # 3) Quitar duplicados dentro del propio batch (por si el NDJSON tiene repetidos)
+        df_unique_batch = df_sel.dropDuplicates(["gid"])
+
+        # 4) Evitar insertar lo que ya existe en Mongo (dedupe por gid)
+        coll = self.db[self.mongo.news_games.name]
+        total_in_mongo = coll.estimated_document_count()
+
+        if total_in_mongo > 0:
+            existing_gids = coll.distinct("gid")
+            if existing_gids:
+                existing_df = (
+                    self.spark
+                        .createDataFrame([(g,) for g in existing_gids], ["gid"])
+                )
+                df_to_insert = df_unique_batch.join(existing_df, on="gid", how="left_anti")
+            else:
+                df_to_insert = df_unique_batch
+        else:
+            df_to_insert = df_unique_batch
+
+        count_new = df_to_insert.count()
+        logging.info(f"📰 News nuevas a insertar en trusted_zone.news_games: {count_new}")
+
+        if count_new == 0:
+            logging.info("No hay news nuevas para insertar.")
+            return
+
+        # 5) Escribir en Mongo (colección trusted_zone.news_games)
+        (
+            df_to_insert
+            .select("gid", "title", "contents", "date", "appid", "updated_at")
+            .write
+            .format("mongo")
+            .mode("append")
+            .option("uri", self.mongo_uri)
+            .option("database", self.mongo_db)
+            .option("collection", self.mongo.news_games.name)
+            .save()
+        )
+        logging.info("✅ Inserción de news completada en trusted_zone.news_games.")
 
     def run(self):
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
         # self.run_reviews()
+        self.run_news()
         # self.run_youtube_comments()
         # self.run_youtube_transcripts()
 
