@@ -8,6 +8,8 @@ import json
 from collections import OrderedDict
 from datetime import date
 from pymongo.errors import DuplicateKeyError
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType, IntegerType, LongType
 
 class TrustedToExploitation:
     """
@@ -23,8 +25,12 @@ class TrustedToExploitation:
         self.spark = spark
         self.trusted = trusted_client
         self.explo = explo_client
+
         self.trusted_coll_uri = f"{self.trusted.uri}/{self.trusted.db_name}.juegos_steam"
         self.explo_coll_name = "juegos_steam"  # destino
+                
+        self.trusted_news_uri = f"{self.trusted.uri}/{self.trusted.db_name}.news_games"
+        self.explo_news_coll  = "news_games"
 
         self.today_str = date.today().strftime("%Y-%m-%d")
 
@@ -354,20 +360,119 @@ class TrustedToExploitation:
 
         df_dlcs.foreachPartition(_attach)
 
+
+    def _explo_news_is_empty(self) -> bool:
+        client = MongoClient(self.explo.uri)
+        db = client[self.explo.db_name]
+        exists = self.explo_news_coll in db.list_collection_names()
+        if not exists:
+            client.close()
+            return True
+        count = db[self.explo_news_coll].estimated_document_count()
+        client.close()
+        return count == 0
+
+    def _read_trusted_news(self, only_today: bool):
+        match_stage = {}
+        if only_today:
+            match_stage["updated_at"] = self.today_str  # 'YYYY-MM-DD'
+
+        pipeline = []
+        if match_stage:
+            pipeline.append({"$match": match_stage})
+
+        # Seleccionamos sólo las columnas pedidas
+        pipeline.append({"$project": {
+            "_id": 0,
+            "gid": {"$toString": "$gid"},   # forzamos string por seguridad
+            "title": 1,
+            "contents": 1,
+            "date": 1,
+            "appid": 1,
+            "updated_at": 1
+        }})
+
+        return (
+            self.spark.read
+                .format("mongo")
+                .option("uri", self.trusted_news_uri)
+                .option("pipeline", json.dumps(pipeline))
+                .load()
+        )
+
+    def _write_news_only_new(self, df_news):
+        """
+        Inserta en explotation_zone.news_games sólo los gid que no existan.
+        """
+        if df_news.rdd.isEmpty():
+            return
+
+        # Traemos gids existentes del destino para anti-join
+        client = MongoClient(self.explo.uri)
+        existing_gids = list(client[self.explo.db_name][self.explo_news_coll].distinct("gid"))
+        client.close()
+
+        if existing_gids:
+            existing_df = self.spark.createDataFrame([(g,) for g in existing_gids], ["gid"])
+            df_to_insert = df_news.dropDuplicates(["gid"]).join(existing_df, on="gid", how="left_anti")
+        else:
+            df_to_insert = df_news.dropDuplicates(["gid"])
+
+        new_cnt = df_to_insert.count()
+        if new_cnt == 0:
+            return
+
+        (df_to_insert
+            .select("gid","title","contents","date","appid","updated_at")
+            .write
+            .format("mongo")
+            .mode("append")
+            .option("uri", self.explo.uri)
+            .option("database", self.explo.db_name)
+            .option("collection", self.explo_news_coll)
+            .save())
+
+
+    def run_news(self):
+        """
+        - Si explotation_zone.news_games está vacía -> full refresh (todo trusted).
+        - Si no, sólo registros de hoy (updated_at == hoy) desde trusted.
+        - Siempre inserta sólo gid nuevos en destino.
+        """
+        is_dest_empty = self._explo_news_is_empty()
+        df_trusted_news = self._read_trusted_news(only_today=not is_dest_empty)
+
+        df_trusted_news = (
+            df_trusted_news
+            .withColumn("gid", F.col("gid").cast(StringType()))
+            .withColumn("title", F.col("title").cast(StringType()))
+            .withColumn("contents", F.col("contents").cast(StringType()))
+            .withColumn("date", F.col("date").cast(StringType()))
+            .withColumn("appid", F.col("appid").cast(IntegerType()))
+            .withColumn("updated_at", F.col("updated_at").cast(StringType()))
+        )
+
+        total_read = df_trusted_news.count()
+        mode_str = "FULL REFRESH" if is_dest_empty else f"INCREMENTAL (updated_at={self.today_str})"
+        print(f"📰 News trusted leídas: {total_read} | modo: {mode_str}")
+
+        self._write_news_only_new(df_trusted_news)
+        print("✅ News movidas a explotation_zone.news_games (solo nuevas por gid).")
+
     # -------------------- RUN --------------------
     def run(self):
-        # 1) decidir modo
+        # 1) decidir modo (para juegos)
         self.is_full_refresh = self._explo_is_empty()
 
-        # 2) leer trusted (full o incremental)
+        # 2) leer trusted (full o incremental)  juegos
         df_trusted = self.load_trusted()
+        if df_trusted.rdd.isEmpty():
+            print("ℹ️ No hay juegos que mover (filtro updated_at=today no produjo filas). Se continúa con NEWS.")
+        else:
+            final_games, dlcs_to_attach = self.transform(df_trusted) # transformar (según modo)
+            final_games = final_games.coalesce(64) # escribir juegos
+            self.write_upsert_games(final_games)
+            self.attach_dlcs_incremental(dlcs_to_attach) # (solo incremental) adjuntar DLC nuevos sin pisar los existentes
 
-        # 3) transformar (según modo)
-        final_games, dlcs_to_attach = self.transform(df_trusted)
-
-        # 4) escribir juegos
-        final_games = final_games.coalesce(64)
-        self.write_upsert_games(final_games)
-
-        # 5) (solo incremental) adjuntar DLC nuevos sin pisar los existentes
-        self.attach_dlcs_incremental(dlcs_to_attach)
+        # 3) mover NEWS
+        self.run_news()
