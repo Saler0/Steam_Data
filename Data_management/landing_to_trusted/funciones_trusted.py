@@ -484,7 +484,7 @@ class PipelineLandingToTrusted:
         df_sel = (
             df
             .select(
-                col("gid").cast(LongType()).alias("gid"),
+                col("gid").cast(StringType()).alias("gid"),
                 col("title").cast(StringType()).alias("title"),
                 col("contents").cast(StringType()).alias("contents"),
                 col("date").cast("long").alias("date_epoch"),
