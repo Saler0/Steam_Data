@@ -49,6 +49,7 @@ class ApiSteam:
         
     def get_reviews_since_ts(self, appid, since_ts=0):
         try:
+            time.sleep(0.9)
             cursor = "*"
             page = 1
             all_reviews = []
@@ -80,7 +81,6 @@ class ApiSteam:
 
                 cursor = data.get("cursor")
                 page += 1
-                time.sleep(0.8)  # respetar rate-limit
 
             return all_reviews, False
         
@@ -163,43 +163,46 @@ class ApiSteam:
 
         logging.info(f"✔ Creado/actualizado NDJSON de juegos en {games_ndjson_path}")
 
-        
-        # 3) Reseñas: para *todos* los appids (incluyendo los que esta en o no estan la base de datos) a menos que este en modo MVP
 
         if self.appids_to_process is not None:
             all_appids=self.appids_to_process
-            
 
-        # for appid in all_appids:
-        #     # 3.1 determinar desde qué timestamp arrancar
-        #     if appid in existing_appids:
-        #         # saco el max timestamp ya grabado en trusted_zone.steam_reviews
-        #         rec = self.trusted_client.reviews.find_one(
-        #             {"appid": appid},
-        #             sort=[("timestamp_created", -1)],
-        #             projection={"timestamp_created": 1}
-        #         )
-        #         since_ts = rec["timestamp_created"] if rec else 0
-        #     else:
-        #         # appid nuevo → bajar todo el histórico
-        #         since_ts = 0
+        # 3) Reseñas: para *todos* los appids (incluyendo los que esta en o no estan la base de datos) a menos que este en modo MVP
 
-        #     logging.info(f"⭐ Fetch reviews {appid} desde ts={since_ts}")
+        # Guardar TODO en UN NDJSON unificado del día: steam_reviews_{fecha_formateada}.ndjson
+        reviews_ndjson_path = os.path.join(self.lz_games_dir, f"steam_reviews_{fecha_formateada}.ndjson") 
 
-        #     reviews, err = self.get_reviews_since_ts(appid, since_ts)
-        #     if err:
-        #         logging.warning(f"❌ Falló descarga reseñas {appid}")
-        #         continue
+        # Abrimos una sola vez en append (se crea si no existe)
+        with open(reviews_ndjson_path, "a", encoding="utf-8") as fr_all:
+            for appid in all_appids:
+                # 3.1 determinar desde qué timestamp arrancar
+                if appid in existing_appids:
+                    # saco el max timestamp ya grabado en trusted_zone.steam_reviews
+                    rec = self.trusted_client.reviews.find_one(
+                        {"appid": appid},
+                        sort=[("timestamp_created", -1)],
+                        projection={"timestamp_created": 1}
+                    )
+                    since_ts = rec["timestamp_created"] if rec else 0
+                else:
+                    # appid nuevo → bajar todo el histórico
+                    since_ts = 0
 
-        #     # 3.2 grabo en landing zone
-        #     reviews_path = os.path.join(self.lz_games_dir, f"reviews_{appid}.ndjson")
-        #     mode = "a" if os.path.exists(reviews_path) else "w"
-        #     with open(reviews_path, mode, encoding="utf-8") as fr:
-        #         for r in reviews:
-        #             # si quisieras, podrías añadir "appid" en cada r antes de grabar
-        #             fr.write(json.dumps(r, ensure_ascii=False) + "\n")
+                logging.info(f"⭐ Fetch reviews {appid} desde ts={since_ts}")
 
-        #     logging.info(f"✔ Reseñas de {appid} en {reviews_path} ({len(reviews)} nuevas)")
+                reviews, err = self.get_reviews_since_ts(appid, since_ts)
+                if err:
+                    logging.warning(f"❌ Falló descarga reseñas {appid}")
+                    continue
+
+                escritos = 0
+                for r in reviews:
+                    # Aseguramos appid en cada review
+                    r["appid"] = appid
+                    fr_all.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    escritos += 1
+
+                logging.info(f"✔ Reseñas de {appid} añadidas a {reviews_ndjson_path} ({escritos} nuevas)")
 
 
         # 4) News: para *todos* los appids (incluyendo los que esta en o no estan la base de datos) a menos que este en modo MVP

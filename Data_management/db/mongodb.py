@@ -32,6 +32,13 @@ class MongoDBClient:
 
             #  == Reviews juegos ==
             self.reviews   = self.db["steam_reviews"]
+            # Crea indice sólo si no existe
+            self.reviews.create_index(
+                [("recommendationid", ASCENDING)],
+                unique=True,        # evita duplicados
+                background=True     # lo construye en segundo plano
+            )
+
 
             #  == Notiicas juegos ==
             self.news_games = self.db["news_games"]
