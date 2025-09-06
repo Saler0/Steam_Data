@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlflow
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=file:///mlruns
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlruns
+    volumes:
+      - mlruns:/mlruns
+    command: bash -lc "pip install --no-cache-dir mlflow && mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri file:///mlruns --default-artifact-root /mlruns"
+    ports:
+      - "5000:5000"
+
+  app:
+    build: .
+    container_name: steam-analytics
+    depends_on:
+      - mongo
+      - mlflow
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp.json
+      - MONGO_URI=mongodb://mongo:27017
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./configs:/app/configs
+      - ./secrets:/secrets:ro
+    # Ejemplos de comandos:
+    # command: ["bash","-lc","dvc repro -j 4 report editor_view"]
+
+volumes:
+  mongo_data:
+  mlruns:
+

@@ -1,0 +1,185 @@
+# ----------------------------------------------------------------------------
+# Fichero de Configuración para la Detección y Análisis de Eventos de Videojuegos
+#
+# Este archivo centraliza los parámetros para los diferentes scripts del pipeline.
+# Un cambio en este archivo puede afectar a toda la ejecución,
+# permitiendo una gestión flexible del proceso.
+# ----------------------------------------------------------------------------
+
+# Directorios de salida para los artefactos generados por el pipeline.
+output_dir: outputs/events
+reports_output_dir: "outputs/reports"
+backend: python  # opciones: python | spark
+
+# Entradas para el reporte final
+embeddings_parquet: data/processed/embeddings/
+clusters_parquet: data/processed/clusters.parquet
+metadata_parquet: data/processed/game_metadata.parquet
+
+# --- Ejemplos en lago de objetos ---
+# GCS:
+# output_dir: gs://mi-bucket-steam/outputs/events
+# reports_output_dir: gs://mi-bucket-steam/outputs/reports
+# embeddings_parquet: gs://mi-bucket-steam/processed/embeddings/
+# clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
+# metadata_parquet: gs://mi-bucket-steam/processed/game_metadata.parquet
+
+# S3 (pandas requiere s3fs; Spark usar s3a://):
+# output_dir: s3://mi-bucket-steam/outputs/events
+# reports_output_dir: s3://mi-bucket-steam/outputs/reports
+# embeddings_parquet: s3://mi-bucket-steam/processed/embeddings/
+# clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
+# metadata_parquet: s3://mi-bucket-steam/processed/game_metadata.parquet
+
+# --- CONFIGURACIÓN DE PARALELIZACIÓN ---
+# Controla cómo se distribuye la carga de trabajo de la detección de eventos
+# entre los diferentes núcleos de la CPU.
+parallelization:
+  # Elige el motor de paralelización. Esto afecta directamente a la lógica en el
+  # script `detect_events.py`.
+  # 'ray': Ideal para escalar a un clúster de múltiples máquinas.
+  # 'multiprocessing': Recomendado para ejecutar en una única máquina, usando todos sus núcleos.
+  mode: "ray" # Opciones: "ray" | "multiprocessing"
+
+# Configuración específica para el clúster de Ray.
+# Esta sección solo se usa si `parallelization.mode` está configurado como 'ray'.
+ray_cluster:
+  # Activa o desactiva la inicialización de Ray.
+  enabled: true
+  # La dirección del 'head node' del clúster de Ray.
+  # 'auto' intenta conectarse a un clúster local, o a uno ya iniciado en la red.
+  # También puedes especificar una dirección IP específica (ej. 'ray://<IP>:10001').
+  address: "auto"
+
+# --- PARÁMETROS DE DETECCIÓN DE EVENTOS ---
+# Controla el corazón del script `detect_events.py`, que identifica picos y caídas.
+detection:
+  # El umbral de z-score para que un pico/caída sea considerado un "evento".
+  # Un z-score de 1.5 significa que el cambio es 1.5 desviaciones estándar
+  # por encima o por debajo de la media. Un valor más alto (ej. 3.0) hace
+  # el detector menos sensible, y solo marca cambios más anómalos.
+  zscore_threshold: 1.5
+
+# --- FUENTES DE DATOS EXTERNAS (SEÑALES) PARA ENRIQUECIMIENTO ---
+# Define la configuración para obtener datos que se usarán para contextualizar
+# los eventos detectados. Estos datos se gestionan por scripts como
+# `fetch_signals_for_event.py`.
+signals:
+  # Configuración para los datos de la plataforma de streaming Twitch.
+  twitch:
+    # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
+    # 'api': Llama a la API de Twitch para obtener datos en tiempo real.
+    mode: "file"
+    # Credenciales para la API de Twitch. Se recomienda usar variables de entorno
+    # para no exponer datos sensibles.
+    client_id: ${TWITCH_CLIENT_ID}
+    client_secret: ${TWITCH_CLIENT_SECRET}
+    # Ruta al archivo de datos de Twitch cuando el modo es 'file'.
+    file: "data/external/twitch/monthly_{appid}.csv"
+    # Directorio de caché si el modo es 'api'.
+    api_cache_dir: "data/external/twitch/api_cache"
+  
+  # Configuración para los datos de la plataforma de videos YouTube.
+  youtube:
+    mode: "file"
+    # Clave de la API de YouTube. Se recomienda usar una variable de entorno.
+    api_key: ${YOUTUBE_API_KEY}
+    file: "data/external/youtube/monthly_{appid}.csv"
+    api_cache_dir: "data/external/youtube/api_cache"
+  
+  # Configuración para los datos de noticias/actualizaciones de Steam.
+  # Gestionado por el script `steam_updates.py`.
+  steam_updates:
+    mode: "file"
+    file: "data/external/changelogs/{appid}.json"
+
+# Configuración para obtener información sobre los DLCs (Contenido Descargable).
+# Esta sección se usa en el script `dlcs.py`.
+dlc:
+  enabled: true
+  mongo_connection:
+    # URL de conexión a la base de datos de MongoDB.
+    uri: ${MONGO_URI:-mongodb://mongo:27017}
+    database: ${MONGO_DB_GAMES:-exploitation_zone}
+    collection: ${MONGO_COLL_GAMES:-juegos_steam}
+
+# --- CONFIGURACIÓN DEL MODELADO DE TÓPICOS (BERTopic) ---
+# Parámetros para el script que realiza el modelado de tópicos.
+bertopic:
+  # El modelo de embedding usado para convertir texto en vectores.
+  embedding_model: 'all-MiniLM-L6-v2'
+  # La frecuencia mínima de documentos para que una palabra sea considerada.
+  min_df: 5 
+  # El tamaño mínimo de un clúster de documentos para ser un tópico.
+  min_topic_size: 15
+  # Ventana de tiempo (en meses) para agrupar documentos antes de modelar tópicos.
+  window_months: 2
+  # El número de tópicos a extraer por cada ventana de tiempo.
+  top_n_topics: 3
+  # Ponderación opcional por votos de utilidad en reseñas
+  weighting:
+    enabled: true
+    method: log2   # opciones: log2 | log10 | log1p
+    cap: 5         # máximo de repeticiones por reseña
+    min_len: 100   # longitud mínima del texto a considerar
+  # Límite de documentos por evento (tras ponderación)
+  max_docs_per_event: 20000
+
+# Preagregados mensuales opcionales (para escala)
+preaggregated:
+  reviews_monthly: data/warehouse/reviews_monthly.parquet
+  players_monthly: data/warehouse/players_monthly.parquet
+
+  # Ejemplos en lago de objetos:
+  # GCS:
+  # reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
+  # players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
+  # S3:
+  # reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
+  # players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
+
+# --- CONFIGURACIÓN DEL CLASIFICADOR (LLM) ---
+# Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
+# Esta sección es usada por el script `news_classifier.py`.
+llm:
+  # Activa o desactiva el uso del LLM en el pipeline.
+  enabled: true
+  # Identificador del modelo que se pasa a la API del servidor.
+  model_id: "local-llm"
+  # URL del servidor donde corre el LLM (por ejemplo, una instancia de vLLM, Ollama, etc.).
+  server_url: "http://localhost:8000/v1/chat/completions"
+  # Máximo número de tokens a generar por el modelo en cada respuesta.
+  max_new_tokens: 128
+  # Controla la aleatoriedad de la respuesta. Un valor bajo (ej. 0.1) produce
+  # respuestas más deterministas y consistentes.
+  temperature: 0.1
+  # Número máximo de hilos para clasificar títulos de noticias en paralelo
+  max_workers: 8
+  # La taxonomía de categorías que el LLM usará para etiquetar los tópicos de BERTopic.
+  taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
+  # Las categorías que el LLM usará para clasificar las noticias de Steam.
+  news_labels: ["patch","marketing","community","other"]
+  # Nombre del experimento de MLflow para esta etapa.
+  mlflow_experiment: "news_topics_classification"
+
+# Ruta de tópicos para el clasificador de noticias si se usa
+topics_input_path: outputs/events/topics.parquet
+
+# --- CONFIGURACIÓN DE MLflow ---
+# Controla el seguimiento de experimentos, modelos y artefactos.
+mlflow:
+  enabled: true
+  # Nombre del experimento en MLflow.
+  experiment: "Steam Analytics"
+  # Prefijo para el nombre de las ejecuciones.
+  run_name_prefix: "eventos_detect" 
+
+# Filtro opcional por clúster para limitar el alcance del pipeline de eventos (ej. [42])
+cluster_filter: []
+
+# --- CONFIGURACIÓN DE MONGO PARA NOTICIAS ---
+# Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
+mongodb:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
+  collection_name: ${MONGO_COLL_NEWS:-news_games}

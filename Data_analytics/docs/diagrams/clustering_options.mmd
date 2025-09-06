@@ -1,0 +1,41 @@
+flowchart LR
+  A[Config method] -->|kmeans| KMEANS
+  A -->|graph_leiden| LEIDEN
+
+  subgraph KMeans["KMeans Path"]
+    KMEANS --> KMTHR{{n_samples >= threshold_spark?}}
+    KMTHR -->|Sí| SPARKK[Spark KMeans\n- probar k_range\n- evaluar silhouette\n- k_final]
+    KMTHR -->|No| SKK[scikit-learn KMeans\n- n_clusters fijo\n- n_init=10]
+    SPARKK --> KOUT[(clusters.parquet)]
+    SKK --> KOUT
+    KCFG[configs/clustering.yaml\n- kmeans.threshold_spark\n- kmeans.k_range\n- kmeans.n_clusters\n- kmeans.seed] --- KMEANS
+  end
+
+  subgraph Leiden["Graph Leiden Path"]
+    LEIDEN --> IDX[FAISS index (FlatIP/GPU opcional)]
+    IDX --> KNN[kNN search\n- k_neighbors]
+    KNN --> G[Graph (edges>sim_threshold)]
+    G --> PART[Leiden partition\n- resolution]
+    PART --> LOUT[(clusters.parquet\n(+ soft columns opcionales))]
+
+    subgraph Post["Post-análisis (opcional)"]
+      PART --> SOFT{{soft_membership.enabled?}}
+      SOFT -->|Sí| PROBS[p_assigned / p_second\nconfidence_margin]
+      SOFT -->|No| POSTEND
+      PROBS --> BORD{{borderline.method}}
+      BORD -->|percentile| PERC[pct inferior por clúster]
+      BORD -->|absolute| ABS[umbral fijo]
+      PERC --> POSTEND
+      ABS --> POSTEND
+      CONS{{consensus.enabled?}} --- PART
+      CONS -->|Sí| CONS2[Multi-resolutions\nconsensus graph]
+      CONS2 --> PART
+    end
+
+    LCFG[configs/clustering.yaml\n- faiss.index/use_gpu\n- graph_leiden.k_neighbors\n- graph_leiden.sim_threshold\n- graph_leiden.resolution\n- post_analysis.*] --- LEIDEN
+  end
+
+  KOUT --> ART[(data/processed/clusters.parquet)]
+  LOUT --> ART
+  ART --> EXTRA[Artefactos extra\n- models/cluster_medoids.json\n- outputs/clustering/cluster_stats.csv\n- outputs/clustering/borderline_games.csv]
+

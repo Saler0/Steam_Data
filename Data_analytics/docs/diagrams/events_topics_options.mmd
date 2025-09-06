@@ -1,0 +1,51 @@
+flowchart TB
+  subgraph Events["Events Detection Options"]
+    CIN[(Input: clusters.parquet)]
+    CFILTER{{cluster_filter?}}
+    PRE[Preaggregated monthly\nreviews/players (preferred)]
+    PAR{{parallelization.mode\nray | multiprocessing}}
+    ZS[zscore_threshold on dlog\nper variable: players, pos, neg, total_reviews]
+    EOUT[(outputs/events/events.parquet)]
+  end
+
+  subgraph Topics["Topics Modeling Options (BERTopic)"]
+    TIN[(events.parquet)]
+    TWIN[window_months (± around event)]
+    TPAR[embedding_model, min_df, min_topic_size]
+    TWGT[weighting: enabled, method (log2|log10|log1p), cap, min_len]
+    TMAX[max_docs_per_event]
+    TPARMODE{{parallelization.mode\nray | multiprocessing}}
+    CV{{gensim available?}}
+    TOUT[(outputs/events/topics.parquet)]
+  end
+
+  subgraph NewsLLM["LLM Labeling & News Classification"]
+    NLBL[Label BERTopic topics\n(llm_label)]
+    NCFG[llm: model_id, server_url, temperature, news_labels]
+    NDB[(mongodb: news_games)]
+    NCLS[Classify news titles\n(batch or --appid)]
+    TLAB[(outputs/events/topics_labeled.parquet)]
+    NOUT[(outputs/events/news_classified.parquet)]
+  end
+
+  EPIPE[enrich_events.py\nmerge: Twitch/YouTube/DLC + news counts + topic labels]
+  EEXPL[(outputs/events/explanations.parquet)]
+
+  CIN --> CFILTER --> PAR --> ZS --> EOUT
+  PRE -.override raw.-> ZS
+
+  %% Spark backend alternative
+  ESPARK[Events Spark SQL/Window\n(dlog + z-score)] --> EOUT
+
+  TIN --> TWIN --> TPAR --> TWGT --> TMAX --> TPARMODE --> TOUT
+  CV -->|sí| TOUT
+
+  TOUT --> NLBL --> TLAB
+  NCFG --> NLBL
+  NDB --> NCLS --> NOUT
+
+  EOUT --> EPIPE
+  TOUT --> EPIPE
+  TLAB --> EPIPE
+  NOUT --> EPIPE
+  EPIPE --> EEXPL

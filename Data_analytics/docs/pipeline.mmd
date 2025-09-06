@@ -1,0 +1,47 @@
+flowchart LR
+  subgraph Base["Flujo base"]
+    E["Embeddings (metadata, embeddings, num features)"]
+    C["Clustering (usa embeddings -> clusters, medoids)"]
+    E --> C
+  end
+
+  subgraph Eventos["Rama Eventos"]
+    Ev["Events (usa clusters -> events)"]
+    T["Topics (usa events -> topics)"]
+    NC["News Classifier (usa topics -> news, topics_labeled)"]
+    En["Enrich (usa events/topics/news -> explanations)"]
+    Ev --> T --> NC --> En
+  end
+
+  subgraph Reglas["Rama Reglas"]
+    P["Prepare (params.mongo -> data/prepared)"]
+    AR["Apply Rules (params.* -> data/with_rules)"]
+    EV["Evaluate (params.mlflow -> metrics.json)"]
+    P --> AR --> EV
+  end
+
+  subgraph CCF["Rama CCF"]
+    CC["CCF Analysis (external players -> summary)"]
+  end
+
+  subgraph Reporte["Convergencia"]
+    R["Report (deps: clusters, events, topics, explanations, ccf)"]
+    Ed["Editor View ({appid}.json -> {appid}_editor.json)"]
+    R --> Ed
+  end
+
+  C --> Ev
+  C --> R
+  Ev -.-> R
+  T -.-> R
+  En --> R
+  CC --> R
+
+  %% --- Client Report ---
+  CR["Client Report (inputs: client_file; uses all outs)"]
+  E --> CR
+  C --> CR
+  Ev --> CR
+  T --> CR
+  En --> CR
+  CC --> CR

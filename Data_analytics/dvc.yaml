@@ -1,0 +1,243 @@
+# ----------------------------------------------------------------------------
+# Pipeline de Datos de Steam
+# Este archivo define las etapas, dependencias y parámetros para el
+# flujo de trabajo de análisis de datos con DVC.
+# ----------------------------------------------------------------------------
+stages:
+  preagg_reviews:
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
+    deps:
+      - src/pipelines/preaggregations/reviews_monthly.py
+      - configs/ccf_analysis.yaml
+    outs:
+      - data/warehouse/reviews_monthly.parquet
+
+  preagg_players:
+    cmd: python src/pipelines/preaggregations/players_monthly.py --players_dir data/external/players --out data/warehouse/players_monthly.parquet
+    deps:
+      - src/pipelines/preaggregations/players_monthly.py
+      - data/external/players/
+    outs:
+      - data/warehouse/players_monthly.parquet
+  # --- Etapa 1: Generación de Embeddings y Características Numéricas ---
+  # Genera representaciones vectoriales y features a partir de metadatos.
+  embeddings:
+    cmd: python src/pipelines/generate_embeddings.py --config configs/embeddings.yaml
+    deps:
+      - src/pipelines/generate_embeddings.py
+      - configs/embeddings.yaml
+    outs:
+      - data/processed/embeddings/
+      - data/processed/embeddings.parquet
+
+  # --- Etapa 2: Agrupación de Juegos (Clustering) ---
+  # Utiliza los embeddings para agrupar juegos similares.
+  clustering:
+    cmd: python src/pipelines/run_clustering.py --config configs/clustering.yaml
+    deps:
+      - src/pipelines/run_clustering.py
+      - configs/clustering.yaml
+      - data/processed/embeddings/
+    outs:
+      - data/processed/clusters.parquet
+      - models/cluster_medoids.json
+    metrics:
+      - outputs/clustering/cluster_stats.csv
+      - outputs/clustering/borderline_games.csv
+
+  # --- Rama Paralela 1: Detección de Eventos y Análisis de Insights ---
+  # Esta rama se puede ejecutar en paralelo con las otras dos ramas.
+  events:
+    cmd: python src/pipelines/event_detection/detect_events.py --config configs/events.yaml
+    deps:
+      - src/pipelines/event_detection/detect_events.py
+      - configs/events.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+      - data/processed/clusters.parquet
+    outs:
+      - outputs/events/events.parquet
+
+  topics:
+    cmd: python src/insights/topic_motives.py --config configs/events.yaml
+    deps:
+      - src/insights/topic_motives.py
+      - configs/events.yaml
+      - outputs/events/events.parquet
+    outs:
+      - outputs/events/topics.parquet
+
+  news_classifier:
+    cmd: python src/insights/news_classifier.py --config configs/events.yaml
+    deps:
+      - src/insights/news_classifier.py
+      - configs/events.yaml
+      - outputs/events/topics.parquet
+    outs:
+      - outputs/events/news_classified.parquet
+      - outputs/events/topics_labeled.parquet
+
+  enrich:
+    cmd: python src/pipelines/event_detection/enrich_events.py --config configs/events.yaml
+    deps:
+      - src/pipelines/event_detection/enrich_events.py
+      - configs/events.yaml
+      - outputs/events/events.parquet
+      - outputs/events/topics.parquet
+      - outputs/events/news_classified.parquet
+    outs:
+      - outputs/events/explanations.parquet
+
+   # --- Rama Paralela 2: Aplicación y Evaluación de Reglas de Decisión ---
+  # Esta rama se puede ejecutar en paralelo con las otras dos ramas.
+  prepare:
+    cmd: python src/pipelines/decision_rules/pipeline.py prepare --config configs/params.yaml
+    deps:
+      - src/pipelines/decision_rules/pipeline.py
+      - src/pipelines/decision_rules/reglas_decision.py
+      - configs/params.yaml
+    params:
+      - configs/params.yaml:
+          - mongo
+    outs:
+      - data/prepared/
+
+  apply_rules:
+    cmd: python src/pipelines/decision_rules/pipeline.py apply_rules --config configs/params.yaml
+    deps:
+      - src/pipelines/decision_rules/pipeline.py
+      - src/pipelines/decision_rules/reglas_decision.py
+      - data/prepared/
+      - configs/params.yaml
+    params:
+      - configs/params.yaml:
+          - regla_precio
+          - justificacion_precio
+          - saturacion_cluster_1
+          - saturacion_cluster_2
+          - saturacion_cluster_3
+          - justificacion_actividad
+          - experiencia_jugador
+          - deteccion_abandono
+          - limitaciones_tecnicas
+          - evaluacion_limitaciones
+          - publishers_estudios
+          - prioridad_idiomas
+    outs:
+      - data/with_rules/
+
+  evaluate:
+    cmd: python src/pipelines/decision_rules/pipeline.py evaluate --config configs/params.yaml
+    deps:
+      - src/pipelines/decision_rules/pipeline.py
+      - data/with_rules/
+      - configs/params.yaml
+    params:
+      - configs/params.yaml:
+          - mlflow
+    outs:
+      - outputs/reports/metrics.json
+
+  # --- Rama Paralela 3: Análisis de Correlación Cruzada (CCF) ---
+  # Esta rama puede ejecutarse en paralelo con ambas ramas anteriores.
+  ccf:
+    cmd: python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_analysis.yaml
+    deps:
+      - src/pipelines/ccf_analysis/analyze_competitors_ccf.py
+      - configs/ccf_analysis.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+    outs:
+      - outputs/ccf_analysis/summary.parquet
+
+  # --- Etapa Final: Generación de Informes (Convergencia) ---
+  # Esta etapa no se puede paralelizar ya que depende de las salidas de otras etapas.
+  report:
+    cmd: >
+      python src/insights/build_game_report.py
+      --config configs/events.yaml
+      --appid ${params.report.appid}
+      --top_k ${params.report.neighbors_top_k}
+    deps:
+      - src/insights/build_game_report.py
+      - configs/events.yaml
+      - data/processed/clusters.parquet
+      - outputs/events/events.parquet
+      - outputs/events/topics.parquet
+      - outputs/events/explanations.parquet
+      - outputs/ccf_analysis/summary.parquet
+    params:
+      - configs/params.yaml:
+          - report
+    outs:
+      - outputs/reports/${params.report.appid}.json
+
+  editor_view:
+    cmd: >
+      python src/insights/compose_editor_payload.py
+      --appid ${params.report.appid}
+    deps:
+      - src/insights/compose_editor_payload.py
+      - outputs/reports/${params.report.appid}.json
+    outs:
+      - outputs/reports/${params.report.appid}_editor.json
+
+  client_report:
+    cmd: >
+      python src/insights/make_client_report.py \
+        --client_file ${params.client_report.client_file} \
+        --top_k ${params.client_report.neighbors_top_k} \
+        --same_cluster_only ${params.client_report.same_cluster_only}
+    deps:
+      - src/insights/make_client_report.py
+      - configs/embeddings.yaml
+      - data/processed/embeddings.parquet
+      - data/processed/clusters.parquet
+      - data/processed/game_metadata.parquet
+      - outputs/ccf_analysis/summary.parquet
+      - outputs/events/events.parquet
+      - outputs/events/topics.parquet
+      - outputs/events/explanations.parquet
+    params:
+      - configs/params.yaml:
+          - client_report
+    outs:
+      - outputs/reports/client_${params.client_report.client_id}.json
+  # --- Big Data alternatives ---
+  events_spark:
+    cmd: python src/pipelines/event_detection/events_spark.py --config configs/events.yaml
+    deps:
+      - src/pipelines/event_detection/events_spark.py
+      - configs/events.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+    outs:
+      - outputs/events/events.parquet
+
+  topics_spark_prep:
+    cmd: python src/insights/topics_prep_spark.py --config configs/events.yaml
+    deps:
+      - src/insights/topics_prep_spark.py
+      - configs/events.yaml
+      - outputs/events/events.parquet
+    outs:
+      - outputs/events/topics_prep.parquet
+
+  topics_ray:
+    cmd: python src/insights/topics_from_prep_ray.py --config configs/events.yaml
+    deps:
+      - src/insights/topics_from_prep_ray.py
+      - configs/events.yaml
+      - outputs/events/topics_prep.parquet
+    outs:
+      - outputs/events/topics.parquet
+
+  ccf_spark:
+    cmd: python src/pipelines/ccf_analysis/ccf_spark.py --config configs/ccf_analysis.yaml
+    deps:
+      - src/pipelines/ccf_analysis/ccf_spark.py
+      - configs/ccf_analysis.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+    outs:
+      - outputs/ccf_analysis/summary.parquet

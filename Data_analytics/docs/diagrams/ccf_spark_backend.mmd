@@ -1,0 +1,20 @@
+flowchart TB
+  subgraph Data["Data Lake (Parquet)"]
+    REV[(data/warehouse/reviews_monthly.parquet)]
+    PLA[(data/warehouse/players_monthly.parquet)]
+    CLU[(data/processed/clusters.parquet)]
+  end
+
+  subgraph SparkJob["Spark Job (ccf_spark)"]
+    JOIN[Outer join by appid, year_month\nfill nulls]
+    FILT{{cluster_filter?}} 
+    GBY[GroupBy appid]
+    UDF[Pandas UDF per appid:\n- stationarity (dlog)\n- CCF across lags\n- Granger both ways\n- collect metrics]
+    FDR[Per-appid FDR correction]
+    OUT[(outputs/ccf_analysis/summary.parquet)]
+  end
+
+  REV --> JOIN
+  PLA --> JOIN --> FILT
+  CLU --> FILT --> GBY --> UDF --> FDR --> OUT
+

@@ -1,0 +1,115 @@
+flowchart TB
+  %% High-level architecture: sources -> orchestration -> pipelines -> validation/tracking -> artifacts -> consumers
+
+  subgraph Sources["Data Sources"]
+    MONGO[(MongoDB: games, reviews, news)]
+    CSV[(CSV: players per appid)]
+    APIS[(APIs: Twitch/YouTube optional)]
+    GCS[(GCS Parquets opcional)]
+  end
+
+  subgraph Orchestration["Orchestración & Infra"]
+    DOCKER([Docker Compose])
+    MAKE([Makefile targets])
+    DVC([DVC pipeline])
+  end
+
+  subgraph Configs["Configuración (YAML)"]
+    EMBYAML[configs/embeddings.yaml]
+    CLUYAML[configs/clustering.yaml]
+    EVTYAML[configs/events.yaml\n- parallelization\n- mongodb (news)\n- llm (news/topic labels)]
+    CCFYAML[configs/ccf_analysis.yaml]
+    PARAMSYAML[configs/params.yaml]
+  end
+
+  subgraph Pipelines["Pipelines (src/pipelines & insights)"]
+    EMB[generate_embeddings.py]
+    CLU[run_clustering.py]
+    CCF[ccf_analysis/analyze_competitors_ccf.py]
+    DET[events: detect_events.py]
+    TOP[insights: topic_motives.py]
+    NEWS[insights: news_classifier.py]
+    ENR[events: enrich_events.py]
+    REP[insights: build_game_report.py]
+    CREP[insights: make_client_report.py]
+  end
+
+  subgraph Validation["Validaciones & Checks"]
+    MKCHK([Make checks\n- clustering-check\n- topics-check\n- ccf-check\n- news-check])
+    SCHEMAS([JSON Schemas\n- schemas/app_report.schema.json\n- schemas/client_report.schema.json])
+  end
+
+  subgraph Tracking["Tracking & Metadata"]
+    MLFLOW([MLflow experiments])
+  end
+
+  subgraph Artifacts["Artefactos & Salidas"]
+    DPROC[/data/processed/*/]
+    MODELS[/models/*]
+    EVENTS[/outputs/events/*\n(events.parquet, topics.parquet,\nnews_classified.parquet, topics_labeled.parquet, explanations.parquet)]
+    CCFOUT[/outputs/ccf_analysis/summary.parquet]
+    REPORTS[/outputs/reports/*.json]
+  end
+
+  subgraph Consumers["Consumidores"]
+    EDITOR([Editor payload\ncompose_editor_payload.py])
+    FRONT([Frontend/Backend externos])
+  end
+
+  %% Flujos
+  MONGO --> EMB
+  EMBYAML --> EMB
+  EMB --> DPROC
+
+  DPROC --> CLU
+  CLUYAML --> CLU
+  CLU --> DPROC
+  CLU --> MODELS
+
+  CLU --> DET
+  EVTYAML --> DET
+  DET --> EVENTS
+
+  DET --> TOP
+  EVTYAML --> TOP
+  TOP --> EVENTS
+
+  TOP --> NEWS
+  EVTYAML --> NEWS
+  NEWS --> EVENTS
+
+  DET --> ENR
+  TOP --> ENR
+  NEWS --> ENR
+  ENR --> EVENTS
+
+  CCFYAML --> CCF
+  CSV --> CCF
+  MONGO --> CCF
+  CCF --> CCFOUT
+
+  EVTYAML --> REP
+  DPROC --> REP
+  EVENTS --> REP
+  CCFOUT --> REP
+  REP --> REPORTS
+
+  PARAMSYAML --> CREP
+  DPROC --> CREP
+  EVENTS --> CREP
+  CCFOUT --> CREP
+  CREP --> REPORTS
+
+  %% Orchestration ties it together
+  DOCKER -.env vars/.-> Configs
+  MAKE --> DVC
+  DVC ---> EMB & CLU & DET & TOP & NEWS & ENR & CCF & REP
+
+  %% Validation & Tracking
+  MKCHK -.verifica.-> Artifacts
+  SCHEMAS -.valida.-> REPORTS
+  Tracking -.MLflow runs.-> MLFLOW
+
+  %% Consumers
+  REPORTS --> EDITOR --> FRONT
+

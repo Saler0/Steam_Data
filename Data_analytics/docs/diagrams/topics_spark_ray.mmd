@@ -1,0 +1,23 @@
+flowchart LR
+  subgraph Inputs["Inputs"]
+    EV[(outputs/events/events.parquet)]
+    MONGO[(MongoDB: reviews)]
+  end
+
+  subgraph Prep["Spark Prep (topics_spark_prep)"]
+    WIN[window_months ± around event]
+    MAX[max_docs_per_event]
+    PREP[Join events x reviews\nfilter by window\nrank by votes\nlimit per (appid,event)]
+    OUTP[(outputs/events/topics_prep.parquet\nappid,event_year_month,texts[])]
+  end
+
+  subgraph Model["Ray + BERTopic (topics_ray)"]
+    RAY[(Ray cluster)]
+    BER[Fit BERTopic per (appid,event)\nembedding_model, min_df, min_topic_size]
+    OUTT[(outputs/events/topics.parquet)]
+  end
+
+  EV --> WIN --> PREP
+  MONGO --> PREP --> MAX --> OUTP
+  OUTP --> RAY --> BER --> OUTT
+

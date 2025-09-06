@@ -1,0 +1,106 @@
+# -----------------------------------------------------------------------------
+# Fichero de Configuración para el Análisis de Competidores (CCF y Granger)
+# -----------------------------------------------------------------------------
+
+input_path:
+  # El fichero de clústeres es la entrada principal para saber qué juegos son competidores.
+  clusters_parquet: data/processed/clusters.parquet
+
+  # Lago de objetos (ejemplos):
+  # GCS: clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
+  # S3:  clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
+
+mongo_connection:
+  # Conexión a MongoDB para obtener los datos de las reseñas (positivas/negativas).
+  uri: ${MONGO_URI:-mongodb://localhost:27017}
+  database: ${MONGO_DB_REVIEWS:-steam}
+  collection: ${MONGO_COLL_REVIEWS:-reviews}
+
+players_data:
+  # Configuración para cargar los datos de jugadores activos.
+  enabled: true
+  
+  # Patrón de ruta si tienes un fichero por juego (ej. '12345.csv').
+  dir_pattern: "data/external/players/{appid}.csv"
+  
+  # Opcional: ruta a un único fichero grande si todos los datos de jugadores están juntos.
+  # file: "data/external/players.csv"
+
+output_dir: outputs/ccf_analysis
+## Para lago de objetos:
+# GCS: output_dir: gs://mi-bucket-steam/outputs/ccf_analysis
+# S3:  output_dir: s3://mi-bucket-steam/outputs/ccf_analysis
+backend: python  # opciones: python | spark
+
+# Filtro opcional por clúster para limitar el cálculo (ej. [42])
+cluster_filter: []
+
+# Preagregados mensuales opcionales (para escala)
+preaggregated:
+  reviews_monthly: data/warehouse/reviews_monthly.parquet
+  players_monthly: data/warehouse/players_monthly.parquet
+  # Ejemplos en lago de objetos:
+  # GCS:
+  # reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
+  # players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
+  # S3:
+  # reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
+  # players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
+
+# --- ESTACIONARIEDAD Y TRANSFORMACIONES ---
+# Lista y configuraciones de transformaciones para intentar que las series sean estacionarias.
+stationarity:
+  # Lista de transformaciones a intentar, en orden.
+  # Opciones soportadas: dlog, diff, diff2, sqrt, sqrt_diff, log1p_diff, seasonal_diff
+  transforms: ["dlog", "diff", "diff2", "sqrt", "sqrt_diff", "log1p_diff", "seasonal_diff"]
+  adf_alpha: 0.05
+  seasonal:
+    period: 12   # Diferenciación estacional (e.g., 12 meses)
+
+# --- CONFIGURACIÓN DE PARALELIZACIÓN ---
+# Elige el modo de paralelización.
+# Opciones: 'multiprocessing', 'ray' o 'sequential'.
+parallel_mode: "multiprocessing"
+
+# Se usa solo si parallel_mode: 'multiprocessing'
+num_processes: 4
+
+# Se usa solo si parallel_mode: 'ray'
+ray_cluster:
+  # Habilitar o deshabilitar la conexión a un clúster de Ray.
+  enabled: false
+  # 'auto' para autodetectar, o la dirección del head node del clúster (ej. 'ray://<IP>:10001').
+  address: "auto"
+
+# Define los pares de variables a analizar con Correlación Cruzada (CCF).
+# Las transformaciones (dlog, diff, etc.) se aplicarán automáticamente
+# por el script a estas series.
+ccf_pairs:
+  # ¿Afecta el crecimiento de jugadores al de reseñas POSITIVAS?
+  - {predictor: "players", target: "pos", name: "players_vs_positive_reviews"}
+  
+  # ¿Afecta el crecimiento de jugadores al de reseñas NEGATIVAS?
+  - {predictor: "players", target: "neg", name: "players_vs_negative_reviews"}
+  
+  # Ejemplo de otro par opcional
+  - {predictor: "pos", target: "neg", name: "positive_vs_negative_reviews"}
+
+# Número máximo de meses de desfase (hacia adelante y atrás) a comprobar en la CCF.
+ccf_lags: 6
+
+granger:
+  # Número máximo de meses de desfase para el test de Causalidad de Granger.
+  maxlag: 3
+  
+  # Nivel de significancia (p-value) para considerar un resultado como causal.
+  # 0.05 es el estándar.
+  alpha: 0.05
+
+# -----------------------------------------------------------------------------
+# SECCIÓN DE LOGGING CON MLFLOW
+# -----------------------------------------------------------------------------
+mlflow:
+  # Activa o desactiva el registro de la ejecución en MLflow.
+  enabled: true
+  experiment: "Steam Analytics"
+  run_name_prefix: "ccf_analysis_"
