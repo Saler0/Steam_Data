@@ -39,6 +39,11 @@ def clean_text(text):
     text = re.sub(r'\s*\n\s*', '\n', text)       # limpiar bordes de líneas
     text = re.sub(r'\n{3,}', '\n\n', text)       # evitar 3+ saltos seguidos
     text.replace('<img src="','')
+    text.replace('\\t','')
+    text.replace('\t','')
+    text.replace('"<a href="','')
+    text.replace('rel="bookmark"','')
+    text.replace('title="','')
     return text.strip()
 
 clean_text_udf = udf(clean_text, StringType())
