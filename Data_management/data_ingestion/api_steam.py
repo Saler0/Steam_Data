@@ -67,7 +67,7 @@ class ApiSteam:
                 params = {
                     "json": 1,
                     "filter": "recent",
-                    "language": "english",
+                    "language": "all",
                     "num_per_page": self.reviews_per_game,
                     "cursor": cursor
                 }
