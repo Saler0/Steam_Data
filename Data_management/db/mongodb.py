@@ -56,7 +56,7 @@ class MongoDBClient:
             self.comentarios_youtube = self.db["comentarios_youtube"]
 
 
-        elif db_name == "explotation_zone":
+        elif db_name == "exploitation_zone":
 
             #  == Steam juegos ==
             self.juegos_explo  = self.db["juegos_steam"]
@@ -82,7 +82,14 @@ class MongoDBClient:
                 background=True     # lo construye en segundo plano
             )
 
-
+            # == Reviews juegos ==
+            self.reviews_explo = self.db["steam_reviews"]
+            self.reviews_explo.create_index(
+                [("recommendationid", ASCENDING)],
+                unique=True,
+                background=True
+            )
+            
         else:
             raise ValueError(f"DB desconocida: {db_name}")
         
