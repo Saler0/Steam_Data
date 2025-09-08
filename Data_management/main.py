@@ -3,7 +3,7 @@ import os
 from data_ingestion.api_steam import ApiSteam
 from data_ingestion.api_youtube import ApiYoutube
 from landing_to_trusted.funciones_trusted import PipelineLandingToTrusted
-from trusted_to_explotation.explotation_zone import TrustedToExploitation
+from trusted_to_exploitation.explotation_zone import TrustedToExploitation
 from pyspark.sql import SparkSession
 from dotenv import load_dotenv
 from db.mongodb import MongoDBClient
@@ -59,7 +59,7 @@ class PipelineTustedExplotationZone:
 
 
     def run(self):
-        logging.info(f"Comienza la extraccion de trusted_zone para mover a explotation_zone")
+        logging.info(f"Comienza la extraccion de trusted_zone para mover a exploitation_zone")
         spark = (
             SparkSession.builder
             .appName("TrustedToExploitation") \
@@ -87,7 +87,7 @@ def main():
 
     mongo_uri = "mongodb://host.docker.internal:27017"
     mongo_db_trusted = "trusted_zone"
-    mongo_db_explotation = "explotation_zone"
+    mongo_db_exploitation = "exploitation_zone"
     trusted_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
 
     logging.info("========== INICIO DE PIPELINE ==========")
@@ -117,12 +117,12 @@ def main():
     pipelineLT.stop()
     logging.info("✅ LANDING ➜ TRUSTED ")
 
-    # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
+    # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
     logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
     # Creamos un cliente PARA CADA ZONA:
     trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
-    exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_explotation)
+    exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
 
     pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
     pipelineTE.run()

@@ -56,7 +56,7 @@ class MongoDBClient:
             self.comentarios_youtube = self.db["comentarios_youtube"]
 
 
-        elif db_name == "explotation_zone":
+        elif db_name == "exploitation_zone":
 
             #  == Steam juegos ==
             self.juegos_explo  = self.db["juegos_steam"]
