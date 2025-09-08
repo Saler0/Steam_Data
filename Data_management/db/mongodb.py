@@ -82,7 +82,14 @@ class MongoDBClient:
                 background=True     # lo construye en segundo plano
             )
 
-
+            # == Reviews juegos ==
+            self.reviews_explo = self.db["steam_reviews"]
+            self.reviews_explo.create_index(
+                [("recommendationid", ASCENDING)],
+                unique=True,
+                background=True
+            )
+            
         else:
             raise ValueError(f"DB desconocida: {db_name}")
         
