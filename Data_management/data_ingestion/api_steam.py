@@ -21,7 +21,7 @@ class ApiSteam:
         self.lz_games_dir   = os.path.join("landing_zone", "api_steam")
         os.makedirs(self.lz_games_dir, exist_ok=True)
 
-        # appdi a los que se les buscara su review
+        # appid a los que se les buscara su review
         self.appids_to_process_reviews = appids_to_process_reviews
 
     def get_all_games(self):

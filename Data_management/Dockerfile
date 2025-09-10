@@ -11,10 +11,10 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/spark/bin:$PATH" \
     SPARK_JARS_PACKAGES=org.mongodb.spark:mongo-spark-connector_2.12:3.0.1
 
-# 3) Instalar Java, curl y otras utilidades
+# 3) Instalar Java, curl y dos2unix (para compatibilidad con Windows)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        openjdk-17-jre-headless curl procps ca-certificates gnupg \
+        openjdk-17-jre-headless curl procps ca-certificates gnupg dos2unix \
     && rm -rf /var/lib/apt/lists/* \
     && test -x "$JAVA_HOME/bin/java" && "$JAVA_HOME/bin/java" -version
 
@@ -23,8 +23,6 @@ RUN curl -fsSL https://archive.apache.org/dist/spark/spark-3.5.1/spark-3.5.1-bin
     && tar -xzf spark.tgz -C /opt \
     && mv /opt/spark-3.5.1-bin-hadoop3 /opt/spark \
     && rm spark.tgz
-
-
 
 # 5) Crear directorio de la app
 WORKDIR /app
