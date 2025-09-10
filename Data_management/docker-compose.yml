@@ -41,8 +41,6 @@ services:
     container_name: data_management_pipeline
     volumes:
       - ./landing_zone:/app/landing_zone
-      - ./trusted_zone:/app/trusted_zone
-      - ./trusted_to_explotation:/app/trusted_to_explotation
     env_file:
       - ./.env
     environment:

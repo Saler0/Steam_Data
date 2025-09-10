@@ -11,13 +11,13 @@ echo.
 echo ============================
 echo Parando cualquier contenedor existente...
 echo ============================
-docker stop mongo steam_data-app 2>nul
+docker stop mongo steam_data-app postgres_db 2>nul
 
 echo.
 echo ============================
 echo Eliminando contenedores detenidos...
 echo ============================
-docker rm mongo steam_data-app 2>nul
+docker rm mongo steam_data-app postgres_db 2>nul
 
 
 echo.

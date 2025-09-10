@@ -49,7 +49,7 @@ class PipelineIngest:
         logging.info(f"Iniciando ingesta de juegos, reviews y news en ApiSteam…")
         steam = ApiSteam(self.trusted_client,self.appids_to_process)
         nombre_juegos = steam.run()
-        scraper_main(self.appids_a_procesar) # Historico
+        scraper_main(self.appids_to_process) # Historico
 
 
 
@@ -108,40 +108,43 @@ class PipelineTustedExplotationZone:
         deployer_main()
         
 def main():
-    
-    setup_logging(log_file="app_pipeline.log")
+    try:
+        setup_logging(log_file="app_pipeline.log")
 
-    mongo_uri = "mongodb://host.docker.internal:27017"
-    mongo_db_trusted = "trusted_zone"
-    mongo_db_exploitation = "exploitation_zone"
-    trusted_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
+        mongo_uri = "mongodb://host.docker.internal:27017"
+        mongo_db_trusted = "trusted_zone"
+        mongo_db_exploitation = "exploitation_zone"
+        trusted_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
 
-    logging.info("========== INICIO DE PIPELINE APP ==========")
+        logging.info("========== INICIO DE PIPELINE APP ==========")
 
-    # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
-    pipelineI = PipelineIngest(trusted_client)
-    pipelineI.run()
-    logging.info("✅ INGESTA ➜ LANDING ")
+        # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
+        logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
+        pipelineI = PipelineIngest(trusted_client)
+        pipelineI.run()
+        logging.info("✅ INGESTA ➜ LANDING ")
 
-    # ===== LANDING ZONE --> TRUSTED ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")
-    pipelineLT = PipelineLandingtoTrusted(mongo_uri,mongo_db_trusted)
-    pipelineLT.run()
-    logging.info("✅ LANDING ➜ TRUSTED ")
+        # ===== LANDING ZONE --> TRUSTED ZONE =====
+        logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")
+        pipelineLT = PipelineLandingtoTrusted(mongo_uri,mongo_db_trusted)
+        pipelineLT.run()
+        logging.info("✅ LANDING ➜ TRUSTED ")
 
-    # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
+        # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
+        logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
-    # Creamos un cliente PARA CADA ZONA:
-    trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
-    exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
-    
-    pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
-    pipelineTE.run()
-    logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
-    
-    logging.info("✅ PIPELINE APP COMPLETO ✅")
-
+        # Creamos un cliente PARA CADA ZONA:
+        trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
+        exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
+        
+        pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
+        pipelineTE.run()
+        logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
+        
+        logging.info("✅ PIPELINE APP COMPLETO ✅")
+        
+    except Exception:
+        logging.exception("💥 Pipeline abortado por excepción no capturada")
+        sys.exit(1)
 if __name__ == "__main__":
     main()
