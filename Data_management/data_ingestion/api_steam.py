@@ -24,6 +24,7 @@ class ApiSteam:
         # appdi a los que se les buscara su review y news
         self.appids_to_process = appids_to_process
 
+
     def get_all_games(self):
         url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
         res = requests.get(url)

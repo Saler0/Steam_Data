@@ -31,7 +31,7 @@ echo.
 echo ============================
 echo Reconstruyendo y levantando...
 echo ============================
-docker compose up --build -d
+docker compose up app --build -d
 if errorlevel 1 (
     echo.
     echo ERROR al construir o levantar. Revisa los logs.

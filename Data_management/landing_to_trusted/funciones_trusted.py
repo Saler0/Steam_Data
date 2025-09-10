@@ -17,7 +17,7 @@ import time
 from datetime import date
 
 
-# ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ==========
+# ========== FUNCIONES GLOBALES COMPATIBLES CON SPARK ========== 
 
 def clean_text(text):
     if not text:
@@ -227,7 +227,7 @@ def clean_game_json(game_json):
 
 clean_and_translate_udf = udf(clean_and_translate, StringType())
 
-class PipelineLandingToTrusted:
+class PipelineLandingToTrustedSteam:
     def __init__(self, spark, mongo_client: MongoDBClient):
         self.spark = spark
         self.mongo     = mongo_client
@@ -420,8 +420,6 @@ class PipelineLandingToTrusted:
         )
         logging.info("✅ Inserción de reviews completada en trusted_zone.steam_reviews.")
 
-
-
     def run_youtube_transcripts(self):
         folder = "landing_zone/api_youtube/"
         files = glob.glob(os.path.join(folder, "transcript_*.ndjson"))
@@ -553,6 +551,36 @@ class PipelineLandingToTrusted:
         )
         logging.info("✅ Inserción de news completada en trusted_zone.news_games.")
 
+    def run_steam_next_fest(self):
+        """
+        Procesa el archivo CSV de Steam Next Fest desde la landing zone
+        y lo guarda en la trusted zone (MongoDB), reemplazando los datos anteriores.
+        """
+        path = "landing_zone/next_fest_db/steam_next_games.csv"
+        collection_name = "steam_next_fest"
+        logging.info(f"Iniciando procesamiento de Steam Next Fest desde: {path}")
+
+        if not os.path.exists(path):
+            logging.warning(f"No se encontró el archivo de Steam Next Fest en {path}. Saltando este paso.")
+            return
+
+        try:
+            df = self.spark.read.csv(path, header=True, inferSchema=True, sep=",", multiLine=True, escape='"')
+            
+            logging.info(f"Se encontraron {df.count()} registros en el CSV. Guardando en MongoDB...")
+
+            df.write \
+                .format("mongo") \
+                .mode("overwrite") \
+                .option("uri", self.mongo_uri) \
+                .option("database", self.mongo_db) \
+                .option("collection", collection_name) \
+                .save()
+            logging.info(f"✅ Datos de Steam Next Fest guardados en la colección '{collection_name}'.")
+
+        except Exception as e:
+            logging.error(f"Error al procesar el archivo de Steam Next Fest: {e}", exc_info=True)
+
     def run(self):
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
@@ -561,6 +589,7 @@ class PipelineLandingToTrusted:
         self.run_news()
         # self.run_youtube_comments()
         # self.run_youtube_transcripts()
-
-    def stop(self):
+    
+    def stop(self): 
         self.spark.stop()
+        logging.info("Spark detenido.")
