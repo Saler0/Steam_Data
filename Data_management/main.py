@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from data_ingestion.api_steam import ApiSteam
 from data_ingestion.api_youtube import ApiYoutube
 from landing_to_trusted.funciones_trusted import PipelineLandingToTrustedSteam
-from trusted_to_explotation.explotation_zone import TrustedToExploitation
+from trusted_to_exploitation.explotation_zone import TrustedToExploitation
 from pyspark.sql import SparkSession
 from db.mongodb import MongoDBClient
 from data_ingestion.web_scraping_steambase.steamcharts_scraper import main as scraper_main
@@ -39,20 +39,18 @@ class PipelineIngest:
         # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
         self.modo='MVP'
         if self.modo == 'MVP': # se capturara todas las reviews de un grupo selecto de APPIDs
-            self.appids_to_process_reviews=[]
-
-            self.appids_a_procesar = [730, 570, 1086940, 271590] # CS2, Dota 2, Baldur's Gate 3, GTA V
+            self.appids_to_process = [730, 570, 1086940, 271590,413150] # CS2, Dota 2, Baldur's Gate 3, GTA V, Stardew Valley
+        else: # Modo Realista
+            self.appids_to_process = None
             
-        else:
-            self.appids_to_process_reviews = None
+            
 
     def run(self):
-        logging.info("Iniciando ingesta de juegos y reviews en ApiSteam…")
-        #steam = ApiSteam(self.trusted_client,self.appids_to_process_reviews)
-        #nombre_juegos = steam.run()
+        logging.info(f"Iniciando ingesta de juegos, reviews y news en ApiSteam…")
+        steam = ApiSteam(self.trusted_client,self.appids_to_process)
+        nombre_juegos = steam.run()
+        scraper_main(self.appids_a_procesar) # Historico
 
-        # Historico
-        scraper_main(self.appids_a_procesar)
 
 
         # logging.info(f"Iniciando ingesta YouTube para {len(nombre_juegos)} juegos…")
@@ -88,7 +86,8 @@ class PipelineTustedExplotationZone:
         self.explo_client = explo_client
 
     def run(self):
-        logging.info("Comienza la extraccion de trusted_zone para mover a exploitation_zone")
+
+        logging.info(f"Comienza la extraccion de trusted_zone para mover a exploitation_zone")
         spark = (
             SparkSession.builder
             .appName("TrustedToExploitation") \
@@ -114,7 +113,7 @@ def main():
 
     mongo_uri = "mongodb://host.docker.internal:27017"
     mongo_db_trusted = "trusted_zone"
-    mongo_db_explotation = "explotation_zone"
+    mongo_db_exploitation = "exploitation_zone"
     trusted_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
 
     logging.info("========== INICIO DE PIPELINE APP ==========")
@@ -131,12 +130,12 @@ def main():
     pipelineLT.run()
     logging.info("✅ LANDING ➜ TRUSTED ")
 
-    # ===== TRUSTED ZONE --> EXPLOTATION ZONE =====
-    logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE ====")
+    # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
+    logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
     # Creamos un cliente PARA CADA ZONA:
     trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
-    exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_explotation)
+    exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
     
     pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
     pipelineTE.run()

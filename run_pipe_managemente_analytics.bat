@@ -11,7 +11,7 @@ echo ============================
 docker compose build %BUILD_ARGS% app mlflow analytics
 if errorlevel 1 (
   echo.
-  echo  ERROR: fallo el rebuild de imagenes. Abortando. 
+  echo *** ERROR: fallo el rebuild de imagenes. Abortando. ***
   pause
   exit /b 1
 )
@@ -31,7 +31,7 @@ rem Esto mantiene el contenedor como parte del proyecto y captura exit code
 docker compose --profile seed up --abort-on-container-exit --exit-code-from app app
 if errorlevel 1 (
   echo.
-  echo  ERROR: el job 'app' ha fallado. Abortando. 
+  echo *** ERROR: el job 'app' ha fallado. Abortando. ***
   pause
   exit /b 1
 )

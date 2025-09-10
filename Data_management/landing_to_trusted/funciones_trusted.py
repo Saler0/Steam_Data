@@ -4,12 +4,9 @@ import json
 import logging
 from html import unescape
 from functools import reduce
-from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit
+from pyspark.sql.functions import col, from_unixtime, udf, struct, collect_list, concat_ws, lit, when
 from db.mongodb import MongoDBClient
-from pyspark.sql.types import (
-    StructType, StructField, StringType, IntegerType,
-    BooleanType, ArrayType, MapType
-)
+from pyspark.sql.types import ( StructType, StructField, StringType, IntegerType,BooleanType, ArrayType, MapType, LongType)
 import asyncio
 import glob
 from pymongo import MongoClient
@@ -25,14 +22,35 @@ from datetime import date
 def clean_text(text):
     if not text:
         return ""
-    text_no_urls = re.sub(r'https?://\S+', '', text)
-    text_no_html = re.sub(r'<.*?>', '', text_no_urls)
-    text_clean = unescape(text_no_html)
-    return text_clean.strip()
+    text = re.sub(r'https?://\S+', '', text)  # Quitar URLs "planas" http/https
+    text = re.sub(r'\{STEAM_[A-Z_]+\}/\S*', '', text) # Quitar placeholders típicos de Steam (imágenes de clan, etc.)
+
+    # Quitar bullets BBCode explícitos [*] y [/ *]
+    text = re.sub(r'\[\*\]', '', text)
+    text = re.sub(r'\[/\*\]', '', text)
+
+
+    text = re.sub(r'\[/?[a-zA-Z0-9]+(?:=[^\]]+)?\]', '', text) # Quitar BBCode (ej: [p], [/p], [h3], [url="..."], [img src="..."], [list], [*], [b], etc.)
+    text = re.sub(r'<.*?>', '', text) # Quitar tags HTML si quedara algo (por si mezclan)
+    text = unescape(text) # Unescape entidades HTML (&amp;, &quot;, etc.)
+
+    # Normalizar espacios y saltos de línea
+    text = re.sub(r'[ \t]+', ' ', text)          # colapsar espacios
+    text = re.sub(r'\s*\n\s*', '\n', text)       # limpiar bordes de líneas
+    text = re.sub(r'\n{3,}', '\n\n', text)       # evitar 3+ saltos seguidos
+    text = text.replace('<img src="','')
+    text = text.replace('\\t','')
+    text = text.replace('\t','')
+    text = text.replace('<a href="', '')
+    text = text.replace('rel="bookmark"','')
+    text = text.replace('title="','')
+    return text.strip()
+
+clean_text_udf = udf(clean_text, StringType())
 
 def call_google_translate(text: str) -> str:
     """Llama al endpoint público y devuelve la traducción."""
-    time.sleep(1.5) # para evitar saturar la API
+    time.sleep(1.6) # para evitar saturar la API
     url = "https://translate.googleapis.com/translate_a/single"
     params = {
         "client": "gtx",
@@ -218,13 +236,6 @@ class PipelineLandingToTrustedSteam:
         self.client = self.mongo.client
         self.db = self.mongo.db
 
-    def load_ndjson_files(self, folder_path, prefix):
-        files = [os.path.join(folder_path, f) for f in os.listdir(folder_path)
-                 if f.endswith(".ndjson") and f.startswith(prefix)]
-        if not files:
-            return None
-        return self.spark.read.json(files)
-
     def run_steam_games(self):
         fecha_actual = date.today()
         fecha_formateada = fecha_actual.strftime("%Y_%m_%d")
@@ -335,63 +346,79 @@ class PipelineLandingToTrustedSteam:
 
     def run_reviews(self):
         logging.info("Iniciando carga de reseñas desde landing_zone/api_steam/")
-        df = self.load_ndjson_files("landing_zone/api_steam/", "reviews_")
-        if df is None:
-            logging.warning("No se encontraron archivos de reseñas.")
+        # Archivo unificado del día
+        fecha_actual = date.today()
+        fecha_formateada = fecha_actual.strftime("%Y_%m_%d")
+        reviews_path = f"landing_zone/api_steam/steam_reviews_{fecha_formateada}.ndjson"
+
+        if not os.path.exists(reviews_path):
+            logging.warning(f"No se encontró {reviews_path}; omitiendo carga de reviews.")
             return
 
-       # Contar, limpiar y traducir
-        count_raw = df.count()
-        logging.info(f"Reseñas leídas: {count_raw}")
+        # 1) Leer el NDJSON del día
+        df = self.spark.read.json(reviews_path)
+        if df.rdd.isEmpty():
+            logging.warning("Archivo de reviews vacío; no se insertará nada.")
+            return
+
+        # 2) Limpiar y estandarizar columnas clave
+        #    - review_clean: texto limpio
+        #    - timestamp_* como DATE para analítica (se conservan los campos crudos tal cual llegan)
+        #    - updated_at: fecha actual 'YYYY-MM-DD'
         df = (
-            df.withColumn("review_clean", clean_and_translate_udf(col("review")))
-            .withColumn("timestamp_created", from_unixtime(col("timestamp_created")).cast("date"))
-            .withColumn("timestamp_updated", from_unixtime(col("timestamp_updated")).cast("date"))
-            .cache()
+            df
+            .withColumn("review_clean", clean_text_udf(col("review")))
+            .withColumn("timestamp_created_date", from_unixtime(col("timestamp_created")).cast("date"))
+            .withColumn("timestamp_updated_date", from_unixtime(col("timestamp_updated")).cast("date"))
+            .withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))
         )
-        count_trans = df.count()
-        logging.info(f"Reseñas tras limpiar y traducir: {count_trans}")
 
-        # Quito duplicados en batch
+        # 3) Quitar duplicados dentro del batch por recommendationid
+        if "recommendationid" not in df.columns:
+            logging.error("El archivo de reviews no contiene la columna 'recommendationid'. Abortando carga.")
+            return
         df_unique = df.dropDuplicates(["recommendationid"])
-        count_unique = df_unique.count()
-        logging.info(f"Reseñas únicas a insertar: {count_unique}")
 
-        # ¿Ya hay algo en Mongo?
+        count_raw = df.count()
+        count_unique = df_unique.count()
+        logging.info(f"Reseñas leídas: {count_raw} | Únicas por recommendationid: {count_unique}")
+
+        # 4) Evitar insertar lo que ya existe en Mongo (dedupe por recommendationid)
         coll = self.db[self.mongo.reviews.name]
         total_in_mongo = coll.estimated_document_count()
 
         if total_in_mongo > 0:
-            # obtengo IDs existentes con PyMongo y los llevo a Spark
-            existing_list = coll.distinct("recommendationid")
-            existing_df = (
-                self.spark
-                    .createDataFrame([(rid,) for rid in existing_list], StringType())
-                    .toDF("recommendationid")
-            )
-            # left_anti join para quedarme solo con los nuevos
-            new_reviews = df_unique.join(existing_df,
-                                        on="recommendationid",
-                                        how="left_anti")
+            existing_ids = coll.distinct("recommendationid")
+            if existing_ids:
+                existing_df = self.spark.createDataFrame([(rid,) for rid in existing_ids], ["recommendationid"])
+                df_to_insert = df_unique.join(existing_df, on="recommendationid", how="left_anti")
+            else:
+                df_to_insert = df_unique
         else:
-            # si está vacío, todas las filas son nuevas
-            new_reviews = df_unique
+            df_to_insert = df_unique
 
-        count_new = new_reviews.count()
+        count_new = df_to_insert.count()
         logging.info(f"Reseñas nuevas a insertar: {count_new}")
 
-        if count_new:
-            new_reviews.coalesce(10) \
-                .write \
-                .format("mongo") \
-                .mode("append") \
-                .option("uri",      self.mongo_uri) \
-                .option("database", self.mongo_db) \
-                .option("collection", self.mongo.reviews.name) \
-                .save()
-            logging.info("Inserción completada.")
-        else:
+        if count_new == 0:
             logging.info("No hay reseñas nuevas para insertar.")
+            return
+
+        # 5) Escribir en Mongo (trusted_zone.steam_reviews)
+        (
+            df_to_insert
+            # Puedes seleccionar columnas si quieres acotar
+            # .select("recommendationid","appid","review","review_clean","timestamp_created","timestamp_created_date",...)
+            .coalesce(10)
+            .write
+            .format("mongo")
+            .mode("append")
+            .option("uri", self.mongo_uri)
+            .option("database", self.mongo_db)
+            .option("collection", self.mongo.reviews.name)
+            .save()
+        )
+        logging.info("✅ Inserción de reviews completada en trusted_zone.steam_reviews.")
 
     def run_youtube_transcripts(self):
         folder = "landing_zone/api_youtube/"
@@ -437,6 +464,92 @@ class PipelineLandingToTrustedSteam:
 
         logging.info("Transcripciones procesadas e insertadas correctamente.")
 
+    def run_news(self):
+        """
+        Lee landing_zone/api_steam/steam_news_{YYYY_MM_DD}.ndjson, limpia y transforma,
+        y escribe en trusted_zone.news_games únicamente (gid, title, contents, date, appid, updated_at).
+        - contents: limpio de HTML (clean_text)
+        - date: convertido a 'yyyy-MM-dd' desde epoch (Steam entrega segundos)
+        - updated_at: fecha actual 'yyyy-MM-dd' (momento de inserción en trusted)
+        Dedup por gid contra lo que ya exista en Mongo.
+        """
+        fecha_actual = date.today()
+        fecha_formateada = fecha_actual.strftime("%Y_%m_%d")
+        path = f"landing_zone/api_steam/steam_news_{fecha_formateada}.ndjson"
+
+        if not os.path.exists(path):
+            logging.warning(f"No se encontró {path}; omitiendo carga de news.")
+            return
+
+        # 1) Leer el NDJSON del día
+        df = self.spark.read.json(path)
+
+        if df.rdd.isEmpty():
+            logging.warning("Archivo de news vacío; no se insertará nada.")
+            return
+
+        # 2) Estandarizar columnas y tipos mínimos que nos interesan
+        #    - gid (string)
+        #    - title (string)
+        #    - contents (string) -> limpiar HTML
+        #    - date (epoch int/long) -> yyyy-MM-dd
+        #    - appid (int)
+        #    - updated_at (yyyy-MM-dd)
+        df_sel = (
+            df
+            .select(
+                col("gid").cast(StringType()).alias("gid"),
+                col("title").cast(StringType()).alias("title"),
+                col("contents").cast(StringType()).alias("contents"),
+                col("date").cast("long").alias("date_epoch"),
+                col("appid").cast(IntegerType()).alias("appid")
+            )
+            .withColumn("contents", clean_text_udf(col("contents")))
+            .withColumn("date", from_unixtime(col("date_epoch"), "yyyy-MM-dd").cast(StringType()))
+            .drop("date_epoch")
+            .withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))
+        )
+
+        # 3) Quitar duplicados dentro del propio batch (por si el NDJSON tiene repetidos)
+        df_unique_batch = df_sel.dropDuplicates(["gid"])
+
+        # 4) Evitar insertar lo que ya existe en Mongo (dedupe por gid)
+        coll = self.db[self.mongo.news_games.name]
+        total_in_mongo = coll.estimated_document_count()
+
+        if total_in_mongo > 0:
+            existing_gids = coll.distinct("gid")
+            if existing_gids:
+                existing_df = (
+                    self.spark
+                        .createDataFrame([(g,) for g in existing_gids], ["gid"])
+                )
+                df_to_insert = df_unique_batch.join(existing_df, on="gid", how="left_anti")
+            else:
+                df_to_insert = df_unique_batch
+        else:
+            df_to_insert = df_unique_batch
+
+        count_new = df_to_insert.count()
+        logging.info(f"📰 News nuevas a insertar en trusted_zone.news_games: {count_new}")
+
+        if count_new == 0:
+            logging.info("No hay news nuevas para insertar.")
+            return
+
+        # 5) Escribir en Mongo (colección trusted_zone.news_games)
+        (
+            df_to_insert
+            .select("gid", "title", "contents", "date", "appid", "updated_at")
+            .write
+            .format("mongo")
+            .mode("append")
+            .option("uri", self.mongo_uri)
+            .option("database", self.mongo_db)
+            .option("collection", self.mongo.news_games.name)
+            .save()
+        )
+        logging.info("✅ Inserción de news completada en trusted_zone.news_games.")
 
     def run_steam_next_fest(self):
         """
@@ -472,7 +585,8 @@ class PipelineLandingToTrustedSteam:
         logging.info("========== INICIO DE PIPELINE ==========")
         logging.info("===== INICIO DE PIPELINE DE LIMPIEZA Y TRANSFORMACIÓN =====")
         self.run_steam_games()
-        # self.run_reviews()
+        self.run_reviews()
+        self.run_news()
         # self.run_youtube_comments()
         # self.run_youtube_transcripts()
     
