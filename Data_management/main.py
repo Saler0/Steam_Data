@@ -12,7 +12,7 @@ from pyspark.sql import SparkSession
 from db.mongodb import MongoDBClient
 from data_ingestion.web_scraping_steambase.steamcharts_scraper import main as scraper_main
 from landing_to_trusted.clean_steamcharts_data import main as cleaner_main
-from trusted_to_explotation.deploy_to_explotation import main as deployer_main
+from trusted_to_exploitation.deploy_to_explotation import main as deployer_main
 
 sys.stdout.reconfigure(encoding='utf-8')
 
