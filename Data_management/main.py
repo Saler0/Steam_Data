@@ -88,22 +88,22 @@ class PipelineTustedExplotationZone:
         self.explo_client = explo_client
 
     def run(self):
-        # logging.info("Comienza la extraccion de trusted_zone para mover a exploitation_zone")
-        # spark = (
-        #     SparkSession.builder
-        #     .appName("TrustedToExploitation") \
-        #     .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
-        #     .config("spark.sql.shuffle.partitions", "128") \
-        #     .config("spark.driver.memory", "4g") \
-        #     .config("spark.executor.memory", "4g") \
-        #     .config("spark.memory.fraction", "0.6") \
-        #     .config("spark.memory.offHeap.enabled", "true") \
-        #     .config("spark.memory.offHeap.size", "1g") \
-        #     .getOrCreate()
-        # )
-        # job = TrustedToExploitation(spark, self.trusted_client, self.explo_client)
-        # job.run()
-        # spark.stop()
+        logging.info("Comienza la extraccion de trusted_zone para mover a exploitation_zone")
+        spark = (
+            SparkSession.builder
+            .appName("TrustedToExploitation") \
+            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
+            .config("spark.sql.shuffle.partitions", "128") \
+            .config("spark.driver.memory", "4g") \
+            .config("spark.executor.memory", "4g") \
+            .config("spark.memory.fraction", "0.6") \
+            .config("spark.memory.offHeap.enabled", "true") \
+            .config("spark.memory.offHeap.size", "1g") \
+            .getOrCreate()
+        )
+        job = TrustedToExploitation(spark, self.trusted_client, self.explo_client)
+        job.run()
+        spark.stop()
 
         # Historico
         deployer_main()
