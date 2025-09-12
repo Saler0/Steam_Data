@@ -1,0 +1,139 @@
+<mxfile host="app.diagrams.net" modified="2025-09-07T00:00:00Z" agent="CodexCLI" version="22.0.8" type="device">
+  <diagram id="steam-analytics-v3" name="Steam Analytics v3 (Bloques)">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Título -->
+        <mxCell id="title" value="Steam Game Analytics — v3 (Bloques por etapa)" style="text;whiteSpace=wrap;html=1;fontSize=18;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="700" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Embeddings -->
+        <mxCell id="node_embeddings" value="Embeddings\nScript: src/pipelines/generate_embeddings.py\nParalelización: multiprocessing | ray | spark (mapInPandas)\nTransformaciones: construir doc (name, short, long, GENRES/CATEGORIES), limpieza opcional, truncado\nModelos: SentenceTransformers (all-MiniLM-L6-v2), FAISS (FlatIP) opcional\nValidación: MLflow embeddings_generated; existencia shards/consolidado/FAISS | Extra: %docs vacíos, long. media, %truncado\nInput: Mongo juegos (uri/db/collection)\nOutput: data/processed/embeddings/, data/processed/embeddings.parquet, models/embeddings.faiss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="520" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Clustering -->
+        <mxCell id="node_clustering" value="Clustering\nScript: src/pipelines/run_clustering.py\nParalelización: scikit-learn local | Spark ML KMeans (umbral) | Leiden local\nTransformaciones: cluster_id; soft-membership (tau); borderline; stats por clúster\nModelos: KMeans (sklearn/pyspark), Leiden (igraph+leidenalg) + FAISS kNN\nValidación: stats y borderline CSV; MLflow n_clusters_found | Extra: Spark silhouette; Leiden modularity/coverage; %borderline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="580" y="60" width="520" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Preaggregations Row -->
+        <mxCell id="node_preagg_reviews" value="Preagg Reviews\nScript: src/pipelines/preaggregations/reviews_monthly.py\nParalelización: Spark (preferente) | pandas\nTransformaciones: mensual pos/neg/total_reviews por appid\nModelos: Spark SQL/DataFrames\nValidación: parquet particionado; logs\nInput: Mongo reviews\nOutput: data/warehouse/reviews_monthly.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="520" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_preagg_players" value="Preagg Players\nScript: src/pipelines/preaggregations/players_monthly.py\nParalelización: Spark | pandas\nTransformaciones: mensual players por appid\nModelos: Spark SQL/DataFrames\nValidación: parquet particionado; logs\nInput: CSVs data/external/players/{appid}.csv\nOutput: data/warehouse/players_monthly.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666" vertex="1" parent="1">
+          <mxGeometry x="580" y="240" width="520" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- Branch A: Events / Topics / News / Enrich -->
+        <mxCell id="label_branch_a" value="Rama A — Eventos/Tópicos/Noticias/Señales" style="text;whiteSpace=wrap;html=1;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="420" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_events" value="Events\nScript: src/pipelines/event_detection/detect_events.py\nParalelización: ray | multiprocessing\nTransformaciones: dlog, z-score; peaks/drops por variable\nModelos: z-score sobre series\nValidación: MLflow (events_detected); events.parquet | Extra: ratio eventos/juego; dist. z-scores\nInput: clusters.parquet + preaggs (opcional)\nOutput: outputs/events/events.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="340" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_topics" value="Topics (BERTopic)\nScript: src/insights/topic_motives.py\nParalelización: ray | multiprocessing | secuencial\nTransformaciones: ventana temporal; ponderación por votos; tokens\nModelos: BERTopic + SentenceTransformer; Coherencia C_v (gensim) opcional\nValidación: topics.parquet; MLflow avg_topic_coherence_cv\nInput: outputs/events/events.parquet + Mongo reviews\nOutput: outputs/events/topics.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="400" y="430" width="360" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_news" value="News Classifier\nScript: src/insights/news_classifier.py\nParalelización: multihilo (ThreadPoolExecutor)\nTransformaciones: título → label; tópicos → llm_label\nModelos: LLM vía API (server_url, model_id)\nValidación: news_classified.parquet; topics_labeled.parquet; MLflow | Extra: dist. de labels; % no-clasificado\nInput: Mongo noticias; topics.parquet (opcional)\nOutput: outputs/events/news_classified.parquet, outputs/events/topics_labeled.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="780" y="430" width="380" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_enrich" value="Enrich\nScript: src/pipelines/event_detection/enrich_events.py\nParalelización: ray (opcional) | secuencial\nTransformaciones: join eventos con Twitch/YouTube/DLCs; agregados de noticias; labels tópicos\nModelos: heurísticas (rolling mean, pivots)\nValidación: explanations.parquet; MLflow events_enriched | Extra: % eventos con señales asociadas\nInput: events.parquet; news_classified.parquet; topics_labeled.parquet; señales externas\nOutput: outputs/events/explanations.parquet" style="rounded=1;WhiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="1180" y="430" width="420" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Branch B: CCF/Granger -->
+        <mxCell id="node_ccf" value="CCF / Granger\nScript: src/pipelines/ccf_analysis/analyze_competitors_ccf.py\nParalelización: ray | multiprocessing | secuencial\nTransformaciones: estacionarización (dlog, diff, sqrt, seasonal), prewhitening AR(1)\nModelos: CCF ±lags; ARIMA(1,0,0); Granger; FDR (BH)\nValidación: summary.parquet con columnas FDR; MLflow métricas | Extra: ADF+KPSS; Ljung–Box residuales\nInput: clusters.parquet; preaggs reviews/players (opcional)\nOutput: outputs/ccf_analysis/summary.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="40" y="610" width="520" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Branch C: Decision Rules -->
+        <mxCell id="node_rules_prepare" value="Decision Rules — Prepare\nScript: src/pipelines/decision_rules/pipeline.py (prepare)\nParalelización: Spark\nTransformaciones: snapshot colección a parquet\nModelos: SparkSession\nValidación: existencia data/prepared/\nInput: Mongo juegos (params.yaml)\nOutput: data/prepared/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366" vertex="1" parent="1">
+          <mxGeometry x="580" y="610" width="360" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_rules_apply" value="Decision Rules — Apply\nScript: src/pipelines/decision_rules/pipeline.py (apply_rules)\nParalelización: Spark lectura → pandas reglas\nTransformaciones: precio, saturaciones, actividad, experiencia, abandono, limitaciones, publishers, idiomas\nModelos: reglas_decision.py\nValidación: with_rules.parquet\nInput: data/prepared/\nOutput: data/with_rules/with_rules.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366" vertex="1" parent="1">
+          <mxGeometry x="960" y="610" width="420" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_rules_eval" value="Decision Rules — Evaluate\nScript: src/pipelines/decision_rules/pipeline.py (evaluate)\nParalelización: n/a\nTransformaciones: métricas agregadas (pct económicos, pct altos)\nModelos: MLflow (logging)\nValidación: outputs/reports/metrics.json\nInput: data/with_rules/with_rules.parquet\nOutput: outputs/reports/metrics.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366" vertex="1" parent="1">
+          <mxGeometry x="1400" y="610" width="360" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- Convergence: Report / Editor / Client -->
+        <mxCell id="node_report" value="Report\nScript: src/insights/build_game_report.py\nParalelización: multiprocessing | ray (Big Data: Spark propuesto)\nTransformaciones: vecinos (FAISS o producto interno), composición JSON\nModelos: FAISS FlatIP (opcional)\nValidación: schema opcional; existencia {appid}.json | Extra: consistencia vecinos (mismo clúster si aplica)\nInput: embeddings, clusters, ccf summary, events, topics, explanations, with_rules, metadata\nOutput: outputs/reports/{appid}.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2f3;strokeColor=#3c78d8" vertex="1" parent="1">
+          <mxGeometry x="40" y="800" width="740" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_editor" value="Editor View\nScript: src/insights/compose_editor_payload.py\nInput: outputs/reports/{appid}.json\nOutput: outputs/reports/{appid}_editor.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2f3;strokeColor=#3c78d8" vertex="1" parent="1">
+          <mxGeometry x="800" y="800" width="360" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="node_client" value="Client Report\nScript: src/insights/make_client_report.py\nInput: configs/client_example.json; embeddings/clusters/metadata; ccf/events/topics/explanations\nOutput: outputs/reports/client_*.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2f3;strokeColor=#3c78d8" vertex="1" parent="1">
+          <mxGeometry x="1180" y="800" width="360" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="e_emb_to_clu" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#6c8ebf" edge="1" parent="1" source="node_embeddings" target="node_clustering">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_preagg_reviews_to_events" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_preagg_reviews" target="node_events">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_preagg_players_to_events" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_preagg_players" target="node_events">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_clu_to_events" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_clustering" target="node_events">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_events_to_topics" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_events" target="node_topics">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_topics_to_news" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_topics" target="node_news">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_news_to_enrich" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#d79b00" edge="1" parent="1" source="node_news" target="node_enrich">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e_clu_to_ccf" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#9673a6" edge="1" parent="1" source="node_clustering" target="node_ccf">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_preagg_rev_to_ccf" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#9673a6" edge="1" parent="1" source="node_preagg_reviews" target="node_ccf">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_preagg_players_to_ccf2" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#9673a6" edge="1" parent="1" source="node_preagg_players" target="node_ccf">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e_rules_chain1" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#82b366" edge="1" parent="1" source="node_rules_prepare" target="node_rules_apply">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_rules_chain2" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#82b366" edge="1" parent="1" source="node_rules_apply" target="node_rules_eval">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Convergence edges to report -->
+        <mxCell id="e_enrich_to_report" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_enrich" target="node_report">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_ccf_to_report" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_ccf" target="node_report">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_clu_to_report" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;dashed=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_clustering" target="node_report">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_rules_to_report" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_rules_eval" target="node_report">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e_report_to_editor" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_report" target="node_editor">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_report_to_client" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;dashed=1;strokeColor=#3c78d8" edge="1" parent="1" source="node_report" target="node_client">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

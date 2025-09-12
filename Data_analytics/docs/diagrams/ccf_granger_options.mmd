@@ -1,0 +1,45 @@
+flowchart LR
+  subgraph Inputs["Inputs"]
+    CLU[(clusters.parquet)]
+    PREV[(preaggregated.reviews_monthly)]
+    PPL[(preaggregated.players_monthly)]
+    MREV[(Mongo: reviews)]
+    CSV[(CSV: players {appid}.csv)]
+  end
+
+  subgraph Parallel["Parallelization"]
+    PMODE{{parallel_mode\nray | multiprocessing | sequential}}
+  end
+
+  subgraph Stationarity["Stationarity & Transforms"]
+    TLIST[transforms order:\n dlog, diff, diff2, sqrt,\n sqrt_diff, log1p_diff, seasonal_diff]
+    ADF[ADF alpha]
+    SPER[seasonal.period]
+  end
+
+  subgraph Analysis["CCF & Granger Analysis"]
+    PAIRS[ccf_pairs: predictor->target]
+    LAGS[ccf_lags]
+    CCFX[Compute CCF across lags\n(best_lag, best_ccf)]
+    GLAGS[granger.maxlag]
+    GALPHA[granger.alpha]
+    GTEST[Test Granger both directions\n(pmin, sig)]
+  end
+
+  subgraph Output["Outputs & Corrections"]
+    FDR[Benjamini–Hochberg FDR\ncolumns *_p_fdr, *_sig_fdr]
+    SUM[(outputs/ccf_analysis/summary.parquet)]
+  end
+
+  CLU --> PMODE
+  PREV --> PMODE
+  PPL --> PMODE
+  MREV --> PMODE
+  CSV --> PMODE
+
+  PMODE --> TLIST
+  TLIST --> ADF --> SPER --> PAIRS
+  PAIRS --> LAGS --> CCFX --> GTEST --> FDR --> SUM
+  GLAGS --> GTEST
+  GALPHA --> GTEST
+

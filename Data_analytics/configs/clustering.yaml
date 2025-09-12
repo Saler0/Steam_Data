@@ -1,0 +1,115 @@
+# -----------------------------------------------------------------------------
+# Fichero de Configuración para el Clustering de Juegos de Steam
+# -----------------------------------------------------------------------------
+
+# --- CONFIGURACIÓN DE RUTAS Y CONEXIONES ---
+input_paths:
+  # Ruta a los ficheros de embeddings (salida de la etapa 'embeddings').
+  embeddings_sharded_uri: data/processed/embeddings/
+
+  # --- Ejemplos en lago de objetos ---
+  # GCS:
+  # embeddings_sharded_uri: gs://mi-bucket-steam/processed/embeddings/
+  # S3 (pandas requiere s3fs; en Spark usa s3a://):
+  # embeddings_sharded_uri: s3://mi-bucket-steam/processed/embeddings/
+
+output_paths:
+  # Ruta para el resultado principal (appid -> cluster_id).
+  clusters_parquet: data/processed/clusters.parquet
+  # Directorio para guardar los juegos con asignación ambigua.
+  borderline_dir: outputs/clustering/borderline/
+  # Directorio para estadísticas del clúster (tamaño, etc.).
+  stats_dir: outputs/clustering/stats/
+
+  # --- Ejemplos en lago de objetos ---
+  # GCS:
+  # clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
+  # borderline_dir: gs://mi-bucket-steam/outputs/clustering/borderline/
+  # stats_dir: gs://mi-bucket-steam/outputs/clustering/stats/
+  # S3:
+  # clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
+  # borderline_dir: s3://mi-bucket-steam/outputs/clustering/borderline/
+  # stats_dir: s3://mi-bucket-steam/outputs/clustering/stats/
+
+mongo_connection:
+  # URI de conexión a tu base de datos MongoDB. Se recomienda usar una variable de entorno.
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  database: ${MONGO_DB_CLUSTERS:-exploitation_zone}
+  collection: ${MONGO_COLL_CLUSTERS:-game_clusters}
+
+# --- MÉTODO PRINCIPAL DE CLUSTERING ---
+# Elige el algoritmo a utilizar. Este es el interruptor principal.
+# Opciones: "kmeans" o "graph_leiden".
+method: "graph_leiden"
+
+# -----------------------------------------------------------------------------
+# SECCIÓN DE CONFIGURACIÓN PARA KMEANS
+# -----------------------------------------------------------------------------
+kmeans:
+  # Umbral de documentos para usar Spark ML. Si el número de juegos >= este valor,
+  # se usa Spark. Si es menor, se usa scikit-learn.
+  threshold_spark: 1000000
+
+  # Rango de K a probar para encontrar el mejor valor si se usa Spark ML.
+  k_range: [50, 100]
+
+  # Número fijo de clústeres a usar si el método es scikit-learn.
+  n_clusters: 50
+
+  # Semilla para la reproducibilidad.
+  seed: 42
+
+faiss:
+  index: "FlatIP"   # tipo de índice ("FlatIP" = exacto, con producto interno)
+  use_gpu: false  
+# -----------------------------------------------------------------------------
+# SECCIÓN DE CONFIGURACIÓN PARA GRAPH_LEIDEN
+# -----------------------------------------------------------------------------
+graph_leiden:
+  # Número de vecinos más cercanos (k) a considerar para cada juego al construir la red.
+  k_neighbors: 30
+
+  # Umbral de similitud del coseno. Se ignorarán las conexiones entre juegos con una similitud menor a este valor.
+  sim_threshold: 0.2
+
+  # Parámetro de resolución para el algoritmo Leiden.
+  # > 1.0: Tiende a crear MÁS clústeres.
+  # < 1.0: Tiende a crear MENOS clústeres.
+  resolution: 1.0
+  
+  # Si el número de juegos supera el threshold_spark de kmeans, se usaría Spark para el procesamiento de grafos (si estuviera implementado).
+  use_spark_if_large: false # Cambiar a 'true' si se implementa la lógica de Spark.
+
+# -----------------------------------------------------------------------------
+# OPCIONES DE ANÁLISIS POST-CLUSTERING (solo para graph_leiden)
+# -----------------------------------------------------------------------------
+post_analysis:
+  # Si es 'true', calcula la probabilidad de que un juego pertenezca a cada clúster.
+  # Añade las columnas 'p_assigned', 'p_second' y 'confidence_margin'.
+  soft_membership:
+    enabled: true
+    # Parámetro 'tau' (temperatura) para la función softmax.
+    # Un valor más bajo (ej. 0.05) crea probabilidades más "agudas" y seguras.
+    temperature: 0.07
+
+  # Identifica juegos con asignación ambigua (entre dos o más clústeres).
+  borderline:
+    method: "percentile" # Opciones: "percentile" o "absolute"
+    percentile: 10       # Juegos con 'confidence_margin' en el 10% inferior.
+    absolute_threshold: 0.05
+    
+  # Clustering de Consenso: ejecuta Leiden varias veces para encontrar clústeres más estables.
+  consensus:
+    enabled: false
+    resolutions: [0.8, 1.0, 1.2, 1.5]
+    min_coassoc: 0.6
+
+# -----------------------------------------------------------------------------
+# SECCIÓN DE LOGGING CON MLFLOW
+# -----------------------------------------------------------------------------
+mlflow:
+  # Activa o desactiva el registro de la ejecución en MLflow.
+  enabled: true
+  experiment: "Steam Analytics"
+  # Prefijo para el nombre de las ejecuciones, para organizarlas fácilmente.
+  run_name_prefix: "clustering_"

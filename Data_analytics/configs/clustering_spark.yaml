@@ -1,0 +1,41 @@
+# Config alternativo para "modo big data" (Spark KMeans)
+
+input_paths:
+  embeddings_sharded_uri: data/processed/embeddings/
+
+output_paths:
+  clusters_parquet: data/processed/clusters.parquet
+  borderline_dir: outputs/clustering/borderline/
+  stats_dir: outputs/clustering/stats/
+
+  # --- Ejemplos lago de objetos ---
+  # GCS:
+  # clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
+  # borderline_dir: gs://mi-bucket-steam/outputs/clustering/borderline/
+  # stats_dir: gs://mi-bucket-steam/outputs/clustering/stats/
+  # S3:
+  # clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
+  # borderline_dir: s3://mi-bucket-steam/outputs/clustering/borderline/
+  # stats_dir: s3://mi-bucket-steam/outputs/clustering/stats/
+
+mongo_connection:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  database: ${MONGO_DB_CLUSTERS:-exploitation_zone}
+  collection: ${MONGO_COLL_CLUSTERS:-game_clusters}
+
+method: "kmeans"
+
+kmeans:
+  threshold_spark: 10000   # fuerza Spark a partir de 10k juegos
+  k_range: [50, 120]
+  n_clusters: 80            # usado solo en scikit-learn
+  seed: 42
+
+faiss:
+  index: "FlatIP"
+  use_gpu: false
+
+mlflow:
+  enabled: true
+  experiment: "Steam Analytics"
+  run_name_prefix: "clustering_spark_"

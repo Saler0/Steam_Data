@@ -1,8 +1,0 @@
-clustering:
-  min_k: 5
-  max_k: 30
-  random_state: 42
-  n_init: "auto"
-
-similitud:
-  umbral: 0.90

@@ -1,0 +1,45 @@
+﻿# -----------------------------------------------------------------------------
+# Requisitos del Proyecto - Steam Game Analytics
+# -----------------------------------------------------------------------------
+
+# --- Core Libraries: Procesamiento y Utilidades ---
+pandas>=2.2
+numpy>=1.26
+pyarrow>=14.0       # Para trabajar eficientemente con ficheros Parquet
+python-dateutil>=2.9
+pyspark>=3.5.0 
+tqdm>=4.66          # Para barras de progreso en la terminal
+requests>=2.32      # Para hacer llamadas a APIs externas (Twitch, YouTube, LLM)
+dvc 
+# --- Conectores de Datos ---
+pymongo>=4.6        # Para conectar con MongoDB
+gcsfs>=2024.6.0     # Para conectar con Google Cloud Storage (opcional)
+fsspec>=2024.6.0    # Dependencia de gcsfs
+
+# --- Machine Learning y NLP ---
+scikit-learn>=1.4   # Para KMeans y otras utilidades de ML
+sentence-transformers>=2.7.0 # Para generar los embeddings de texto
+bertopic>=0.16.0    # Para el modelado de tÃ³picos
+ray>=2.33.0         # Para paralelismo distribuido opcional
+gensim>=4.3.2       # Para coherencia C_v en tópicos (opcional pero recomendado)
+
+# --- AnÃ¡lisis EstadÃ­stico y Series Temporales ---
+statsmodels>=0.14.1 # Para los tests de Causalidad de Granger y ARIMA
+pmdarima            # Para auto_arima (selecciÃ³n de modelo ARIMA con AIC)
+
+# --- AnÃ¡lisis de Grafos y BÃºsqueda de Similitud ---
+faiss-cpu>=1.8.0    # Para la bÃºsqueda ultra-rÃ¡pida de vecinos cercanos (kNN)
+python-igraph>=0.11.5 # Para la construcciÃ³n y manipulaciÃ³n de grafos
+leidenalg>=0.10.2  # Para el algoritmo de clustering por comunidades de Leiden
+
+# --- MLOps y Reproducibilidad ---
+mlflow>=2.13.0      # Para el registro de experimentos y resultados
+# DVC se instala por separado, no es una librerÃ­a de Python, por lo que no va aquÃ­.
+
+# --- Validación de esquemas (Opcional pero recomendado) ---
+jsonschema>=4.22.0  # Para validar JSON contra schemas (reportes)
+
+# --- VisualizaciÃ³n (Opcional) ---
+matplotlib>=3.8     # Ãštil para visualizaciones y debugging
+
+

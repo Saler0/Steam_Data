@@ -1,0 +1,149 @@
+# -----------------------------------------------------------------------------
+# Data Contract Template for Steam Analytics Pipeline
+# Rellena este fichero con la estructura exacta de tus datasets/colecciones.
+# El pipeline lo usará como referencia para adaptar lectores/validaciones.
+# -----------------------------------------------------------------------------
+
+version: 1
+
+# -----------------------------------------------------------------------------
+# Datasets en disco (CSV/Parquet/JSON)
+# -----------------------------------------------------------------------------
+datasets:
+  embeddings:
+    # Puede ser un directorio de shards Parquet o un único fichero
+    path: data/processed/embeddings/   # o data/processed/embeddings.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: embedding, type: array<float32>, required: true }
+
+  clusters:
+    path: data/processed/clusters.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: cluster_id, type: int32, required: true }
+      - { name: is_borderline, type: bool, required: false }
+      - { name: confidence_margin, type: float64, required: false }
+      - { name: p_assigned, type: float64, required: false }
+      - { name: p_second, type: float64, required: false }
+
+  players:
+    # Un CSV por juego o un CSV global con columna appid
+    path_pattern: data/external/players/{appid}.csv  # o data/external/players.csv
+    format: csv
+    schema:
+      - { name: date, type: date, required: true, description: YYYY-MM-DD }
+      - { name: players, type: int64, required: true }
+      - { name: appid, type: string, required: false }
+
+  events:
+    path: outputs/events/events.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: year_month, type: date, required: true }
+      - { name: variable, type: string, required: true, enum: [players, pos, neg, total_reviews] }
+      - { name: direction, type: string, required: true, enum: [peak, drop] }
+      - { name: zscore, type: float64, required: true }
+      - { name: value, type: float64, required: true }
+      - { name: growth_rate, type: float64, required: true }
+
+  topics:
+    path: outputs/events/topics.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: event_year_month, type: date, required: true }
+      - { name: topics, type: array<object>, required: true, description: "Topic/Count/Name/Representation" }
+
+  explanations:
+    path: outputs/events/explanations.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: year_month, type: date, required: true }
+      - { name: twitch_spike, type: bool, required: false }
+      - { name: yt_mentions, type: int64, required: false }
+      - { name: dlc_release, type: string, required: false }
+
+  ccf_summary:
+    path: outputs/ccf_analysis/summary.parquet
+    format: parquet
+    schema:
+      - { name: appid, type: string, required: true }
+      - { name: pair_name, type: string, required: true }
+      - { name: best_lag, type: int32, required: true }
+      - { name: best_ccf, type: float64, required: true }
+      - { name: granger_xy_pmin, type: float64, required: false }
+      - { name: granger_xy_sig, type: bool, required: false }
+      - { name: granger_yx_pmin, type: float64, required: false }
+      - { name: granger_yx_sig, type: bool, required: false }
+
+  youtube_monthly:
+    path_pattern: data/external/youtube/monthly_{appid}.csv
+    format: csv
+    schema:
+      - { name: date, type: date, required: true }
+      - { name: mentions, type: int64, required: false }
+      - { name: videos, type: int64, required: false }
+
+  twitch_monthly:
+    path_pattern: data/external/twitch/monthly_{appid}.csv
+    format: csv
+    schema:
+      - { name: date, type: date, required: true }
+      - { name: viewers, type: int64, required: false }
+      - { name: streams, type: int64, required: false }
+
+# -----------------------------------------------------------------------------
+# Colecciones MongoDB
+# -----------------------------------------------------------------------------
+mongo:
+  games:
+    uri: ${MONGO_URI:-mongodb://mongo:27017}
+    database: ${MONGO_DB_GAMES:-exploitation_zone}
+    collection: ${MONGO_COLL_GAMES:-juegos_steam}
+    fields:
+      - { name: appid, type: int|string }
+      - { name: name, type: string }
+      - { name: short_description, type: string }
+      - { name: detailed_description, type: string }
+      - { name: genres, type: array<string> }
+      - { name: categories, type: array<string> }
+      - { name: dlc, type: array<object>, description: "appid,name,release_date" }
+
+  reviews:
+    uri: ${MONGO_URI:-mongodb://mongo:27017}
+    database: ${MONGO_DB_REVIEWS:-exploitation_zone}
+    collection: ${MONGO_COLL_REVIEWS:-steam_reviews}
+    fields:
+      - { name: appid, type: int|string }
+      - { name: timestamp_created, type: int, description: "epoch seconds" }
+      - { name: voted_up, type: bool }
+      - { name: review, type: string }
+      - { name: language, type: string }
+      - { name: votes_up, type: int, required: false }
+      - { name: votes_helpful, type: int, required: false }
+      - { name: helpful, type: int, required: false }
+
+# -----------------------------------------------------------------------------
+# Muestras (opcional pero recomendado)
+# Coloca 1-2 ficheros pequeños por dataset en data/samples/ y referencia aquí.
+# -----------------------------------------------------------------------------
+samples:
+  embeddings: data/samples/embeddings_sample.parquet
+  clusters: data/samples/clusters_sample.parquet
+  players: data/samples/players_12345.csv
+  events: data/samples/events_sample.parquet
+  topics: data/samples/topics_sample.parquet
+  explanations: data/samples/explanations_sample.parquet
+  ccf_summary: data/samples/ccf_summary_sample.parquet
+  youtube_monthly: data/samples/youtube_monthly_12345.csv
+  twitch_monthly: data/samples/twitch_monthly_12345.csv
+
+# Notas:
+# - Usa tipos aproximados; ajustaré validadores a PyArrow/Pandas equivalentes.
+# - Si un nombre de columna difiere, indícalo aquí y adapto los scripts.
+# - Para Parquet, si no conoces el tipo exacto, indica el más cercano.

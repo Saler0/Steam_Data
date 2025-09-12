@@ -1,0 +1,94 @@
+# Parámetros globales
+mongo:
+  # En Docker, usa el hostname del servicio en la red (p.ej., 'mongo').
+  # En local, puedes sobrescribir con la variable de entorno MONGO_URI.
+  uri: "mongodb://mongo:27017"
+  database: "steam"
+  collection: "games"
+
+mlflow:
+  experiment_name: "steam_rules_pipeline"
+  tracking_uri: "http://localhost:5000"
+
+# ----------------------
+# Report parameters (for DVC report/editor)
+# ----------------------
+report:
+  appid: "12345"
+  neighbors_top_k: 15
+
+# ----------------------
+# Client report (standalone stage)
+# ----------------------
+client_report:
+  client_id: "client-001"
+  client_file: "configs/client_example.json"
+  neighbors_top_k: 15
+  same_cluster_only: true
+
+# ----------------------
+# Parámetros de reglas
+# ----------------------
+
+regla_precio:
+  bajo_umbral: 0.10
+  alto_umbral: 0.10
+
+justificacion_precio:
+  tiempo_jugado_umbral: 0.5    # relativo a mediana
+  delta_precio_lanzamiento: 0.05
+
+saturacion_cluster_1:
+  vecinos_min: 20
+  edad_umbral: 6   # años
+
+saturacion_cluster_2:
+  reviews_min: 1000
+  desviacion_umbral: 0.15
+  nota_media_umbral: 0.70
+
+saturacion_cluster_3:
+  vecinos_lanzamiento_umbral: 0.50
+  review_positiva_umbral: 0.70
+
+justificacion_actividad:
+  cambio_actividad_min: 0.10
+  correlacion_parches_umbral: 0.5
+
+experiencia_jugador:
+  horas_nuevo: 0.1
+  horas_intermedio: 0.5
+  horas_experto: 1.5
+
+deteccion_abandono:
+  horas_semana_inactivo: 0
+  horas_semana_poco_activo: 2
+  horas_semana_ocacional: 10
+  horas_semana_frecuente: 30
+
+limitaciones_tecnicas:
+  ram_umbral: "mediana"
+  plataformas_umbral: "mayoria"
+  steam_deck_verificado: true
+  conexion_constante: true
+  tamano_p75: true
+
+evaluacion_limitaciones:
+  limite_bajo: 0
+  limite_medio: 2
+  limite_alto: 3
+
+publishers_estudios:
+  pct_publi_potente: 0.50
+  pct_dev_potente: 0.50
+  pct_ips_famosas: 0.30
+  nota_media: 80
+
+prioridad_idiomas:
+  ingles_reviews_min: 1000
+  espanol_reviews_min: 1000
+  espanol_reviews_pct: 0.20
+  espanol_reviews_abs: 300
+  otro_reviews_min: 1000
+  otro_reviews_pct: 0.15
+  otro_reviews_abs: 300

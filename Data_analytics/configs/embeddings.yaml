@@ -1,0 +1,70 @@
+# -----------------------------------------------------------------------------
+# Fichero de Configuración para la Generación de Embeddings
+# -----------------------------------------------------------------------------
+
+mongo_connection:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  database: ${MONGO_DB_GAMES:-exploitation_zone}
+  collection: ${MONGO_COLL_GAMES:-juegos_steam}
+
+document_fields:
+  text_fields: ["name", "short_description", "detailed_description"]
+  tag_fields: ["genres", "categories"]
+
+# El identificador del modelo de SentenceTransformer a usar.
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+# Opciones de procesamiento
+normalize_embeddings: true
+embedding_batch_size: 256  # tamaño de lote para model.encode (ajusta según memoria)
+
+# Ensamblado del documento (opcional)
+assemble:
+  # Poner géneros/categorías delante para que nunca se pierdan por truncado
+  tags_first: true
+  # Añadir prefijos de sección (GENRES:/CATEGORIES:)
+  use_prefixes: true
+  # Limpieza ligera (HTML/URLs/espacios) antes de embebido
+  clean_text: true
+  # Truncado global suave del documento combinado (0 o ausente = sin límite)
+  document_max_chars: 6000
+  # Presupuestos por sección (truncados individuales, opcional)
+  budgets:
+    short_description: 1000
+    detailed_description: 3000
+
+# --- OPCIONES DE PARALELIZACIÓN ---
+parallelization:
+  # Elige el motor de paralelización.
+  # Opciones: "multiprocessing" (para CPU local) o "ray" (para clúster distribuido).
+  method: "multiprocessing" # opciones: multiprocessing | ray | spark
+
+  # Número de shards/procesos/workers a utilizar.
+  n_shards: 4
+
+  # Opciones específicas de Spark (solo si method: spark)
+  spark:
+    partitions: 200           # particiones de salida/ejecución
+    # write_single_file: false  # no recomendado a escala; se mantiene shardeado
+
+output_paths:
+  # Ruta donde se guardarán los ficheros Parquet shardeados.
+  embeddings_sharded_uri: data/processed/embeddings/
+  metadata_parquet: data/processed/game_metadata.parquet
+
+  # --- Ejemplos en lago de objetos (elige uno y comenta el resto) ---
+  # GCS (requiere credenciales GCP y gcsfs/fsspec para accesos pandas; Spark usa gs:// nativamente)
+  # embeddings_sharded_uri: gs://mi-bucket-steam/processed/embeddings/
+  # metadata_parquet: gs://mi-bucket-steam/processed/game_metadata.parquet
+
+  # S3 (para pandas instalar s3fs; en Spark usar esquema s3a:// y configurar credenciales/Hadoop AWS)
+  # embeddings_sharded_uri: s3://mi-bucket-steam/processed/embeddings/
+  # metadata_parquet: s3://mi-bucket-steam/processed/game_metadata.parquet
+
+# Índice FAISS persistente para búsquedas ANN/kNN (opcional)
+faiss_index:
+  enabled: true
+  index: FlatIP      # FlatIP para MVP/local; IVF/HNSW para grandes volúmenes
+  use_gpu: false
+  path: models/embeddings.faiss
+  ids_path: models/emb_ids.json

@@ -1,0 +1,115 @@
+<mxfile host="app.diagrams.net" modified="2025-09-06T00:00:00Z" agent="Codex-CLI" version="20.8.23" type="device">
+  <diagram id="analytics-flow" name="Analytics Flow">
+    <mxGraphModel dx="1280" dy="720" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Sources / Preaggregations -->
+        <mxCell id="10" value="MongoDB (exploitation_zone)&#10;collections: juegos_steam, steam_reviews, news_games" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="40" value="Preagg Reviews (monthly)&#10;Input: reviews (Mongo)&#10;Output: data/warehouse/reviews_monthly.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="340" y="40" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="41" value="Preagg Players (monthly)&#10;Input: data/external/players/*.csv&#10;Output: data/warehouse/players_monthly.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="660" y="40" width="320" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Main path: Embeddings -> Clustering -->
+        <mxCell id="20" value="Embeddings&#10;Local: multiprocessing/Ray&#10;Reads: Mongo juegos_steam&#10;Writes: data/processed/embeddings/ (+FAISS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="30" value="Clustering&#10;Local: Leiden/KMeans&#10;Big Data: Spark KMeans&#10;Writes: data/processed/clusters.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="300" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Events branch -->
+        <mxCell id="50" value="Events (z-score)&#10;Big Data: events_spark&#10;Reads: reviews_monthly, players_monthly, clusters&#10;Writes: outputs/events/events.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="380" y="230" width="360" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="60" value="Topics (BERTopic)&#10;Reads: events.parquet&#10;Writes: outputs/events/topics.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="380" y="350" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="70" value="News Classifier (LLM)&#10;Reads: topics.parquet&#10;Writes: outputs/events/news_classified.parquet, topics_labeled.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="380" y="450" width="420" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="80" value="Enrich (Twitch/YouTube/Steam Updates/DLCs)&#10;Reads: events, topics_labeled, news_classified&#10;Writes: outputs/events/explanations.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="380" y="550" width="460" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- CCF branch -->
+        <mxCell id="90" value="CCF/Granger&#10;Big Data: ccf_spark&#10;Reads: reviews_monthly, players_monthly&#10;Writes: outputs/ccf_analysis/summary.parquet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="780" y="300" width="380" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Rules branch -->
+        <mxCell id="100" value="Rules: prepare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#6aa84f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="101" value="Rules: apply" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#6aa84f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="450" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="102" value="Rules: evaluate&#10;Writes: data/with_rules/, outputs/reports/metrics.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#6aa84f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="260" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Convergence / Reports -->
+        <mxCell id="110" value="Build Game Report&#10;Reads: clusters, events, topics, explanations, ccf summary&#10;Writes: outputs/reports/{appid}.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="380" y="650" width="460" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="120" value="Editor View&#10;Writes: outputs/reports/{appid}_editor.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="380" y="770" width="320" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="130" value="Client Report&#10;Reads: embeddings, clusters, metadata, ccf, events, topics, explanations&#10;Writes: outputs/reports/client_{id}.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="870" y="650" width="420" height="110" as="geometry"/>
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="e1" edge="1" parent="1" source="10" target="20"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="20" target="30"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e3" edge="1" parent="1" source="40" target="50"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="41" target="50"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="30" target="50"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="50" target="60"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="60" target="70"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="70" target="80"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e9" edge="1" parent="1" source="40" target="90"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="41" target="90"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="30" target="90"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e12" edge="1" parent="1" source="30" target="100"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="100" target="101"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="101" target="102"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e15" edge="1" parent="1" source="30" target="110"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="50" target="110"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="60" target="110"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="80" target="110"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="90" target="110"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e20" edge="1" parent="1" source="110" target="120"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e21" edge="1" parent="1" source="30" target="130"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="80" target="130"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="90" target="130"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="legend" name="Legend">
+    <mxGraphModel dx="1280" dy="720" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="l1" value="Local vs Big Data Notes" style="swimlane;childLayout=stackLayout;horizontal=1;rounded=1;fillColor=#f5f5f5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="720" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="l1t" value="Local: pandas/scikit/Ray opcional.&#10;Big Data: Spark (events_spark, ccf_spark, KMeans Spark) y Ray en tópicos." style="text;whiteSpace=wrap;html=1;align=left;verticalAlign=top;" vertex="1" parent="l1">
+          <mxGeometry x="20" y="40" width="680" height="180" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
