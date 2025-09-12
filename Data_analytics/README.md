@@ -380,10 +380,10 @@ Scripts y Funciones
 
 Notas adicionales
 - Mongo dentro/fuera de Docker: si ejecutas los scripts dentro del contenedor pp, usa mongodb://mongo:27017. Si ejecutas en tu host, usa mongodb://localhost:27017 (o ajusta MONGO_URI).
-- YouTube API: la variable preferida es YOUTUBE_API_KEY (alias de YT_API_KEY). Aseg˙rate de definirla en .env si usas conectores/LLM.
+- YouTube API: la variable preferida es YOUTUBE_API_KEY (alias de YT_API_KEY). Aseg√∫rate de definirla en .env si usas conectores/LLM.
 - Spark/Java: las etapas Spark requieren Java (OpenJDK 11/17). La imagen de analytics instala OpenJDK 17, por lo que puedes ejecutar events_spark, ccf_spark o clustering_spark dentro del contenedor.
 
-EjecuciÛn condicional (Local vs Big Data)
+Ejecuci√≥n condicional (Local vs Big Data)
 - Script helper: python scripts/run_pipeline.py --mode local   [--appid 12345]
 - Big Data:        python scripts/run_pipeline.py --mode bigdata [--appid 12345] [--data-root gs://mi-bucket/prefix]
-- DATA_ROOT: si se define (gs:// o s3://), los scripts leer·n/escribir·n en ese prefijo (requiere credenciales y librerÌas gcsfs/s3fs).
+- DATA_ROOT: si se define (gs:// o s3://), los scripts leer√°n/escribir√°n en ese prefijo (requiere credenciales y librer√≠as gcsfs/s3fs).
