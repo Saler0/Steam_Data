@@ -18,14 +18,34 @@ embedding_model: sentence-transformers/all-MiniLM-L6-v2
 normalize_embeddings: true
 embedding_batch_size: 256  # tamaño de lote para model.encode (ajusta según memoria)
 
+# Ensamblado del documento (opcional)
+assemble:
+  # Poner géneros/categorías delante para que nunca se pierdan por truncado
+  tags_first: true
+  # Añadir prefijos de sección (GENRES:/CATEGORIES:)
+  use_prefixes: true
+  # Limpieza ligera (HTML/URLs/espacios) antes de embebido
+  clean_text: true
+  # Truncado global suave del documento combinado (0 o ausente = sin límite)
+  document_max_chars: 6000
+  # Presupuestos por sección (truncados individuales, opcional)
+  budgets:
+    short_description: 1000
+    detailed_description: 3000
+
 # --- OPCIONES DE PARALELIZACIÓN ---
 parallelization:
   # Elige el motor de paralelización.
   # Opciones: "multiprocessing" (para CPU local) o "ray" (para clúster distribuido).
-  method: "ray"
+  method: "multiprocessing" # opciones: multiprocessing | ray | spark
 
   # Número de shards/procesos/workers a utilizar.
-  n_shards: 8
+  n_shards: 4
+
+  # Opciones específicas de Spark (solo si method: spark)
+  spark:
+    partitions: 200           # particiones de salida/ejecución
+    # write_single_file: false  # no recomendado a escala; se mantiene shardeado
 
 output_paths:
   # Ruta donde se guardarán los ficheros Parquet shardeados.
