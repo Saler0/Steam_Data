@@ -193,6 +193,7 @@ def build_report_for_appid(appid, cfg, data_dict):
             events_section = sub.to_dict(orient='records')
 
     topics_section = []
+    negative_topic_alerts = []
     if not topics.empty:
         sub = topics[topics['appid'].astype(str) == appid].copy()
         if not sub.empty:
@@ -200,6 +201,13 @@ def build_report_for_appid(appid, cfg, data_dict):
                 sub['event_year_month'] = pd.to_datetime(sub['event_year_month']).dt.strftime('%Y-%m-%d')
             if 'anchor_year_month' in sub.columns:
                 sub['anchor_year_month'] = pd.to_datetime(sub['anchor_year_month']).dt.strftime('%Y-%m-%d')
+            # Extraer alertas por polaridad negativa si las hay
+            if 'relevance_polarity' in sub.columns:
+                neg = sub[sub['relevance_polarity'] == 'negative'].copy()
+                if not neg.empty:
+                    cols_keep = [c for c in ['event_year_month', 'relevance_polarity', 'players_zscore'] if c in neg.columns]
+                    neg = neg[cols_keep]
+                    negative_topic_alerts = neg.rename(columns={'event_year_month': 'year_month'}).to_dict(orient='records')
             topics_section = sub.to_dict(orient='records')
 
     explanations_section = []
@@ -219,6 +227,7 @@ def build_report_for_appid(appid, cfg, data_dict):
               "metadata": metadata, "cluster": cluster_info, "neighbors": neigh,
               "ccf_granger": ccf_section, "events": events_section,
               "topics": topics_section, "explanations": explanations_section,
+              "alerts": negative_topic_alerts,
               "rules_analysis": rules_section, # <-- Añadido al reporte final
               "provenance": {k: str(v) for k, v in {
                   "metadata_parquet": cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet'),
@@ -254,6 +263,10 @@ def main():
     cfg.setdefault('neighbors_top_k', args.top_k)
 
     print("[INFO] Cargando todos los datasets. Esto se hace una vez.")
+    # Preferir tópicos anotados con CCF si existen
+    topics_default = Path('outputs/events/topics_scored.parquet')
+    if topics_default.exists():
+        cfg['topics_parquet'] = str(topics_default)
     data_dict = {
         'meta': _load_df(cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet')),
         'emb': _load_df(cfg.get('embeddings_parquet', 'data/processed/embeddings.parquet')),

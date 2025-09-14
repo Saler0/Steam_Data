@@ -1,12 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Preagrega jugadores mensuales por appid a partir de CSVs en data/external/players/{appid}.csv.
-Usa Spark si está disponible; fallback a pandas. Escribe Parquet particionado por appid.
+Preagrega jugadores mensuales por appid.
+
+Modos soportados:
+- Passthrough mensual (recomendado): --file <csv_mensual> con columnas
+  ['appid','name','month_date','avg_players'] como genera Data_management.
+  Se mapea a esquema estándar (appid:str, year_month:timestamp, players:int).
+
+- Agregado desde diarios por app: --players_dir data/external/players (CSV
+  'date,players' por appid). Suma mensual por appid. Usar solo si no hay CSV mensual.
+
+Escribe Parquet particionado por year_month en data/warehouse/players_monthly.parquet.
 """
 from __future__ import annotations
 import argparse
 from pathlib import Path
+from typing import Optional
 import pandas as pd
 
 try:
@@ -39,11 +49,49 @@ def preaggregate_pandas(dir_path: str) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
+def passthrough_monthly_csv(csv_path: str) -> pd.DataFrame:
+    """Lee CSV mensual consolidado (Data_management) y normaliza esquema.
+
+    Espera columnas: 'appid', 'name', 'month_date', 'avg_players'.
+    Devuelve columnas: 'appid'(str), 'year_month'(timestamp inicio de mes), 'players'(int).
+    """
+    p = Path(csv_path)
+    if not p.exists():
+        return pd.DataFrame(columns=['appid','year_month','players'])
+    df = pd.read_csv(p)
+    # columnas mínimas
+    req = {'appid', 'month_date', 'avg_players'}
+    missing = req - set(df.columns)
+    if missing:
+        # intentar alias comunes
+        if 'month' in df.columns and 'month_date' not in df.columns:
+            df = df.rename(columns={'month': 'month_date'})
+        if 'avg_players' not in df.columns and 'players' in df.columns:
+            df = df.rename(columns={'players': 'avg_players'})
+    # tipos
+    if 'appid' in df.columns:
+        df['appid'] = df['appid'].astype(str)
+    df['year_month'] = pd.to_datetime(df['month_date'], errors='coerce')
+    df = df.dropna(subset=['year_month'])
+    # usar promedio mensual como 'players'
+    df['players'] = pd.to_numeric(df['avg_players'], errors='coerce').fillna(0).astype(int)
+    return df[['appid','year_month','players']]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--players_dir', default='data/external/players')
+    ap.add_argument('--file', help='CSV mensual consolidado (Data_management steamcharts_data.csv)')
     ap.add_argument('--out', default='data/warehouse/players_monthly.parquet')
     args = ap.parse_args()
+
+    # Camino recomendado: CSV mensual consolidado
+    if args.file and Path(args.file).exists():
+        df = passthrough_monthly_csv(args.file)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(args.out, index=False)
+        print(f"[OK] Players mensual (passthrough) guardado en -> {args.out}")
+        return
 
     if SPARK_AVAILABLE:
         try:
