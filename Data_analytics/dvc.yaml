@@ -66,8 +66,7 @@ stages:
       - models/cluster_medoids.json
       - data/processed/embeddings_new.parquet
     params:
-      - configs/params.yaml:
-          - clustering
+      - configs/params.yaml:clustering
     outs:
       - data/processed/clusters_assigned.parquet
 
@@ -206,8 +205,7 @@ stages:
       - outputs/events/explanations.parquet
       - outputs/ccf_analysis/summary.parquet
     params:
-      - configs/params.yaml:
-          - report
+      - configs/params.yaml:report
     outs:
       - outputs/reports/${params.report.appid}.json
 
@@ -219,8 +217,7 @@ stages:
       - src/insights/compose_editor_payload.py
       - outputs/reports/${params.report.appid}.json
     params:
-      - configs/params.yaml:
-          - report
+      - configs/params.yaml:report
     outs:
       - outputs/reports/${params.report.appid}_editor.json
 
@@ -252,8 +249,7 @@ stages:
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
     params:
-      - configs/params.yaml:
-          - client_report
+      - configs/params.yaml:client_report
     outs:
       - outputs/reports/client_${params.client_report.client_id}.json
   # --- Big Data alternatives ---
