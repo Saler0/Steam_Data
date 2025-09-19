@@ -4,10 +4,9 @@
 # flujo de trabajo de análisis de datos con DVC.
 # ----------------------------------------------------------------------------
 params:
-  - configs/params.yaml:
-      - clustering
-      - report
-      - client_report
+  - configs/params.yaml:clustering
+  - configs/params.yaml:report
+  - configs/params.yaml:client_report
 
 stages:
   preagg_reviews:
