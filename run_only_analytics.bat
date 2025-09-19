@@ -40,7 +40,18 @@ echo.
 echo ============================
 echo Ejecutando DVC (%DVC_STAGES%) dentro de steam_analytics...
 echo ============================
-docker compose exec analytics bash -lc "cd /app/Data_analytics && dvc repro %DVC_STAGES%"
+rem Marca /app como safe en Git (por si hay "dubious ownership")
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec analytics git config --global --add safe.directory /app
+
+rem Inicializa DVC en el subdirectorio si aún no existe .dvc en la raíz
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
+
+rem Ahora sí, ejecutar el pipeline en la carpeta del repo DVC:
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro %DVC_STAGES%
+
 if errorlevel 1 (
     echo.
     echo ERROR: Fallo al ejecutar el pipeline de DVC.
