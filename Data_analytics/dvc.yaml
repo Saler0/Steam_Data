@@ -3,6 +3,12 @@
 # Este archivo define las etapas, dependencias y parámetros para el
 # flujo de trabajo de análisis de datos con DVC.
 # ----------------------------------------------------------------------------
+params:
+  - configs/params.yaml:
+      - clustering
+      - report
+      - client_report
+
 stages:
   preagg_reviews:
     cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
