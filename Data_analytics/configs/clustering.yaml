@@ -113,3 +113,7 @@ mlflow:
   experiment: "Steam Analytics"
   # Prefijo para el nombre de las ejecuciones, para organizarlas fácilmente.
   run_name_prefix: "clustering_"
+
+# Versión lógica del clustering (YYYYMM). Si no se define, se usa el mes actual.
+# Sirve para rastrear y congelar análisis por versión.
+cluster_version: null

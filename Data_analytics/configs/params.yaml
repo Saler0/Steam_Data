@@ -27,6 +27,13 @@ client_report:
   same_cluster_only: true
 
 # ----------------------
+# Clustering params (for DVC cluster_assign)
+# ----------------------
+clustering:
+  # Si null, el script usará el mes actual (YYYYMM)
+  cluster_version: null
+
+# ----------------------
 # Parámetros de reglas
 # ----------------------
 

@@ -48,6 +48,21 @@ stages:
       - outputs/clustering/cluster_stats.csv
       - outputs/clustering/borderline_games.csv
 
+  # Asignación diaria de nuevos juegos a clústeres existentes (sin reentrenar)
+  cluster_assign:
+    cmd: >
+      python -m src.pipelines.cluster_assignment.assign_new_games \
+        --embeddings data/processed/embeddings_new.parquet \
+        --medoids models/cluster_medoids.json \
+        --out data/processed/clusters_assigned.parquet \
+        --cluster_version  ${params.clustering.cluster_version}
+    deps:
+      - src/pipelines/cluster_assignment/assign_new_games.py
+      - models/cluster_medoids.json
+      - data/processed/embeddings_new.parquet
+    outs:
+      - data/processed/clusters_assigned.parquet
+
   # --- Rama Paralela 1: Detección de Eventos y Análisis de Insights ---
   # Esta rama se puede ejecutar en paralelo con las otras dos ramas.
   events:

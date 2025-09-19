@@ -1,11 +1,10 @@
 name: proyecto_steam
 
 services:
-  # --- MongoDB ---
   mongo:
     image: mongo:6.0
     container_name: mongo
-    profiles: ["seed", "analytics"] # <-- Solo se inicia con los perfiles que lo necesitan
+    profiles: ["pipeline", "seed", "analytics"]
     ports:
       - "27017:27017"
     volumes:
@@ -17,11 +16,10 @@ services:
       retries: 10
       start_period: 10s
 
-  # --- PostgreSQL ---
   postgres:
     image: postgres:15
     container_name: postgres_db
-    profiles: ["seed"] # Se inicia junto al pipeline de datos
+    profiles: ["pipeline", "seed"]
     restart: always
     environment:
       POSTGRES_USER: postgres
@@ -37,69 +35,42 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- Job de sembrado (se ejecuta solo cuando tú quieras) ---
-  app:
-    build:
-      context: ./Data_management
-      dockerfile: Dockerfile
-    container_name: data_management_pipeline
-    volumes:
-      # Mapeamos las carpetas que el pipeline necesita
-      - ./Data_management/landing_zone:/app/landing_zone
-      - ./Data_management/trusted_zone:/app/trusted_zone
-      - ./Data_management/trusted_to_explotation:/app/trusted_to_explotation
-      - ./logs:/app/logs # Mapeo para persistir los logs
-    env_file:
-      - ./Data_management/.env # Carga las variables de entorno, incluidas las de PostgreSQL
-    environment:
-      - MONGO_URI=mongodb://mongo:27017 # Se mantiene la configuración de Mongo
-      - MONGO_DB=trusted_zone
-      - RUN_MODE=app
-      - POSTGRES_HOST=postgres # Se sobreescribe el host para la red de Docker
-    depends_on:
-      mongo:
-        condition: service_healthy
-      postgres: # Se añade la dependencia del nuevo servicio
-        condition: service_healthy
-    restart: "no"         # que haga su trabajo y termine
-    profiles: ["seed"]    # <-- solo se incluye si activas el profile "seed"
-    
-  # --- MLflow ---
   mlflow:
     build:
-      context: ./modelos_steam_data2/mlflow
+      context: ./Data_analytics/mlflow
       dockerfile: Dockerfile
     container_name: steam_mlflow
-    profiles: ["mlflow"] # <-- Solo se incluye si activas el profile "mlflow"
+    profiles: ["pipeline", "mlflow"]
     ports:
       - "5000:5000"
     restart: unless-stopped
 
-  # --- Analytics (puede correr solo, con Mongo y opcionalmente MLflow) ---
-  analytics:
+  pipeline:
     build:
-      context: ./modelos_steam_data2
+      context: .
       dockerfile: Dockerfile
-    container_name: steam_analytics
-    profiles: ["analytics"] # <-- Solo se incluye si activas el profile "analytics"
-    env_file: ./modelos_steam_data2/.env
+    container_name: steam_pipeline
+    profiles: ["pipeline"]
+    env_file:
+      - ./Data_management/.env
+      - ./Data_analytics/.env
+    environment:
+      PIPELINE_MODE: ${PIPELINE_MODE:-full}
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
+      POSTGRES_HOST: postgres
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
     depends_on:
       mongo:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       mlflow:
-        condition: service_started    # quita esto si analytics no usa MLflow
+        condition: service_started
     volumes:
-      - ./:/app
-      - analytics_outputs:/app/outputs
-      - analytics_data:/app/data
-      - analytics_models:/app/models
-      - gcp_secrets:/secrets:ro
-    command: ["/bin/bash", "-lc", "sleep infinity"]
+      - ./Data_management:/app/Data_management
+      - ./Data_analytics:/app/Data_analytics
+    working_dir: /app
 
 volumes:
   mongo_data:
   postgres_data:
-  gcp_secrets:
-  analytics_outputs:
-  analytics_data:
-  analytics_models:

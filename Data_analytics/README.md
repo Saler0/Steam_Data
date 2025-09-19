@@ -37,6 +37,7 @@ Este repositorio soporta dos formas de ejecutar el pipeline, pensadas para neces
   - Ejecutar todo lo principal: `dvc repro embeddings clustering events topics news_classifier enrich ccf report editor_view`
   - Con Makefile (dentro de Docker): `make run-all`
   - Solo clustering: `make clustering`
+  - Asignación diaria (sin reentrenar): `dvc repro cluster_assign`
   - Reporte por juego: `APPID=12345 make report`
 - Configuración relevante:
   - `configs/clustering.yaml`: `method: kmeans` o `graph_leiden`; sección `faiss` (índice y uso de GPU), y tracking en MLflow.
@@ -59,6 +60,18 @@ Este repositorio soporta dos formas de ejecutar el pipeline, pensadas para neces
   - DVC es la fuente de verdad del DAG (`dvc.yaml`).
   - Ejemplos de orquestación: Airflow (`airflow/dags/steam_analytics_dag.py`) y Prefect (`prefect/flow_steam_analytics.py`) invocando `dvc repro` por etapa.
   - MLflow como tracking; en producción se recomienda backend SQL + artifact store en object storage (ajusta `MLFLOW_TRACKING_URI`).
+
+## Cadencia y Versionado de Clusters
+
+- Refit de clustering: mensual (o trimestral) para estabilidad. Cada ejecución anota:
+  - `cluster_version`: string `YYYYMM` (configurable en `configs/clustering*.yaml` como `cluster_version`)
+  - `as_of_date`: fecha de generación del clustering
+- Asignación diaria de nuevos juegos: no reentrena; usa centroides/medoids guardados en `models/cluster_medoids.json` para asignar el clúster más cercano.
+  - Script: `src/pipelines/cluster_assignment/assign_new_games.py`
+  - Ejemplo:
+    - `python -m src.pipelines.cluster_assignment.assign_new_games --embeddings data/processed/embeddings_new.parquet --medoids models/cluster_medoids.json --out data/processed/clusters_assigned.parquet --cluster_version 202501`
+- Consumo aguas abajo: filtra por `cluster_id` (competidores del cliente) y, si necesitas, por `cluster_version` para congelar/compatibilizar análisis.
+
 - Cómo ejecutar (local con Docker o en cluster):
   - Eventos con Spark: `make events-spark`
   - Tópicos Spark + Ray: `make topics-prep && make topics-ray`

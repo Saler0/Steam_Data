@@ -307,9 +307,21 @@ def main():
             
         out_paths = cfg.get('output_paths', {})
         
-        # 1. Guardar en disco
+        # 1. Guardar en disco (añadiendo versionado de clúster)
         out_clusters_path = Path(out_paths['clusters_parquet'])
         makedirs_if_local(out_clusters_path.parent)
+        # Versionado simple: YYYYMM, configurable vía cfg['cluster_version']
+        try:
+            ver = str(cfg.get('cluster_version') or datetime.now().strftime('%Y%m'))
+        except Exception:
+            ver = datetime.now().strftime('%Y%m')
+        try:
+            as_of = pd.Timestamp.now().normalize()
+        except Exception:
+            as_of = pd.to_datetime(datetime.now().date())
+        df_clusters = df_clusters.copy()
+        df_clusters['cluster_version'] = ver
+        df_clusters['as_of_date'] = as_of
         write_parquet_any(df_clusters, out_clusters_path)
         print(f"[OK] Clusters guardados en -> {out_clusters_path}")
         
@@ -342,6 +354,7 @@ def main():
             # Guardar centroides/medoides para asignación de nuevos juegos
             try:
                 centroids = _compute_centroids(df_emb, df_clusters)
+                # Guardar centroides (medoids) para asignación diaria de nuevos juegos
                 medoids_path = Path('models') / 'cluster_medoids.json'
                 makedirs_if_local(medoids_path.parent)
                 medoids_path.write_text(json.dumps({str(k): v for k, v in centroids.items()}), encoding='utf-8')
