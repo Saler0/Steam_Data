@@ -1,12 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem Ir a la carpeta del script (donde está docker-compose.yml)
+rem Ir a la carpeta del script (donde esta docker-compose.yml)
 cd /d %~dp0
 
 rem Asegura nombre de proyecto consistente con tu compose (name: proyecto_steam)
 set COMPOSE_PROJECT_NAME=proyecto_steam
-
 
 echo.
 echo ============================
@@ -24,11 +23,24 @@ echo ============================
 echo Levantando solo Mongo + MLflow y Analytics...
 echo ============================
 docker compose up -d mongo postgres mlflow analytics
+if errorlevel 1 (
+    echo.
+    echo ERROR: No se pudieron levantar los servicios requeridos.
+    pause
+    exit /b 1
+)
 
+set "DVC_STAGES=embeddings clustering"
+IF /I "%~1"=="skip-embeddings" (
+  set "DVC_STAGES=clustering"
+  echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+)
 
-
-REM Ejecuta el comando DVC DENTRO del contenedor 'analytics'
-docker compose exec analytics dvc repro clustering
+echo.
+echo ============================
+echo Ejecutando DVC (%DVC_STAGES%) dentro de steam_analytics...
+echo ============================
+docker compose exec analytics bash -lc "cd /app/Data_analytics && dvc repro %DVC_STAGES%"
 if errorlevel 1 (
     echo.
     echo ERROR: Fallo al ejecutar el pipeline de DVC.
@@ -39,16 +51,21 @@ if errorlevel 1 (
 
 echo.
 echo =======================================================
-echo [PASO 4 de 4] Pipeline finalizado con exito!
+echo Pipeline de analytics finalizado con exito.
 echo =======================================================
+
+echo Resultados del clustering:
+
+echo - data/processed/clusters.parquet
+
+echo - models/cluster_medoids.json
+
+echo - outputs/clustering/cluster_stats.csv
+
 echo.
-echo Los resultados del clustering se encuentran en:
-echo - El fichero: data/processed/clusters.parquet
-echo - La base de datos MongoDB (coleccion: game_clusters)
-echo.
-echo Puedes apagar los contenedores ejecutando: docker-compose down
+echo Puedes apagar los contenedores con: docker compose down
+
 echo.
 pause
 
 endlocal
-pause
