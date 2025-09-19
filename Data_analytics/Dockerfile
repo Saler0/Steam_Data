@@ -1,5 +1,5 @@
 # Usa una imagen base de Python delgada (slim). Es una excelente elección.
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Define el directorio de trabajo desde el principio.
 WORKDIR /app
@@ -41,8 +41,7 @@ ENV MLFLOW_TRACKING_URI=http://mlflow:5000
 # Apunta a la ruta donde se montarán las credenciales de GCP desde docker-compose.
 ENV GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp.json
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
-
+ENV PATH="/usr/local/bin:${JAVA_HOME}/bin:${PATH}"
 # El comando por defecto ha sido movido a docker-compose.yml,
 # lo que es más flexible. Dejar el Dockerfile sin CMD es una práctica común
 # para imágenes que se usarán en diferentes contextos.
