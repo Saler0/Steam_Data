@@ -60,6 +60,9 @@ stages:
       - src/pipelines/cluster_assignment/assign_new_games.py
       - models/cluster_medoids.json
       - data/processed/embeddings_new.parquet
+    params:
+      - configs/params.yaml:
+          - clustering
     outs:
       - data/processed/clusters_assigned.parquet
 
@@ -210,6 +213,9 @@ stages:
     deps:
       - src/insights/compose_editor_payload.py
       - outputs/reports/${params.report.appid}.json
+    params:
+      - configs/params.yaml:
+          - report
     outs:
       - outputs/reports/${params.report.appid}_editor.json
 
