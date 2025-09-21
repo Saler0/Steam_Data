@@ -70,7 +70,14 @@ graph_leiden:
   k_neighbors: 30
 
   # Umbral de similitud del coseno. Se ignorarán las conexiones entre juegos con una similitud menor a este valor.
-  sim_threshold: 0.2
+  sim_threshold: 0.25
+
+  mutual_knn: true
+
+  snn:
+    enabled: true
+    method: "jaccard"   # opciones: jaccard | count | overlap
+    min_shared_neighbors: 1
 
   # Parámetro de resolución para el algoritmo Leiden.
   # > 1.0: Tiende a crear MÁS clústeres.
@@ -100,7 +107,7 @@ post_analysis:
     
   # Clustering de Consenso: ejecuta Leiden varias veces para encontrar clústeres más estables.
   consensus:
-    enabled: false
+    enabled: true
     resolutions: [0.8, 1.0, 1.2, 1.5]
     min_coassoc: 0.6
 
