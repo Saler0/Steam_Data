@@ -265,11 +265,14 @@ def main(cfg: dict):
 
     print("[INFO] Concatenando all_embeddings_df...")
     all_embeddings_df = pd.concat(results)
+    print("[INFO] Fin del concatenar.")
 
     # Guardar cada shard en su propio archivo Parquet
     for i, res_df in enumerate(results):
         shard_path = Path(output_uri) / f"part-{i:04d}.parquet"
+        print("makedirs_if_local...")
         makedirs_if_local(shard_path.parent)
+        print("write_parquet_any...")
         write_parquet_any(res_df, shard_path)
         print(f"[OK] Shard {i} guardado en -> {shard_path}")
         try:
