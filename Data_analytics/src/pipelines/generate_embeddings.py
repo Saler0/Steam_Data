@@ -198,9 +198,18 @@ def main(cfg: dict):
         from pyspark.sql import types as T
         spark_cfg = (para_cfg.get('spark') or {})
         num_partitions = int(spark_cfg.get('partitions', 200))
+        driver_mem = spark_cfg.get('driver_memory', '6g')
+        executor_mem = spark_cfg.get('executor_memory', '6g')
+
 
         print(f"[INFO] Usando Spark con {num_partitions} particiones para generar embeddings...")
-        spark = SparkSession.builder.appName("EmbeddingsSpark").getOrCreate()
+        spark = (
+            SparkSession.builder
+            .appName("EmbeddingsSpark")
+            .config("spark.driver.memory", driver_mem)
+            .config("spark.executor.memory", executor_mem)
+            .getOrCreate()
+        )
 
         sdf = spark.createDataFrame(df[['appid', 'doc']])
         sdf = sdf.repartition(num_partitions)

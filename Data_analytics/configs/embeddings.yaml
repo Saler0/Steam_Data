@@ -44,7 +44,9 @@ parallelization:
 
   # Opciones específicas de Spark (solo si method: spark)
   spark:
-    partitions: 200           # particiones de salida/ejecución
+    partitions: 64           # particiones de salida/ejecución
+    driver_memory: "6g"
+    executor_memory: "6g"
     # write_single_file: false  # no recomendado a escala; se mantiene shardeado
 
 output_paths:
