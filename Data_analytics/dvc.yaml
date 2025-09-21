@@ -6,6 +6,9 @@
 params:
   - configs/params.yaml
 
+vars:
+  - configs/params.yaml
+
 stages:
   preagg_reviews:
     cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
@@ -203,7 +206,7 @@ stages:
       - outputs/events/explanations.parquet
       - outputs/ccf_analysis/summary.parquet
     params:
-      - configs/yaml:report
+      - configs/params.yaml:report
     outs:
       - outputs/reports/${report.appid}.json
 
@@ -215,7 +218,7 @@ stages:
       - src/insights/compose_editor_payload.py
       - outputs/reports/${report.appid}.json
     params:
-      - configs/yaml:report
+      - configs/params.yaml:report
     outs:
       - outputs/reports/${report.appid}_editor.json
 
@@ -247,44 +250,7 @@ stages:
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
     params:
-      - configs/yaml:client_report
+      - configs/params.yaml:client_report
     outs:
       - outputs/reports/client_${client_report.client_id}.json
-  # --- Big Data alternatives ---
-  events_spark:
-    cmd: python src/pipelines/event_detection/events_spark.py --config configs/events.yaml
-    deps:
-      - src/pipelines/event_detection/events_spark.py
-      - configs/events.yaml
-      - data/warehouse/reviews_monthly.parquet
-      - data/warehouse/players_monthly.parquet
-    outs:
-      - outputs/events/events.parquet
 
-  topics_spark_prep:
-    cmd: python src/insights/topics_prep_spark.py --config configs/events.yaml
-    deps:
-      - src/insights/topics_prep_spark.py
-      - configs/events.yaml
-      - outputs/events/events.parquet
-    outs:
-      - outputs/events/topics_prep.parquet
-
-  topics_ray:
-    cmd: python src/insights/topics_from_prep_ray.py --config configs/events.yaml
-    deps:
-      - src/insights/topics_from_prep_ray.py
-      - configs/events.yaml
-      - outputs/events/topics_prep.parquet
-    outs:
-      - outputs/events/topics.parquet
-
-  ccf_spark:
-    cmd: python src/pipelines/ccf_analysis/ccf_spark.py --config configs/ccf_analysis.yaml
-    deps:
-      - src/pipelines/ccf_analysis/ccf_spark.py
-      - configs/ccf_analysis.yaml
-      - data/warehouse/reviews_monthly.parquet
-      - data/warehouse/players_monthly.parquet
-    outs:
-      - outputs/ccf_analysis/summary.parquet
