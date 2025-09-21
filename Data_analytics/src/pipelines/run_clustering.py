@@ -20,6 +20,12 @@ from typing import Dict, Any, List
 import os
 from pymongo import MongoClient, ReplaceOne
 
+import os
+import sys
+
+# Asegúrate de que los módulos de utils estén en el PATH
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 # Clustering local con scikit-learn
 from sklearn.cluster import KMeans
 
