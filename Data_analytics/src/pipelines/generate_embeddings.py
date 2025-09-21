@@ -263,6 +263,7 @@ def main(cfg: dict):
     # 3. Guardar los resultados shardeados y consolidados
     output_uri = cfg['output_paths']['embeddings_sharded_uri']
 
+    print("[INFO] Concatenando all_embeddings_df...")
     all_embeddings_df = pd.concat(results)
 
     # Guardar cada shard en su propio archivo Parquet
