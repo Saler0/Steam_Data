@@ -116,4 +116,4 @@ mlflow:
 
 # Versión lógica del clustering (YYYYMM). Si no se define, se usa el mes actual.
 # Sirve para rastrear y congelar análisis por versión.
-cluster_version: null
+cluster_version: 202509

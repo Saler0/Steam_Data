@@ -31,7 +31,7 @@ client_report:
 # ----------------------
 clustering:
   # Si null, el script usará el mes actual (YYYYMM)
-  cluster_version: null
+  cluster_version: 202509
 
 # ----------------------
 # Parámetros de reglas
