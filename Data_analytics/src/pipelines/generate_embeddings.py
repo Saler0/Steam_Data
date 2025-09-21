@@ -28,6 +28,9 @@ import html as _html
 # Función que realiza la tarea de embedding para un único worker/proceso.
 def _embed_shard(docs_df: pd.DataFrame, model_name: str, normalize: bool, batch_size: int) -> pd.DataFrame:
     """Genera embeddings para un shard de datos."""
+
+    print(f"[EMB ] Cargando modelo '{model_name}' para shard con {len(docs_df)} filas...")
+
     # Importar dentro de la función para evitar problemas de serialización en Ray/multiprocessing
     from sentence_transformers import SentenceTransformer
     try:
@@ -40,10 +43,12 @@ def _embed_shard(docs_df: pd.DataFrame, model_name: str, normalize: bool, batch_
     
     # Manejar el caso de una lista vacía
     if not docs_list:
+        print("[EMB ] Shard vacío; devolviendo DataFrame vacío.")
         return pd.DataFrame(columns=['appid', 'embedding'])
 
-    embeddings = model.encode(docs_list, normalize_embeddings=normalize, show_progress_bar=False, batch_size=batch_size)
-    
+    embeddings = model.encode(docs_list, normalize_embeddings=normalize, show_progress_bar=True, batch_size=batch_size)
+    print(f"[EMB ] Shard embebido")
+
     docs_df['embedding'] = list(embeddings)
     return docs_df.drop(columns=['doc'])
 
