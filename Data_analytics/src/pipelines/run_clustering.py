@@ -108,13 +108,86 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
     D, I = search_faiss_index(faiss_index, X, leiden_cfg['k_neighbors'])
     
     print("[INFO] Creando grafo de similitud a partir de los vecinos...")
+    mutual_knn = bool(leiden_cfg.get('mutual_knn', False))
+    snn_cfg = (leiden_cfg.get('snn') or {})
+    snn_enabled = bool(snn_cfg.get('enabled', False))
+    snn_method = str(snn_cfg.get('method', 'count')).lower()
+    min_shared = int(snn_cfg.get('min_shared_neighbors', 1))
+    min_sim = float(leiden_cfg.get('sim_threshold', 0.25))
+
+    neighbor_sets = []
+    for row in I:
+        neighbors = {int(idx) for idx in row[1:] if idx >= 0}
+        neighbor_sets.append(neighbors)
+
     edges = []
     weights = []
+    seen_edges = set()
+
+    def add_edge(i: int, nbr: int, weight: float) -> None:
+        key = (i, nbr) if i < nbr else (nbr, i)
+        if key in seen_edges:
+            return
+        seen_edges.add(key)
+        edges.append(key)
+        weights.append(float(weight))
+
     for i in range(I.shape[0]):
         for j in range(1, I.shape[1]):
-            if D[i, j] > leiden_cfg['sim_threshold']:
-                edges.append((i, I[i, j]))
-                weights.append(D[i, j])
+            nbr = int(I[i, j])
+            if nbr < 0 or nbr == i:
+                continue
+            sim = float(D[i, j])
+            if np.isnan(sim) or sim < min_sim:
+                continue
+            if mutual_knn and i not in neighbor_sets[nbr]:
+                continue
+
+            weight = sim
+            if snn_enabled:
+                shared = len(neighbor_sets[i] & neighbor_sets[nbr])
+                if shared < min_shared:
+                    continue
+                if snn_method == 'jaccard':
+                    union = len(neighbor_sets[i] | neighbor_sets[nbr]) or 1
+                    weight = shared / union
+                elif snn_method == 'overlap':
+                    denom = min(len(neighbor_sets[i]), len(neighbor_sets[nbr])) or 1
+                    weight = shared / denom
+                else:  # count
+                    weight = float(shared)
+                if weight <= 0:
+                    continue
+            add_edge(i, nbr, weight)
+
+    if not edges:
+        print("[WARN] Ninguna arista superó los criterios configurados; relajando filtros (sin mutual ni SNN).")
+        seen_edges.clear()
+        for i in range(I.shape[0]):
+            for j in range(1, I.shape[1]):
+                nbr = int(I[i, j])
+                if nbr < 0 or nbr == i:
+                    continue
+                sim = float(D[i, j])
+                if np.isnan(sim) or sim < min_sim:
+                    continue
+                add_edge(i, nbr, sim)
+        if not edges:
+            print("[WARN] Grafo todavía vacío tras relajar filtros; usando vecinos más próximos por defecto.")
+            seen_edges.clear()
+            for i in range(I.shape[0]):
+                for j in range(1, min(I.shape[1], 3)):
+                    nbr = int(I[i, j])
+                    if nbr < 0 or nbr == i:
+                        continue
+                    sim = float(D[i, j])
+                    if np.isnan(sim):
+                        continue
+                    add_edge(i, nbr, sim)
+
+    print(f"[INFO] Grafo generado con {len(edges)} aristas (mutual={mutual_knn}, SNN={snn_enabled}).")
+
+
 
     # Asegurar que el grafo tenga todos los nodos, aunque haya aislados
     g = ig.Graph(n=I.shape[0], edges=edges, directed=False)

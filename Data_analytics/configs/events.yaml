@@ -16,6 +16,10 @@ embeddings_parquet: data/processed/embeddings/
 clusters_parquet: data/processed/clusters.parquet
 metadata_parquet: data/processed/game_metadata.parquet
 
+neighbors_top_k: 15
+neighbors_same_cluster_only: true
+neighbors_min_similarity: 0.4
+
 # Conexión a Mongo para leer reseñas de texto en BERTopic (topics)
 mongo_connection:
   uri: ${MONGO_URI:-mongodb://mongo:27017}
