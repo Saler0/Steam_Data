@@ -300,6 +300,61 @@ def _compute_cluster_stats(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> p
         print(f"[WARN] No se pudo computar mean_sim_to_centroid: {e}")
     return base
 
+def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
+    """Return appid/name pairs based on embeddings or configured metadata."""
+    if 'name' in df_emb.columns:
+        return df_emb[['appid', 'name']].dropna(subset=['name']).drop_duplicates('appid')
+    input_paths = cfg.get('input_paths', {}) if isinstance(cfg, dict) else {}
+    meta_path = input_paths.get('metadata_parquet') or cfg.get('metadata_parquet') or 'data/processed/game_metadata.parquet'
+    if not meta_path:
+        return pd.DataFrame()
+    if not path_exists(meta_path):
+        print(f"[WARN] No game metadata found at {meta_path}; skipping name enrichment.")
+        return pd.DataFrame()
+    try:
+        meta_df = read_parquet_any(meta_path, engine='pyarrow')
+    except Exception as exc:
+        print(f"[WARN] Could not read metadata from {meta_path}: {exc}")
+        return pd.DataFrame()
+    if meta_df.empty:
+        print(f"[WARN] Metadata at {meta_path} is empty; skipping name enrichment.")
+        return pd.DataFrame()
+    if 'appid' not in meta_df.columns or 'name' not in meta_df.columns:
+        print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping name enrichment.")
+        return pd.DataFrame()
+    print(f"[INFO] Game metadata loaded from {meta_path} to enrich clusters with names.")
+    return meta_df[['appid', 'name']].dropna(subset=['appid', 'name']).drop_duplicates('appid')
+
+def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> pd.DataFrame:
+    """Merge game names into the cluster dataframe when possible."""
+    if name_lookup.empty or 'appid' not in name_lookup.columns or 'name' not in name_lookup.columns:
+        return df_clusters
+    lookup = name_lookup[['appid', 'name']].drop_duplicates('appid').copy()
+    original_dtype = df_clusters['appid'].dtype
+    try:
+        lookup['appid'] = lookup['appid'].astype(original_dtype)
+        merged = df_clusters.merge(lookup, on='appid', how='left')
+        return merged
+    except (TypeError, ValueError):
+        pass
+    except Exception as exc:
+        print(f"[WARN] Could not attach game names to clusters: {exc}")
+        return df_clusters
+    try:
+        lookup['appid'] = lookup['appid'].astype(str)
+        merged = (
+            df_clusters.assign(appid=df_clusters['appid'].astype(str))
+            .merge(lookup, on='appid', how='left')
+        )
+        try:
+            merged['appid'] = merged['appid'].astype(original_dtype)
+        except (TypeError, ValueError):
+            pass
+        return merged
+    except Exception as exc:
+        print(f"[WARN] Could not attach game names to clusters: {exc}")
+        return df_clusters
+
 def _save_to_mongo(df: pd.DataFrame, cfg: Dict[str, Any]):
     """
     Guarda el DataFrame de resultados de clustering en una colección de MongoDB.
@@ -361,6 +416,8 @@ def main():
             print("[WARN] No se encontraron embeddings para procesar. Abortando.")
             return
 
+        name_lookup = _build_name_lookup(df_emb, cfg)
+
         # Selección de método con fallback automático a Spark KMeans por umbral
         method = cfg['method']
         n_samples = len(df_emb)
@@ -399,6 +456,7 @@ def main():
         except Exception:
             as_of = pd.to_datetime(datetime.now().date())
         df_clusters = df_clusters.copy()
+        df_clusters = _attach_game_names(df_clusters, name_lookup)
         df_clusters['cluster_version'] = ver
         df_clusters['as_of_date'] = as_of
         write_parquet_any(df_clusters, out_clusters_path)

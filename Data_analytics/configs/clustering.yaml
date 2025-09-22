@@ -6,6 +6,7 @@
 input_paths:
   # Ruta a los ficheros de embeddings (salida de la etapa 'embeddings').
   embeddings_sharded_uri: data/processed/embeddings/
+  metadata_parquet: data/processed/game_metadata.parquet
 
   # --- Ejemplos en lago de objetos ---
   # GCS:
