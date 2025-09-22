@@ -1,0 +1,26 @@
+schema: '2.0'
+stages:
+  embeddings:
+    cmd: python src/pipelines/generate_embeddings.py --config 
+      configs/embeddings.yaml
+    deps:
+    - path: configs/embeddings.yaml
+      hash: md5
+      md5: 662fee08b0c76fd1b452757a603f14c7
+      size: 2929
+      isexec: true
+    - path: src/pipelines/generate_embeddings.py
+      hash: md5
+      md5: 2a371ac6046ee5636de996df750c2642
+      size: 14927
+      isexec: true
+    outs:
+    - path: data/processed/embeddings.parquet
+      hash: md5
+      md5: d43ec7f170cb53169958badd9bf2d5df
+      size: 217068775
+    - path: data/processed/embeddings/
+      hash: md5
+      md5: a041034b9774a45fb56b8ec6867e8df5.dir
+      size: 217074773
+      nfiles: 4

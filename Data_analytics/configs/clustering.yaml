@@ -67,15 +67,15 @@ faiss:
 # -----------------------------------------------------------------------------
 graph_leiden:
   # Número de vecinos más cercanos (k) a considerar para cada juego al construir la red.
-  k_neighbors: 30
+  k_neighbors: 28
 
   # Umbral de similitud del coseno. Se ignorarán las conexiones entre juegos con una similitud menor a este valor.
-  sim_threshold: 0.2
+  sim_threshold: 0.29
 
   # Parámetro de resolución para el algoritmo Leiden.
   # > 1.0: Tiende a crear MÁS clústeres.
   # < 1.0: Tiende a crear MENOS clústeres.
-  resolution: 1.0
+  resolution: 1.1
   
   # Si el número de juegos supera el threshold_spark de kmeans, se usaría Spark para el procesamiento de grafos (si estuviera implementado).
   use_spark_if_large: false # Cambiar a 'true' si se implementa la lógica de Spark.
