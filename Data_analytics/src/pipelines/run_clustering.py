@@ -226,15 +226,17 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
         cluster_centroids = np.array([np.mean(X[np.where(df_emb['cluster_id'] == c_id)], axis=0) for c_id in np.unique(df_emb['cluster_id'])])
         sims_to_centroids = X @ cluster_centroids.T
         
-        def softmax(x, tau=1.0):
-            e_x = np.exp((x - np.max(x)) / tau)
-            return e_x / e_x.sum(axis=0)
+        tau = float(post_analysis_cfg['soft_membership'].get('temperature', 0.07) or 1.0)
+        tau = max(tau, 1e-6)
+        sims_norm = sims_to_centroids - sims_to_centroids.max(axis=1, keepdims=True)
+        sims_norm = (sims_norm / tau).astype(np.float32, copy=False)
+        probs = np.exp(sims_norm, dtype=np.float32)
+        denom = probs.sum(axis=1, keepdims=True)
+        denom[denom == 0.0] = 1.0
+        probs = probs / denom
 
-        tau = post_analysis_cfg['soft_membership'].get('temperature', 0.07)
-        probs = np.apply_along_axis(softmax, 1, sims_to_centroids, tau)
-        
-        df_emb['p_assigned'] = np.max(probs, axis=1)
-        
+        df_emb['p_assigned'] = probs.max(axis=1)
+
         second_best_probs = np.partition(probs, -2, axis=1)[:, -2]
         df_emb['p_second'] = second_best_probs
         
