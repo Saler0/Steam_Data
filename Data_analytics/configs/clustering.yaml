@@ -79,7 +79,6 @@ graph_leiden:
     enabled: true
     method: "jaccard"   # opciones: jaccard | count | overlap
     min_shared_neighbors: 1
->>>>>>> 84b72fec43d36e6053fd5c578d7ccd321050611a
 
   # Parámetro de resolución para el algoritmo Leiden.
   # > 1.0: Tiende a crear MÁS clústeres.
