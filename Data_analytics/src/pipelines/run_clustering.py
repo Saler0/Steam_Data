@@ -304,26 +304,81 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
     """Return appid/name pairs based on embeddings or configured metadata."""
     if 'name' in df_emb.columns:
         return df_emb[['appid', 'name']].dropna(subset=['name']).drop_duplicates('appid')
+
     input_paths = cfg.get('input_paths', {}) if isinstance(cfg, dict) else {}
     meta_path = input_paths.get('metadata_parquet') or cfg.get('metadata_parquet') or 'data/processed/game_metadata.parquet'
-    if not meta_path:
+    meta_df = pd.DataFrame()
+
+    if meta_path:
+        if path_exists(meta_path):
+            try:
+                tmp_df = read_parquet_any(meta_path, engine='pyarrow')
+            except Exception as exc:
+                print(f"[WARN] Could not read metadata from {meta_path}: {exc}")
+            else:
+                if tmp_df.empty:
+                    print(f"[WARN] Metadata at {meta_path} is empty; skipping name enrichment.")
+                elif 'appid' not in tmp_df.columns or 'name' not in tmp_df.columns:
+                    print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping name enrichment.")
+                else:
+                    print(f"[INFO] Game metadata loaded from {meta_path} to enrich clusters with names.")
+                    meta_df = tmp_df[['appid', 'name']].dropna(subset=['appid', 'name']).drop_duplicates('appid')
+        else:
+            print(f"[WARN] No game metadata found at {meta_path}; skipping name enrichment.")
+
+    if not meta_df.empty:
+        return meta_df
+
+    mongo_cfg = cfg.get('metadata_mongo') if isinstance(cfg, dict) else None
+    if not mongo_cfg:
         return pd.DataFrame()
-    if not path_exists(meta_path):
-        print(f"[WARN] No game metadata found at {meta_path}; skipping name enrichment.")
-        return pd.DataFrame()
+
     try:
-        meta_df = read_parquet_any(meta_path, engine='pyarrow')
+        uri = mongo_cfg['uri']
+        database = mongo_cfg['database']
+        collection_name = mongo_cfg['collection']
+    except KeyError as missing:
+        print(f"[WARN] metadata_mongo config missing key: {missing}")
+        return pd.DataFrame()
+
+    projection_fields = mongo_cfg.get('projection') or ['appid', 'name']
+    if 'appid' not in projection_fields:
+        projection_fields.append('appid')
+    if 'name' not in projection_fields:
+        projection_fields.append('name')
+    projection = {field: 1 for field in projection_fields}
+    query = mongo_cfg.get('query') or {}
+
+    client = None
+    try:
+        client = MongoClient(uri)
+        cursor = client[database][collection_name].find(query, projection)
+        rows = []
+        for doc in cursor:
+            appid = doc.get('appid')
+            name = doc.get('name')
+            if appid is None or name is None:
+                continue
+            try:
+                appid = str(appid)
+            except Exception:
+                continue
+            rows.append({'appid': appid, 'name': name})
+        lookup_df = pd.DataFrame(rows)
+        if lookup_df.empty:
+            print(f"[WARN] metadata_mongo query returned no documents with 'appid' and 'name'.")
+            return pd.DataFrame()
+        print(f"[INFO] Loaded {len(lookup_df)} app names from MongoDB ({database}.{collection_name}).")
+        return lookup_df.drop_duplicates('appid')
     except Exception as exc:
-        print(f"[WARN] Could not read metadata from {meta_path}: {exc}")
+        print(f"[WARN] Could not load game names from MongoDB: {exc}")
         return pd.DataFrame()
-    if meta_df.empty:
-        print(f"[WARN] Metadata at {meta_path} is empty; skipping name enrichment.")
-        return pd.DataFrame()
-    if 'appid' not in meta_df.columns or 'name' not in meta_df.columns:
-        print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping name enrichment.")
-        return pd.DataFrame()
-    print(f"[INFO] Game metadata loaded from {meta_path} to enrich clusters with names.")
-    return meta_df[['appid', 'name']].dropna(subset=['appid', 'name']).drop_duplicates('appid')
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> pd.DataFrame:
     """Merge game names into the cluster dataframe when possible."""
