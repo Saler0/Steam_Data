@@ -230,24 +230,37 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
         n_items = len(df_emb)
         print(f"[INFO] Soft-membership: preparando centroides para {n_items} juegos; este paso puede tardar unos minutos...")
         # Se calcula la similitud con todos los clústeres para obtener las probabilidades.
-        cluster_centroids = np.array([np.mean(X[np.where(df_emb['cluster_id'] == c_id)], axis=0) for c_id in np.unique(df_emb['cluster_id'])])
+        cluster_centroids = np.array([np.mean(X[np.where(df_emb['cluster_id'] == c_id)], axis=0) for c_id in np.unique(df_emb['cluster_id'])]).astype(np.float32, copy=False)
         print(f"[INFO] Soft-membership: centroides listos ({cluster_centroids.shape[0]} clústeres).")
-        sims_to_centroids = X @ cluster_centroids.T
-        print('[INFO] Soft-membership: aplicando softmax sobre la matriz de similitudes...')
-        
+        sims_to_centroids = (X @ cluster_centroids.T).astype(np.float32, copy=False)
+        print('[INFO] Soft-membership: aplicando softmax por bloques sobre la matriz de similitudes...')
+
         tau = float(post_analysis_cfg['soft_membership'].get('temperature', 0.07) or 1.0)
         tau = max(tau, 1e-6)
-        sims_norm = sims_to_centroids - sims_to_centroids.max(axis=1, keepdims=True)
-        sims_norm = (sims_norm / tau).astype(np.float32, copy=False)
-        probs = np.exp(sims_norm, dtype=np.float32)
-        denom = probs.sum(axis=1, keepdims=True)
-        denom[denom == 0.0] = 1.0
-        probs = probs / denom
+        n_items, n_clusters = sims_to_centroids.shape
+        target_entries = 64 * 1024 * 1024 // 4  # ~64MB por chunk en float32
+        chunk_size = max(512, min(n_items, int(target_entries / max(1, n_clusters))))
+        p_assigned = np.empty(n_items, dtype=np.float32)
+        p_second = np.zeros(n_items, dtype=np.float32)
 
-        df_emb['p_assigned'] = probs.max(axis=1)
+        for start in range(0, n_items, chunk_size):
+            end = min(start + chunk_size, n_items)
+            chunk = sims_to_centroids[start:end]
+            chunk -= chunk.max(axis=1, keepdims=True)
+            chunk /= tau
+            np.exp(chunk, out=chunk)
+            denom = chunk.sum(axis=1, keepdims=True)
+            denom[denom == 0.0] = 1.0
+            chunk /= denom
+            p_assigned[start:end] = chunk.max(axis=1)
+            if n_clusters > 1:
+                p_second[start:end] = np.partition(chunk, -2, axis=1)[:, -2]
+            if n_items > chunk_size:
+                print(f"[INFO] Soft-membership: procesados {end}/{n_items} juegos.")
 
-        second_best_probs = np.partition(probs, -2, axis=1)[:, -2]
-        df_emb['p_second'] = second_best_probs
+        df_emb['p_assigned'] = p_assigned
+
+        df_emb['p_second'] = p_second
         
         df_emb['confidence_margin'] = df_emb['p_assigned'] - df_emb['p_second']
         df_emb['is_borderline'] = False
