@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 import numpy as np
+import time
 import pandas as pd
 import faiss
 import mlflow
@@ -196,35 +197,43 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
     post_analysis_cfg = cfg.get('post_analysis', {})
     consensus_cfg = post_analysis_cfg.get('consensus', {})
 
+    partition_key = str(leiden_cfg.get('partition', 'RB')).upper()
+    partition_type = la.RBConfigurationVertexPartition if partition_key == 'RB' else la.ModularityVertexPartition
+
     if consensus_cfg.get('enabled', False):
-        print("[INFO] Ejecutando clustering de consenso de Leiden...")
-        partitions = []
-        partition_key = str(leiden_cfg.get('partition', 'RB')).upper()
-        partition_type = la.RBConfigurationVertexPartition if partition_key == 'RB' else la.ModularityVertexPartition
-        try:
-            for res in consensus_cfg['resolutions']:
-                partitions.append(la.find_partition(g, partition_type, resolution_parameter=res))
-            # Algunas versiones de leidenalg no exponen estas utilidades
-            coassoc_matrix = la.similarity_matrix(g, partitions)
-            g_consensus = la.consensus_graph(g, coassoc_matrix, min_coassoc=consensus_cfg['min_coassoc'])
-            final_partition = la.find_partition(g_consensus, partition_type)
-            df_emb['cluster_id'] = final_partition.membership
-        except Exception as ce:
-            print(f"[WARN] Consenso no disponible ({ce}). Usando Leiden simple con resolution={leiden_cfg['resolution']}.")
+        if not (hasattr(la, 'similarity_matrix') and hasattr(la, 'consensus_graph')):
+            print(f"[INFO] Clustering de consenso no soportado en esta versión de 'leidenalg'; usando Leiden simple con resolution={leiden_cfg['resolution']}.")
             part = la.find_partition(g, partition_type, resolution_parameter=leiden_cfg['resolution'])
             df_emb['cluster_id'] = part.membership
+        else:
+            print("[INFO] Ejecutando clustering de consenso de Leiden...")
+            partitions = []
+            try:
+                for res in consensus_cfg['resolutions']:
+                    partitions.append(la.find_partition(g, partition_type, resolution_parameter=res))
+                coassoc_matrix = la.similarity_matrix(g, partitions)
+                g_consensus = la.consensus_graph(g, coassoc_matrix, min_coassoc=consensus_cfg['min_coassoc'])
+                final_partition = la.find_partition(g_consensus, partition_type)
+                df_emb['cluster_id'] = final_partition.membership
+            except Exception as ce:
+                print(f"[INFO] Consenso no disponible ({ce}). Usando Leiden simple con resolution={leiden_cfg['resolution']}.")
+                part = la.find_partition(g, partition_type, resolution_parameter=leiden_cfg['resolution'])
+                df_emb['cluster_id'] = part.membership
     else:
         print("[INFO] Ejecutando algoritmo de Leiden simple...")
-        partition_key = str(leiden_cfg.get('partition', 'RB')).upper()
-        partition_type = la.RBConfigurationVertexPartition if partition_key == 'RB' else la.ModularityVertexPartition
         partition = la.find_partition(g, partition_type, resolution_parameter=leiden_cfg['resolution'])
         df_emb['cluster_id'] = partition.membership
 
     if post_analysis_cfg.get('soft_membership', {}).get('enabled', False):
         print("[INFO] Calculando soft-membership y juegos borderline...")
+        soft_t0 = time.perf_counter()
+        n_items = len(df_emb)
+        print(f"[INFO] Soft-membership: preparando centroides para {n_items} juegos; este paso puede tardar unos minutos...")
         # Se calcula la similitud con todos los clústeres para obtener las probabilidades.
         cluster_centroids = np.array([np.mean(X[np.where(df_emb['cluster_id'] == c_id)], axis=0) for c_id in np.unique(df_emb['cluster_id'])])
+        print(f"[INFO] Soft-membership: centroides listos ({cluster_centroids.shape[0]} clústeres).")
         sims_to_centroids = X @ cluster_centroids.T
+        print('[INFO] Soft-membership: aplicando softmax sobre la matriz de similitudes...')
         
         tau = float(post_analysis_cfg['soft_membership'].get('temperature', 0.07) or 1.0)
         tau = max(tau, 1e-6)
@@ -251,6 +260,9 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
             df_emb['is_borderline'] = df_emb['confidence_margin'] <= min_margin_per_cluster
         else:
             df_emb['is_borderline'] = df_emb['confidence_margin'] <= borderline_cfg.get('absolute_threshold', 0.05)
+
+        soft_elapsed = time.perf_counter() - soft_t0
+        print(f"[INFO] Soft-membership completado en {soft_elapsed:.1f}s.")
     
     print(f"[OK] Clustering de Leiden finalizado. Se encontraron {df_emb['cluster_id'].nunique()} clústeres.")
     
