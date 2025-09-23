@@ -24,3 +24,38 @@ stages:
       md5: a041034b9774a45fb56b8ec6867e8df5.dir
       size: 217074773
       nfiles: 4
+  clustering:
+    cmd: python src/pipelines/run_clustering.py --config configs/clustering.yaml
+    deps:
+    - path: configs/clustering.yaml
+      hash: md5
+      md5: ddf4905ffc93f62c0c9da82468461d5a
+      size: 5708
+      isexec: true
+    - path: data/processed/embeddings/
+      hash: md5
+      md5: 9cd233515dec54328afc57b0542c5aa0.dir
+      size: 217068775
+      nfiles: 1
+    - path: src/pipelines/run_clustering.py
+      hash: md5
+      md5: b400d6eb3ee49f4869eac443f3ced32e
+      size: 29607
+      isexec: true
+    outs:
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 7183d397d7cee2d3adbb1fb7faa7a7e5
+      size: 6314432
+    - path: models/cluster_medoids.json
+      hash: md5
+      md5: df120362ecfbfb42e893c99fdbb5e6cf
+      size: 81517606
+    - path: outputs/clustering/borderline_games.csv
+      hash: md5
+      md5: 245aa3b7afa14d95fea615381c65ae72
+      size: 2028470
+    - path: outputs/clustering/cluster_stats.csv
+      hash: md5
+      md5: 0e9363f32b93b853395b8fe1138fb245
+      size: 408958

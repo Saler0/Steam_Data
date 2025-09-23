@@ -73,6 +73,8 @@ services:
     profiles: ["mlflow"] # <-- Solo se incluye si activas el profile "mlflow"
     ports:
       - "5000:5000"
+    volumes:
+      - mlflow_data:/mlruns
     restart: unless-stopped
 
   # --- Analytics (puede correr solo, con Mongo y opcionalmente MLflow) ---
@@ -103,3 +105,4 @@ volumes:
   analytics_outputs:
   analytics_data:
   analytics_models:
+  mlflow_data:
