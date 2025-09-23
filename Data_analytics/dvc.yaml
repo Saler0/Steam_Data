@@ -189,6 +189,33 @@ stages:
       - outputs/ccf_analysis/summary.parquet
       - outputs/ccf_analysis/consistency.parquet
 
+  cluster_history:
+    cmd: >
+      python src/pipelines/cluster_assignment/build_competitor_insights.py \
+        --cluster-id ${cluster_history.cluster_id} \
+        --clusters data/processed/clusters.parquet \
+        --players data/warehouse/players_monthly.parquet \
+        --events outputs/events/events.parquet \
+        --topics outputs/events/topics.parquet \
+        --granger-summary outputs/ccf_analysis/summary.parquet \
+        --out outputs/clustering/competitors_${cluster_history.cluster_id}.json \
+        --launch-date ${cluster_history.launch_date} \
+        --start-date ${cluster_history.start_date} \
+        --end-date ${cluster_history.end_date} \
+        --min-points ${cluster_history.min_points}
+    deps:
+      - src/pipelines/cluster_assignment/build_competitor_insights.py
+      - src/pipelines/cluster_assignment/history_analysis.py
+      - data/processed/clusters.parquet
+      - data/warehouse/players_monthly.parquet
+      - outputs/events/events.parquet
+      - outputs/events/topics.parquet
+      - outputs/ccf_analysis/summary.parquet
+    params:
+      - configs/params.yaml:cluster_history
+    outs:
+      - outputs/clustering/competitors_${cluster_history.cluster_id}.json
+
   # --- Etapa Final: Generación de Informes (Convergencia) ---
   # Esta etapa no se puede paralelizar ya que depende de las salidas de otras etapas.
   report:

@@ -99,3 +99,11 @@ prioridad_idiomas:
   otro_reviews_min: 1000
   otro_reviews_pct: 0.15
   otro_reviews_abs: 300
+
+cluster_history:
+  cluster_id: "12345"
+  launch_date: null
+  start_date: null
+  end_date: null
+  min_points: 90
+

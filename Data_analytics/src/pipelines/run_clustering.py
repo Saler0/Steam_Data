@@ -44,6 +44,14 @@ from src.utils.mlflow_utils import start_mlflow_run, log_mlflow_params, log_mlfl
 from src.utils.faiss_utils import build_faiss_index, search_faiss_index
 from src.utils.config_utils import expand_env_in_obj
 
+ABOUT_FIELD_CANDIDATES = [
+    'about',
+    'about_the_game',
+    'about_the_game_text',
+    'about_the_game_clean',
+    'about_description',
+]
+
 def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Ejecuta el algoritmo KMeans de forma local o con Spark.
@@ -328,9 +336,16 @@ def _compute_cluster_stats(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> p
     return base
 
 def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
-    """Return appid/name pairs based on embeddings or configured metadata."""
+    """Return app metadata (name/about) based on embeddings or configured sources."""
     if 'name' in df_emb.columns:
-        return df_emb[['appid', 'name']].dropna(subset=['name']).drop_duplicates('appid')
+        cols = ['appid', 'name']
+        if 'about' in df_emb.columns:
+            cols.append('about')
+        return (
+            df_emb[cols]
+            .dropna(subset=['appid', 'name'])
+            .drop_duplicates('appid')
+        )
 
     input_paths = cfg.get('input_paths', {}) if isinstance(cfg, dict) else {}
     meta_path = input_paths.get('metadata_parquet') or cfg.get('metadata_parquet') or 'data/processed/game_metadata.parquet'
@@ -344,14 +359,25 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
                 print(f"[WARN] Could not read metadata from {meta_path}: {exc}")
             else:
                 if tmp_df.empty:
-                    print(f"[WARN] Metadata at {meta_path} is empty; skipping name enrichment.")
+                    print(f"[WARN] Metadata at {meta_path} is empty; skipping metadata enrichment.")
                 elif 'appid' not in tmp_df.columns or 'name' not in tmp_df.columns:
-                    print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping name enrichment.")
+                    print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping metadata enrichment.")
                 else:
-                    print(f"[INFO] Game metadata loaded from {meta_path} to enrich clusters with names.")
-                    meta_df = tmp_df[['appid', 'name']].dropna(subset=['appid', 'name']).drop_duplicates('appid')
+                    about_col = next((col for col in ABOUT_FIELD_CANDIDATES if col in tmp_df.columns), None)
+                    if about_col:
+                        print(f"[INFO] Using '{about_col}' as about column for metadata enrichment.")
+                    meta_cols = ['appid', 'name'] + ([about_col] if about_col else [])
+                    meta_df = (
+                        tmp_df[meta_cols]
+                        .dropna(subset=['appid', 'name'])
+                        .drop_duplicates('appid')
+                    )
+                    if about_col and about_col != 'about':
+                        meta_df = meta_df.rename(columns={about_col: 'about'})
+                    elif 'about' not in meta_df.columns:
+                        meta_df['about'] = None
         else:
-            print(f"[WARN] No game metadata found at {meta_path}; skipping name enrichment.")
+            print(f"[WARN] No game metadata found at {meta_path}; skipping metadata enrichment.")
 
     if not meta_df.empty:
         return meta_df
@@ -369,10 +395,12 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
         return pd.DataFrame()
 
     projection_fields = mongo_cfg.get('projection') or ['appid', 'name']
-    if 'appid' not in projection_fields:
-        projection_fields.append('appid')
-    if 'name' not in projection_fields:
-        projection_fields.append('name')
+    for field in ('appid', 'name'):
+        if field not in projection_fields:
+            projection_fields.append(field)
+    for candidate in ABOUT_FIELD_CANDIDATES:
+        if candidate not in projection_fields:
+            projection_fields.append(candidate)
     projection = {field: 1 for field in projection_fields}
     query = mongo_cfg.get('query') or {}
 
@@ -390,15 +418,21 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
                 appid = str(appid)
             except Exception:
                 continue
-            rows.append({'appid': appid, 'name': name})
+            about_value = None
+            for candidate in ABOUT_FIELD_CANDIDATES:
+                value = doc.get(candidate)
+                if value:
+                    about_value = value
+                    break
+            rows.append({'appid': appid, 'name': name, 'about': about_value})
         lookup_df = pd.DataFrame(rows)
         if lookup_df.empty:
             print(f"[WARN] metadata_mongo query returned no documents with 'appid' and 'name'.")
             return pd.DataFrame()
-        print(f"[INFO] Loaded {len(lookup_df)} app names from MongoDB ({database}.{collection_name}).")
+        print(f"[INFO] Loaded {len(lookup_df)} app metadata records from MongoDB ({database}.{collection_name}).")
         return lookup_df.drop_duplicates('appid')
     except Exception as exc:
-        print(f"[WARN] Could not load game names from MongoDB: {exc}")
+        print(f"[WARN] Could not load game metadata from MongoDB: {exc}")
         return pd.DataFrame()
     finally:
         if client is not None:
@@ -408,10 +442,16 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
                 pass
 
 def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> pd.DataFrame:
-    """Merge game names into the cluster dataframe when possible."""
-    if name_lookup.empty or 'appid' not in name_lookup.columns or 'name' not in name_lookup.columns:
+    """Merge game metadata (name/about) into the cluster dataframe when possible."""
+    if name_lookup.empty or 'appid' not in name_lookup.columns:
         return df_clusters
-    lookup = name_lookup[['appid', 'name']].drop_duplicates('appid').copy()
+
+    columns = ['appid']
+    for field in ('name', 'about'):
+        if field in name_lookup.columns:
+            columns.append(field)
+
+    lookup = name_lookup[columns].drop_duplicates('appid').copy()
     original_dtype = df_clusters['appid'].dtype
     try:
         lookup['appid'] = lookup['appid'].astype(original_dtype)
@@ -420,7 +460,7 @@ def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> 
     except (TypeError, ValueError):
         pass
     except Exception as exc:
-        print(f"[WARN] Could not attach game names to clusters: {exc}")
+        print(f"[WARN] Could not attach game metadata to clusters: {exc}")
         return df_clusters
     try:
         lookup['appid'] = lookup['appid'].astype(str)
@@ -434,7 +474,7 @@ def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> 
             pass
         return merged
     except Exception as exc:
-        print(f"[WARN] Could not attach game names to clusters: {exc}")
+        print(f"[WARN] Could not attach game metadata to clusters: {exc}")
         return df_clusters
 
 def _save_to_mongo(df: pd.DataFrame, cfg: Dict[str, Any]):
