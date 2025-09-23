@@ -96,6 +96,7 @@ services:
       - analytics_data:/app/data
       - analytics_models:/app/models
       - gcp_secrets:/secrets:ro
+      - mlflow_data:/mlruns
     command: ["/bin/bash", "-lc", "sleep infinity"]
 
 volumes:
