@@ -6,6 +6,12 @@ import argparse
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import os
+import sys
+
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
 import mlflow
 import pandas as pd
 import yaml

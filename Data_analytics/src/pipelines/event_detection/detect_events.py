@@ -8,13 +8,18 @@ import yaml
 from pathlib import Path
 import pandas as pd
 from pymongo import MongoClient
+import os
+import sys
+
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
 import mlflow
 try:
     import ray
     RAY_AVAILABLE = True
 except Exception:
     RAY_AVAILABLE = False
-import os
 import multiprocessing
 from multiprocessing.pool import Pool
 

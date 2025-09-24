@@ -7,6 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import os
+import sys
+
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
 import pandas as pd
 
 from src.utils.io import read_parquet_any, write_json_any

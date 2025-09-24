@@ -1,9 +1,14 @@
-import sys
+﻿import sys
 import yaml
 import argparse
 from pymongo import MongoClient
 from pathlib import Path
 import pandas as pd
+import os
+
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
 import json
 
 # Importaciones refactorizadas
@@ -32,12 +37,12 @@ from src.pipelines.decision_rules.reglas_decision import (
 # Stage 1: prepare
 # ------------------------
 def prepare(params):
-    """Extraer y enriquecer datos para reglas: une metadatos, clústeres y agregados de reviews.
+    """Extraer y enriquecer datos para reglas: une metadatos, clÃºsteres y agregados de reviews.
 
     Fuentes disponibles (mejor esfuerzo):
       - Mongo juegos (params.mongo)
       - Parquet de metadatos (data/processed/game_metadata.parquet)
-      - Clústeres (data/processed/clusters.parquet)
+      - ClÃºsteres (data/processed/clusters.parquet)
       - Reviews mensuales (data/warehouse/reviews_monthly.parquet)
 
     Salida: data/prepared/ con columnas esperadas por apply_rules.
@@ -67,7 +72,7 @@ def prepare(params):
             raise SystemExit("No hay datos base para preparar")
         base = spark.createDataFrame(data)
 
-    # Normalizaciones mínimas
+    # Normalizaciones mÃ­nimas
     if 'appid' not in base.columns and 'app_id' in base.columns:
         base = base.withColumnRenamed('app_id', 'appid')
     base = base.withColumn('appid', F.col('appid').cast('string'))
@@ -85,7 +90,7 @@ def prepare(params):
         clu = spark.read.parquet('data/processed/clusters.parquet') \
                   .withColumn('appid', F.col('appid').cast('string'))
     except Exception:
-        print('[WARN] clusters.parquet no disponible; se omiten agregados por clúster')
+        print('[WARN] clusters.parquet no disponible; se omiten agregados por clÃºster')
 
     df = base if clu is None else base.join(clu.select('appid','cluster_id'), on='appid', how='left')
 
@@ -137,7 +142,7 @@ def prepare(params):
                 # Agregados EN/ES/OTROS
                 def _is_es(s: str) -> bool:
                     s = (s or '').lower()
-                    return s.startswith('spanish') or s.startswith('españ')
+                    return s.startswith('spanish') or s.startswith('espaÃ±')
                 def _is_en(s: str) -> bool:
                     s = (s or '').lower()
                     return s.startswith('english')
@@ -163,7 +168,7 @@ def prepare(params):
     except Exception as e:
         print(f"[WARN] No se pudieron calcular agregados por idioma: {e}")
 
-    # 4) Agregados por clúster (medianas, p75, vecinos, edad, lanzamientos recientes)
+    # 4) Agregados por clÃºster (medianas, p75, vecinos, edad, lanzamientos recientes)
     if 'cluster_id' in df.columns:
         w_clu = Window.partitionBy('cluster_id')
         # price, install_size_gb, ram_gb, platforms_count pueden no existir
@@ -179,10 +184,10 @@ def prepare(params):
         if 'platforms_count' in df.columns:
             df = df.withColumn('median_platforms', pct_approx('platforms_count', 0.5).over(w_clu))
 
-        # vecinos en clúster
+        # vecinos en clÃºster
         df = df.withColumn('k_neighbors', F.count(F.lit(1)).over(w_clu) - F.lit(1))
 
-        # edad del clúster (años) y lanzamientos recientes (≤ 12 meses)
+        # edad del clÃºster (aÃ±os) y lanzamientos recientes (â‰¤ 12 meses)
         if 'release_date' in df.columns:
             dt = F.to_date('release_date')
             df = df.withColumn('release_date_dt', dt)
@@ -192,13 +197,13 @@ def prepare(params):
             df = df.withColumn('is_recent_launch', recent_flag)
             df = df.withColumn('pct_recent_launches', F.avg('is_recent_launch').over(w_clu))
 
-        # comparativas de verificación/conexión en el clúster
+        # comparativas de verificaciÃ³n/conexiÃ³n en el clÃºster
         if 'steam_deck_verified' in df.columns:
             df = df.withColumn('otros_verificados', F.avg(F.when(F.col('steam_deck_verified') == True, 1).otherwise(0)).over(w_clu) > 0.5)
         if 'requires_connection' in df.columns:
             df = df.withColumn('otros_requieren_conexion', F.avg(F.when(F.col('requires_connection') == True, 1).otherwise(0)).over(w_clu) > 0.5)
 
-    # 4.b) Señales de actividad desde artefactos de analytics (opcional)
+    # 4.b) SeÃ±ales de actividad desde artefactos de analytics (opcional)
     try:
         evp = 'outputs/events/events.parquet'
         exp = 'outputs/events/explanations.parquet'
@@ -227,14 +232,14 @@ def prepare(params):
             else:
                 agg = agg.withColumn('twitch_mentions', F.col('twitch_spike_any') == 1)
             agg = agg.drop('twitch_spike_any')
-            # f2p_switch no se deriva aquí (requiere fuente externa); lo dejamos nulo
+            # f2p_switch no se deriva aquÃ­ (requiere fuente externa); lo dejamos nulo
             df = df.join(agg, on='appid', how='left')
             if 'f2p_switch' not in df.columns:
                 df = df.withColumn('f2p_switch', F.lit(None).cast('boolean'))
     except Exception as e:
-        print(f"[WARN] No se pudieron derivar señales de actividad: {e}")
+        print(f"[WARN] No se pudieron derivar seÃ±ales de actividad: {e}")
 
-    # 5) Campos esperados por reglas que quizás no existan: crearlos como nulos si faltan
+    # 5) Campos esperados por reglas que quizÃ¡s no existan: crearlos como nulos si faltan
     expected = [
         'median_price','median_hours','launch_price','std_dev','mean_score',
         'playtime_last_two_weeks','review_positive_ratio','review_neutral_ratio',
@@ -267,7 +272,7 @@ def apply_rules(params):
 
     results = []
     for _, row in pdf.iterrows():
-        # Campos numéricos crudos que pueden ser útiles aguas abajo
+        # Campos numÃ©ricos crudos que pueden ser Ãºtiles aguas abajo
         hours_played = row.get("hours_played")
         median_hours = row.get("median_hours")
         hours_last_2w = row.get("hours_last_2w")
@@ -336,7 +341,7 @@ def apply_rules(params):
             ),
             "resena_extra": resena_EarlyAccess_Regalo(row.get("early_access"), row.get("gifted")),
         }
-        # Adjuntar métricas crudas y derivadas para consumo externo
+        # Adjuntar mÃ©tricas crudas y derivadas para consumo externo
         res.update({
             "hours_played": hours_played,
             "median_hours": median_hours,
@@ -360,12 +365,12 @@ def apply_rules(params):
 # Stage 3: evaluate
 # ------------------------
 def evaluate(params):
-    """Registrar métricas agregadas en MLflow."""
+    """Registrar mÃ©tricas agregadas en MLflow."""
     df = pd.read_parquet("data/with_rules/with_rules.parquet")
 
     metrics = {
         "n_juegos": len(df),
-        "pct_economicos": (df["precio"] == "Juego considerado económico frente al mercado").mean(),
+        "pct_economicos": (df["precio"] == "Juego considerado econÃ³mico frente al mercado").mean(),
         "pct_precios_altos": (df["precio"].str.contains("alto")).mean(),
     }
 
@@ -375,7 +380,7 @@ def evaluate(params):
     with open(reports_dir / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
-    # Uso de la función de utilidad para MLflow
+    # Uso de la funciÃ³n de utilidad para MLflow
     start_mlflow_run(
         experiment_name=params["mlflow"]["experiment_name"],
         run_name="evaluate_rules",
@@ -383,7 +388,7 @@ def evaluate(params):
     )
     log_mlflow_metrics(metrics)
 
-    print("Evaluación completada, métricas registradas en MLflow y reports/metrics.json")
+    print("EvaluaciÃ³n completada, mÃ©tricas registradas en MLflow y reports/metrics.json")
 
 
 # ------------------------
@@ -392,10 +397,10 @@ def evaluate(params):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", required=True, choices=["prepare", "apply_rules", "evaluate"], help="La etapa del pipeline a ejecutar.")
-    ap.add_argument("--config", default="params.yaml", help="Ruta al archivo de configuración YAML.")
+    ap.add_argument("--config", default="params.yaml", help="Ruta al archivo de configuraciÃ³n YAML.")
     args = ap.parse_args()
     
-    # Cargar los parámetros desde la ruta especificada
+    # Cargar los parÃ¡metros desde la ruta especificada
     with open(args.config, "r") as f:
         params = yaml.safe_load(f)
 
@@ -406,5 +411,6 @@ if __name__ == "__main__":
     elif args.stage == "evaluate":
         evaluate(params)
     else:
-        # Esto no debería ocurrir debido a choices
-        print("❌ Uso: python pipeline.py [prepare|apply_rules|evaluate]")
+        # Esto no deberÃ­a ocurrir debido a choices
+        print("âŒ Uso: python pipeline.py [prepare|apply_rules|evaluate]")
+
