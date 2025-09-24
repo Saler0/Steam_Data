@@ -52,7 +52,16 @@ ABOUT_FIELD_CANDIDATES = [
     'about_description',
 ]
 
-TEXT_FIELD_CANDIDATES = [\r\n    'short_description',\r\n    'detailed_description',\r\n    'about',\r\n    'about_the_game',\r\n    'about_the_game_text',\r\n    'about_the_game_clean',\r\n]\r\n\r\ndef _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
+TEXT_FIELD_CANDIDATES = [
+    'short_description',
+    'detailed_description',
+    'about',
+    'about_the_game',
+    'about_the_game_text',
+    'about_the_game_clean',
+]
+
+def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Ejecuta el algoritmo KMeans de forma local o con Spark.
     """
@@ -701,5 +710,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
