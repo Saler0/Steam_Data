@@ -1,6 +1,12 @@
-Steam Game Analytics — Pipeline y Uso
+# Steam Game Analytics – Pipeline y Storytelling
 
-Resumen del pipeline de analytics para juegos de Steam: embeddings → clustering → eventos/tópicos/CCF/noticias → enriquecimiento → reportes y vistas. Incluye orquestación con DVC y soporte Docker.
+Resumen del pipeline de analytics para juegos de Steam: embeddings -> clustering -> eventos/tópicos/CCF/noticias -> enriquecimiento -> reportes y vistas. Incluye orquestación con DVC y soporte Docker.
+
+## Narrativa y Storytelling de Insights
+
+1. **Cartografía del universo de juegos**: los embeddings construyen un espacio semántico donde `run_clustering.py` y FAISS/Leiden agrupan similitudes. Los artefactos `data/processed/clusters.parquet`, `models/cluster_medoids.json` y las métricas en `outputs/clustering/cluster_stats.csv` describen el territorio y marcan centros, fronteras y juegos borderline.
+2. **Motivos temáticos que explican cada clúster**: la etapa `cluster_topics_profile` resume cada comunidad con BERTopic, registra métricas narrativas en MLflow (clusters con suficientes reseñas, documentos representativos, distribución de keywords) y publica `outputs/clustering/cluster_topics.json` como guion temático.
+3. **Visual storytelling y acción**: `cluster_topics_map` proyecta los medoids en 3D con UMAP (`outputs/clustering/cluster_topics_umap.html`) para comunicar visualmente afinidades y matices borderline. Las etapas de eventos, noticias y reglas convierten esos hallazgos en contextos temporales, alertas y recomendaciones (`outputs/events/*`, `outputs/reports/*.json`). La combinación de DVC + MLflow preserva cada iteración de la historia con versionado, métricas y artefactos interactivos.
 
 Novedades clave (validación de tópicos con CCF)
 - Etapa nueva `topics_relevance`: anota cada tópico mensual con consistencia CCF y z-score de jugadores.
@@ -9,10 +15,24 @@ Novedades clave (validación de tópicos con CCF)
 - Reporte por juego: campo `alerts` con meses negativos; el payload de editor incluye `relevance_summary` agregado.
 - Reporte de cliente: por competidor `alerts` + `relevance_summary`; global en `rules_analysis.relevance_summary_global`.
 
-Ramas principales (visión general)
-- Eventos/tópicos/noticias/enriquecimiento: `events → topics → news_classifier → enrich`
-- CCF/Granger: `ccf`
-- Decisión por reglas: `prepare → apply_rules → evaluate`
+## Estructura del pipeline (DVC y storytelling)
+
+| Etapa DVC | Rol en la narrativa | Artefactos clave |
+| --- | --- | --- |
+| embeddings | Construye el espacio semantico con Sentence Transformers y normaliza metadata para iniciar la historia de cada juego. | `data/processed/embeddings/`, `data/processed/game_metadata.parquet` |
+| clustering | Agrupa juegos afines, calcula centroides, borderline y metricas de cohesion registradas en MLflow. | `data/processed/clusters.parquet`, `models/cluster_medoids.json`, `outputs/clustering/cluster_stats.csv`, `outputs/clustering/borderline_games.csv` |
+| cluster_topics_profile | Resume cada comunidad con BERTopic y deja rastro analitico en MLflow (clusters perfilados, docs representativos, keywords). | `outputs/clustering/cluster_topics.json`, run `cluster_topics_profile` en MLflow |
+| cluster_topics_map | Traduce el mapa de clusters a una visualizacion 3D interactiva para sesiones de storytelling. | `outputs/clustering/cluster_topics_umap.html` |
+| events | Detecta picos/caidas para activar capitulos temporales en la narrativa. | `outputs/events/events.parquet` |
+| topics | Profundiza motivos por evento con BERTopic (probabilidades, coherencia opcional). | `outputs/events/topics.parquet`, metricas MLflow |
+| news_classifier | Alinea titulares y sentimiento para dar contexto comunicacional. | `outputs/events/news_classified.parquet`, `outputs/events/topics_labeled.parquet` |
+| enrich | Anade senales externas (Twitch/YouTube/DLC) y explicaciones automaticas. | `outputs/events/explanations.parquet` |
+| ccf / topics_relevance | Vincula movimiento de jugadores con topicos para validar causalidad narrativa. | `outputs/ccf_analysis/summary.parquet`, `outputs/ccf_analysis/consistency.parquet`, `outputs/events/topics_scored.parquet` |
+| prepare -> apply_rules -> evaluate | Transforma insights en reglas accionables y KPIs de negocio. | `data/with_rules/`, `outputs/reports/metrics.json`, metricas MLflow |
+| report / editor_view / client_report | Entrega la historia final para stakeholders (reporte, payload editor, briefing cliente). | `outputs/reports/*.json` |
+
+
+Esta estructura vive en `dvc.yaml` y puede ejecutarse completa con `dvc repro` o en atajos como `run_only_analytics.bat`, asegurando reproducibilidad y versionado de cada capitulo.
 
 ## Modos de Ejecución: MVP vs Big Data
 
@@ -37,6 +57,7 @@ Este repositorio soporta dos formas de ejecutar el pipeline, pensadas para neces
   - Ejecutar todo lo principal: `dvc repro embeddings clustering events topics news_classifier enrich ccf report editor_view`
   - Con Makefile (dentro de Docker): `make run-all`
   - Solo clustering: `make clustering`
+  - Storytelling completo (tópicos + mapa): `dvc repro cluster_topics_profile cluster_topics_map` o `run_only_analytics.bat` (genera `outputs/clustering/cluster_topics.json` y `outputs/clustering/cluster_topics_umap.html`).
   - Asignación diaria (sin reentrenar): `dvc repro cluster_assign`
   - Reporte por juego: `APPID=12345 make report`
 - Configuración relevante:
@@ -436,6 +457,8 @@ Troubleshooting
 Scripts y Funciones
 - `src/pipelines/generate_embeddings.py`: genera embeddings de juegos desde Mongo y metadata; guarda en `data/processed/embeddings/` y `embeddings.parquet`; opcional índice FAISS persistente (`models/embeddings.faiss`).
 - `src/pipelines/run_clustering.py`: agrupa juegos con KMeans (local/Spark) o Leiden; calcula soft-membership y borderline; guarda `data/processed/clusters.parquet`, `models/cluster_medoids.json`, y métricas/artefactos en `outputs/clustering/*`; persistencia en Mongo y logging en MLflow.
+- `src/pipelines/cluster_assignment/profile_clusters_topics.py`: sintetiza cada clúster con BERTopic, registra métricas narrativas en MLflow (clusters perfilados, docs representativos, keywords) y persiste `outputs/clustering/cluster_topics.json`.
+- `scripts/plot_cluster_topics_umap.py`: genera la visualización 3D (UMAP) de medoids, tópicos y juegos borderline; produce `outputs/clustering/cluster_topics_umap.html` listo para storytelling.
 - `src/pipelines/event_detection/detect_events.py`: detecta picos/caídas (z-score) en series y produce `outputs/events/events.parquet`.
 - `src/insights/topic_motives.py`: BERTopic por evento; pondera reseñas por votos; calcula coherencia C_v si `gensim` está disponible; salida `outputs/events/topics.parquet` y métricas en MLflow.
 - `src/insights/news_classifier.py`: clasifica noticias y tópicos con un LLM (configurable); salidas `outputs/events/news_classified.parquet` y `topics_labeled.parquet`.

@@ -60,6 +60,7 @@ stages:
       python src/pipelines/cluster_assignment/profile_clusters_topics.py
         --clusters data/processed/clusters.parquet
         --metadata data/processed/game_metadata.parquet
+        --mongo-config configs/clustering.yaml
         --out outputs/clustering/cluster_topics.json
         --mlflow-enabled
         --mlflow-experiment ${mlflow.experiment_name}
@@ -68,10 +69,9 @@ stages:
     deps:
       - src/pipelines/cluster_assignment/profile_clusters_topics.py
       - data/processed/clusters.parquet
-      - data/processed/game_metadata.parquet
+      - configs/clustering.yaml
     outs:
       - outputs/clustering/cluster_topics.json
-
   cluster_topics_map:
     cmd: >
       python scripts/plot_cluster_topics_umap.py
@@ -315,6 +315,8 @@ stages:
       - configs/params.yaml:client_report
     outs:
       - outputs/reports/client_${client_report.client_id}.json
+
+
 
 
 

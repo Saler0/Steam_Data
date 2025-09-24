@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import mlflow
 import pandas as pd
-
+import yaml
 from bertopic import BERTopic
+from pymongo import MongoClient
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 
+from src.utils.config_utils import expand_env_in_obj
 from src.utils.io import read_parquet_any, write_json_any
 
 
@@ -23,35 +25,85 @@ DEFAULT_TEXT_COLUMNS = [
 ]
 
 
-def _load_clusters(path: str) -> pd.DataFrame:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"No se encontro clusters.parquet en {path}")
-    df = read_parquet_any(path)
-    if df.empty:
-        raise SystemExit("El fichero de clusters esta vacio.")
-    if "cluster_id" not in df.columns or "appid" not in df.columns:
-        raise SystemExit("clusters.parquet debe incluir columnas 'cluster_id' y 'appid'.")
-    df["cluster_id"] = df["cluster_id"].astype(str)
-    df["appid"] = df["appid"].astype(str)
-    return df
+def _load_metadata_from_mongo(mongo_cfg: Dict[str, Any], text_columns: List[str]) -> pd.DataFrame:
+    """Recupera metadata desde MongoDB respetando las columnas solicitadas."""
+    if not mongo_cfg:
+        raise FileNotFoundError("Configuracion metadata_mongo vacia.")
 
+    cfg = expand_env_in_obj(mongo_cfg)
+    if not isinstance(cfg, dict):
+        raise FileNotFoundError("metadata_mongo debe ser un diccionario.")
 
-def _load_metadata(path: str, text_columns: List[str]) -> pd.DataFrame:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"No se encontro metadata en {path}")
-    df = read_parquet_any(path) if p.suffix in {".parquet", ".pq"} or p.is_dir() else pd.read_csv(path)
+    uri = cfg.get("uri", "mongodb://mongo:27017")
+    try:
+        database = cfg["database"]
+        collection = cfg["collection"]
+    except KeyError as missing:
+        raise FileNotFoundError(f"metadata_mongo sin clave requerida: {missing}") from missing
+
+    query = cfg.get("query") or {}
+    projection = cfg.get("projection")
+    if projection is None:
+        projection = {col: 1 for col in text_columns}
+        projection["appid"] = 1
+    elif isinstance(projection, list):
+        projection = {field: 1 for field in projection}
+    elif isinstance(projection, dict):
+        projection = projection.copy()
+    else:
+        projection = {"appid": 1}
+    projection.setdefault("appid", 1)
+    for col in text_columns:
+        projection.setdefault(col, 1)
+
+    client = MongoClient(uri)
+    try:
+        cursor = client[database][collection].find(query, projection)
+        rows = list(cursor)
+    finally:
+        client.close()
+
+    if not rows:
+        raise FileNotFoundError("MongoDB no devolvio documentos para metadata.")
+
+    df = pd.DataFrame(rows)
     if df.empty:
-        raise SystemExit("El fichero de metadata esta vacio.")
+        raise FileNotFoundError("MongoDB devolvio metadata vacia.")
+
+    if "_id" in df.columns:
+        df = df.drop(columns="_id")
+
     if "appid" not in df.columns:
-        raise SystemExit("La metadata debe contener columna 'appid'.")
-    missing = [col for col in text_columns if col not in df.columns]
-    if len(missing) == len(text_columns):
-        raise SystemExit("La metadata no contiene ninguna de las columnas de texto especificadas.")
+        raise FileNotFoundError("Metadata de MongoDB no contiene 'appid'.")
+
     df = df.dropna(subset=["appid"]).copy()
     df["appid"] = df["appid"].astype(str)
     return df
+
+
+def _load_metadata(path: str, text_columns: List[str], mongo_cfg: Optional[Dict[str, Any]]) -> pd.DataFrame:
+    """Carga metadata desde parquet/CSV y usa MongoDB como fallback opcional."""
+    p = Path(path)
+    if p.exists():
+        df = read_parquet_any(str(p)) if p.suffix in {".parquet", ".pq"} or p.is_dir() else pd.read_csv(p)
+        if df.empty:
+            if mongo_cfg:
+                print(f"[WARN] Metadata en {p} esta vacia; intentando cargar desde MongoDB.")
+                return _load_metadata_from_mongo(mongo_cfg, text_columns)
+            raise SystemExit("El fichero de metadata esta vacio.")
+        if "appid" not in df.columns:
+            if mongo_cfg:
+                print(f"[WARN] Metadata en {p} no contiene 'appid'; intentando cargar desde MongoDB.")
+                return _load_metadata_from_mongo(mongo_cfg, text_columns)
+            raise SystemExit("La metadata debe contener columna 'appid'.")
+        df = df.dropna(subset=["appid"]).copy()
+        df["appid"] = df["appid"].astype(str)
+        return df
+
+    if mongo_cfg:
+        print(f"[WARN] No se encontro metadata en {p}; cargando desde MongoDB.")
+        return _load_metadata_from_mongo(mongo_cfg, text_columns)
+    raise FileNotFoundError(f"No se encontro metadata en {p} y no se proporciono fallback de MongoDB.")
 
 
 def _build_documents(df: pd.DataFrame, text_cols: List[str], min_chars: int) -> List[str]:
@@ -99,11 +151,13 @@ def _start_mlflow_run(args: argparse.Namespace) -> bool:
     return True
 
 
-def _log_mlflow_metrics(results: List[Dict[str, Any]],
-                        clusters_considered: int,
-                        skipped_min_docs: int,
-                        failed_clusters: int,
-                        out_path: Path) -> None:
+def _log_mlflow_metrics(
+    results: List[Dict[str, Any]],
+    clusters_considered: int,
+    skipped_min_docs: int,
+    failed_clusters: int,
+    out_path: Path,
+) -> None:
     if not mlflow.active_run():
         return
     clusters_profiled = len(results)
@@ -130,6 +184,30 @@ def _log_mlflow_metrics(results: List[Dict[str, Any]],
         mlflow.log_artifact(str(out_path))
 
 
+def _load_mongo_config(path: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not path:
+        return None
+    cfg_path = Path(path)
+    if not cfg_path.exists():
+        print(f"[WARN] Archivo de configuracion {cfg_path} no encontrado; se omite fallback de MongoDB.")
+        return None
+    try:
+        cfg_obj = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[WARN] No se pudo leer {cfg_path}: {exc}")
+        return None
+    cfg_obj = expand_env_in_obj(cfg_obj)
+    if not isinstance(cfg_obj, dict):
+        return None
+    mongo_cfg = cfg_obj.get("metadata_mongo")
+    if mongo_cfg is None:
+        return None
+    if not isinstance(mongo_cfg, dict):
+        print("[WARN] metadata_mongo debe ser un diccionario; fallback omitido.")
+        return None
+    return mongo_cfg
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Perfila cada cluster con un tema principal usando BERTopic.")
     parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet.")
@@ -146,13 +224,24 @@ def main() -> None:
     parser.add_argument("--mlflow-experiment", default=None, help="Nombre del experimento MLflow.")
     parser.add_argument("--mlflow-run-name", default="cluster_topics_profile", help="Nombre del run en MLflow.")
     parser.add_argument("--mlflow-tracking-uri", default=None, help="Tracking URI de MLflow.")
+    parser.add_argument("--mongo-config", default=None, help="Archivo YAML con metadata_mongo para fallback opcional.")
     args = parser.parse_args()
+
+    mongo_cfg = _load_mongo_config(args.mongo_config)
 
     run_active = _start_mlflow_run(args)
 
     try:
-        clusters_df = _load_clusters(args.clusters)
-        metadata_df = _load_metadata(args.metadata, args.text_columns)
+        clusters_df = read_parquet_any(args.clusters)
+        if clusters_df.empty:
+            raise SystemExit("El fichero de clusters esta vacio.")
+        if "cluster_id" not in clusters_df.columns or "appid" not in clusters_df.columns:
+            raise SystemExit("clusters.parquet debe incluir columnas 'cluster_id' y 'appid'.")
+        clusters_df = clusters_df.copy()
+        clusters_df["cluster_id"] = clusters_df["cluster_id"].astype(str)
+        clusters_df["appid"] = clusters_df["appid"].astype(str)
+
+        metadata_df = _load_metadata(args.metadata, args.text_columns, mongo_cfg)
         merged = clusters_df.merge(metadata_df, on="appid", how="left", suffixes=("", "_meta"))
 
         embedding_model = SentenceTransformer(args.embedding_model)
