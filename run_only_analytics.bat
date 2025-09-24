@@ -1,7 +1,7 @@
 ﻿@echo off
 setlocal enabledelayedexpansion
 
-rem Ir a la carpeta del script (donde estÃ¡ docker-compose.yml)
+rem Ir a la carpeta del script (donde esta docker-compose.yml)
 cd /d %~dp0
 
 rem Asegura nombre de proyecto consistente con tu compose (name: proyecto_steam)
@@ -33,38 +33,62 @@ if errorlevel 1 (
 rem ===== Control de etapas DVC =====
 set "DVC_TARGETS=embeddings clustering cluster_topics_profile cluster_topics_map"
 set "DVC_FLAGS="
+set "SKIP_EMB=0"
+set "RUN_TOPICS_ONLY=0"
 
-IF /I "%~1"=="skip-embeddings" (
-  set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
-  set "DVC_FLAGS=--single-item"
-  echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+for %%A in (%*) do (
+    if /I "%%A"=="skip-embeddings" set "SKIP_EMB=1"
+    if /I "%%A"=="topics-only" set "RUN_TOPICS_ONLY=1"
+)
+
+if "!RUN_TOPICS_ONLY!"=="1" (
+    set "DVC_TARGETS=cluster_topics_profile cluster_topics_map"
+    set "DVC_FLAGS=--single-item"
+    echo [INFO] Ejecutando solo los stages de topicos; se reutilizaran artefactos previos de clustering.
+) else (
+    if "!SKIP_EMB!"=="1" (
+        set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
+        set "DVC_FLAGS=--single-item"
+        echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+    )
 )
 
 echo.
 echo ============================
-echo Ejecutando DVC (%DVC_TARGETS%) dentro de steam_analytics...
+echo Ejecutando DVC (!DVC_TARGETS!) dentro de steam_analytics...
 echo ============================
 
 rem Marca /app como safe en Git (por si hay "dubious ownership")
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec analytics git config --global --add safe.directory /app
 
-rem Inicializa DVC en el subdirectorio si aÃºn no existe .dvc en la raÃ­z
+rem Inicializa DVC en el subdirectorio si aun no existe .dvc en la raiz
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
 
-rem Ejecuta el pipeline. Con --single-item, si pasas skip-embeddings NO se ejecutan dependencias.
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics dvc repro %DVC_FLAGS% %DVC_TARGETS%
-
-if errorlevel 1 (
-    echo.
-    echo ERROR: Fallo al ejecutar el pipeline de DVC.
-    echo Revisa los logs del contenedor para ver el error.
-    pause
-    exit /b 1
+rem Ejecuta el pipeline segun la configuracion seleccionada
+if "!RUN_TOPICS_ONLY!"=="1" (
+    call :RunSingleStage cluster_topics_profile
+    if errorlevel 1 goto :dvc_failed
+    call :RunSingleStage cluster_topics_map
+    if errorlevel 1 goto :dvc_failed
+) else (
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics dvc repro !DVC_FLAGS! !DVC_TARGETS!
+    if errorlevel 1 goto :dvc_failed
 )
 
+goto :dvc_success
+
+:dvc_failed
+echo.
+echo ERROR: Fallo al ejecutar el pipeline de DVC.
+echo Revisa los logs del contenedor para ver el error.
+pause
+endlocal
+exit /b 1
+
+:dvc_success
 echo.
 echo =======================================================
 echo Pipeline de analytics finalizado con exito.
@@ -72,6 +96,7 @@ echo =======================================================
 
 echo Resultados del clustering:
 echo   - data/processed/clusters.parquet
+echo   - data/processed/game_metadata.parquet
 echo   - models/cluster_medoids.json
 echo   - outputs/clustering/cluster_stats.csv
 echo   - outputs/clustering/cluster_topics.json
@@ -83,3 +108,9 @@ echo.
 
 pause
 endlocal
+exit /b 0
+
+:RunSingleStage
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro --single-item %1
+exit /b %errorlevel%

@@ -430,7 +430,15 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
             print(f"[WARN] metadata_mongo query returned no documents with 'appid' and 'name'.")
             return pd.DataFrame()
         print(f"[INFO] Loaded {len(lookup_df)} app metadata records from MongoDB ({database}.{collection_name}).")
-        return lookup_df.drop_duplicates('appid')
+        result = lookup_df.drop_duplicates('appid')
+        if meta_path and not result.empty:
+            try:
+                makedirs_if_local(Path(meta_path).parent)
+                write_parquet_any(result, meta_path)
+                print(f"[INFO] Metadata guardada en -> {meta_path}")
+            except Exception as exc:
+                print(f"[WARN] No se pudo guardar metadata en {meta_path}: {exc}")
+        return result
     except Exception as exc:
         print(f"[WARN] Could not load game metadata from MongoDB: {exc}")
         return pd.DataFrame()

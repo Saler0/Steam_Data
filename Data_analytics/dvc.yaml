@@ -49,6 +49,7 @@ stages:
       - data/processed/embeddings/
     outs:
       - data/processed/clusters.parquet
+      - data/processed/game_metadata.parquet
       - models/cluster_medoids.json
     metrics:
       - outputs/clustering/cluster_stats.csv
@@ -69,6 +70,7 @@ stages:
     deps:
       - src/pipelines/cluster_assignment/profile_clusters_topics.py
       - data/processed/clusters.parquet
+      - data/processed/game_metadata.parquet
       - configs/clustering.yaml
     outs:
       - outputs/clustering/cluster_topics.json
