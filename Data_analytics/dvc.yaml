@@ -57,15 +57,15 @@ stages:
 
   # Perfilado tematico de clusters con BERTopic
   cluster_topics_profile:
-    cmd: >
-      python src/pipelines/cluster_assignment/profile_clusters_topics.py
-        --clusters data/processed/clusters.parquet
-        --metadata data/processed/game_metadata.parquet
-        --mongo-config configs/clustering.yaml
-        --out outputs/clustering/cluster_topics.json
-        --mlflow-enabled
-        --mlflow-experiment ${mlflow.experiment_name}
-        --mlflow-run-name cluster_topics_profile
+    cmd: |
+      python src/pipelines/cluster_assignment/profile_clusters_topics.py \
+        --clusters data/processed/clusters.parquet \
+        --metadata data/processed/game_metadata.parquet \
+        --mongo-config configs/clustering.yaml \
+        --out outputs/clustering/cluster_topics.json \
+        --mlflow-enabled \
+        --mlflow-experiment ${mlflow.experiment_name} \
+        --mlflow-run-name cluster_topics_profile \
         --mlflow-tracking-uri ${mlflow.tracking_uri}
     deps:
       - src/pipelines/cluster_assignment/profile_clusters_topics.py
@@ -75,12 +75,12 @@ stages:
     outs:
       - outputs/clustering/cluster_topics.json
   cluster_topics_map:
-    cmd: >
-      python scripts/plot_cluster_topics_umap.py
-        --medoids models/cluster_medoids.json
-        --stats outputs/clustering/cluster_stats.csv
-        --topics outputs/clustering/cluster_topics.json
-        --borderline outputs/clustering/borderline_games.csv
+    cmd: |
+      python scripts/plot_cluster_topics_umap.py \
+        --medoids models/cluster_medoids.json \
+        --stats outputs/clustering/cluster_stats.csv \
+        --topics outputs/clustering/cluster_topics.json \
+        --borderline outputs/clustering/borderline_games.csv \
         --out-html outputs/clustering/cluster_topics_umap.html
     deps:
       - scripts/plot_cluster_topics_umap.py
