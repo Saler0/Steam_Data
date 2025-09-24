@@ -1,7 +1,7 @@
-@echo off
+﻿@echo off
 setlocal enabledelayedexpansion
 
-rem Ir a la carpeta del script (donde está docker-compose.yml)
+rem Ir a la carpeta del script (donde estÃ¡ docker-compose.yml)
 cd /d %~dp0
 
 rem Asegura nombre de proyecto consistente con tu compose (name: proyecto_steam)
@@ -31,11 +31,11 @@ if errorlevel 1 (
 )
 
 rem ===== Control de etapas DVC =====
-set "DVC_TARGETS=embeddings clustering"
+set "DVC_TARGETS=embeddings clustering cluster_topics_profile cluster_topics_map"
 set "DVC_FLAGS="
 
 IF /I "%~1"=="skip-embeddings" (
-  set "DVC_TARGETS=clustering"
+  set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
   set "DVC_FLAGS=--single-item"
   echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
 )
@@ -49,7 +49,7 @@ rem Marca /app como safe en Git (por si hay "dubious ownership")
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec analytics git config --global --add safe.directory /app
 
-rem Inicializa DVC en el subdirectorio si aún no existe .dvc en la raíz
+rem Inicializa DVC en el subdirectorio si aÃºn no existe .dvc en la raÃ­z
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
 
@@ -74,6 +74,8 @@ echo Resultados del clustering:
 echo   - data/processed/clusters.parquet
 echo   - models/cluster_medoids.json
 echo   - outputs/clustering/cluster_stats.csv
+echo   - outputs/clustering/cluster_topics.json
+echo   - outputs/clustering/cluster_topics_umap.html
 
 echo.
 echo Puedes apagar los contenedores con: docker compose down
