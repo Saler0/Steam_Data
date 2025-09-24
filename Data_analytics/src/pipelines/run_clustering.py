@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 Orquesta los algoritmos de clustering (KMeans o Leiden) sobre embeddings de juegos.
-La elección de la implementación (local vs. Spark) y las opciones de precisión
-avanzada se controlan desde un fichero de configuración YAML.
+La elecciÃ³n de la implementaciÃ³n (local vs. Spark) y las opciones de precisiÃ³n
+avanzada se controlan desde un fichero de configuraciÃ³n YAML.
 """
 import argparse
 import yaml
@@ -24,7 +24,7 @@ from pymongo import MongoClient, ReplaceOne
 import os
 import sys
 
-# Asegúrate de que los módulos de utils estén en el PATH
+# AsegÃºrate de que los mÃ³dulos de utils estÃ©n en el PATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 # Clustering local con scikit-learn
@@ -52,7 +52,7 @@ ABOUT_FIELD_CANDIDATES = [
     'about_description',
 ]
 
-def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
+TEXT_FIELD_CANDIDATES = [\r\n    'short_description',\r\n    'detailed_description',\r\n    'about',\r\n    'about_the_game',\r\n    'about_the_game_text',\r\n    'about_the_game_clean',\r\n]\r\n\r\ndef _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Ejecuta el algoritmo KMeans de forma local o con Spark.
     """
@@ -61,7 +61,7 @@ def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     n_samples = len(df_emb)
 
     if n_samples >= threshold:
-        print("[INFO] El número de documentos supera el umbral. Usando Spark ML KMeans.")
+        print("[INFO] El nÃºmero de documentos supera el umbral. Usando Spark ML KMeans.")
         spark = get_spark_session("ClusteringSpark")
         
         list_to_vector_udf = udf(lambda l: Vectors.dense(l), VectorUDT())
@@ -73,7 +73,7 @@ def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         best_score = -1
         
         k_range = kmeans_cfg['k_range']
-        print(f"[INFO] Buscando k óptimo en el rango {k_range} con Spark...")
+        print(f"[INFO] Buscando k Ã³ptimo en el rango {k_range} con Spark...")
         for k in range(k_range[0], k_range[1] + 1):
             kmeans = SparkKMeans(k=k, seed=kmeans_cfg['seed'], featuresCol="embedding_vec")
             model = kmeans.fit(spark_df)
@@ -92,7 +92,7 @@ def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         
         return df_clusters
     else:
-        print("[INFO] El número de documentos está por debajo del umbral. Usando scikit-learn (local).")
+        print("[INFO] El nÃºmero de documentos estÃ¡ por debajo del umbral. Usando scikit-learn (local).")
         X = np.vstack(df_emb['embedding'].apply(np.asarray).tolist()).astype(np.float32)
         k = kmeans_cfg.get('n_clusters', 50)
         kmeans = KMeans(n_clusters=k, random_state=kmeans_cfg['seed'], n_init=10)
@@ -104,16 +104,16 @@ def _run_kmeans(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Ejecuta el algoritmo de clustering Leiden, incluyendo opciones avanzadas como
-    soft membership, detección de juegos borderline y clustering de consenso.
+    soft membership, detecciÃ³n de juegos borderline y clustering de consenso.
     """
     leiden_cfg = cfg['graph_leiden']
     
     X = np.vstack(df_emb['embedding'].apply(np.asarray).tolist()).astype(np.float32)
     faiss_cfg = cfg['faiss']
     faiss_index = build_faiss_index(X, faiss_cfg.get('index', 'FlatIP'), faiss_cfg.get('use_gpu', False))
-    print("[INFO] Índice FAISS construido exitosamente.")
+    print("[INFO] Ãndice FAISS construido exitosamente.")
 
-    print(f"[INFO] Buscando los {leiden_cfg['k_neighbors']} vecinos más cercanos...")
+    print(f"[INFO] Buscando los {leiden_cfg['k_neighbors']} vecinos mÃ¡s cercanos...")
     D, I = search_faiss_index(faiss_index, X, leiden_cfg['k_neighbors'])
     
     print("[INFO] Creando grafo de similitud a partir de los vecinos...")
@@ -170,7 +170,7 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
             add_edge(i, nbr, weight)
 
     if not edges:
-        print("[WARN] Ninguna arista superó los criterios configurados; relajando filtros (sin mutual ni SNN).")
+        print("[WARN] Ninguna arista superÃ³ los criterios configurados; relajando filtros (sin mutual ni SNN).")
         seen_edges.clear()
         for i in range(I.shape[0]):
             for j in range(1, I.shape[1]):
@@ -182,7 +182,7 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
                     continue
                 add_edge(i, nbr, sim)
         if not edges:
-            print("[WARN] Grafo todavía vacío tras relajar filtros; usando vecinos más próximos por defecto.")
+            print("[WARN] Grafo todavÃ­a vacÃ­o tras relajar filtros; usando vecinos mÃ¡s prÃ³ximos por defecto.")
             seen_edges.clear()
             for i in range(I.shape[0]):
                 for j in range(1, min(I.shape[1], 3)):
@@ -210,7 +210,7 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
 
     if consensus_cfg.get('enabled', False):
         if not (hasattr(la, 'similarity_matrix') and hasattr(la, 'consensus_graph')):
-            print(f"[INFO] Clustering de consenso no soportado en esta versión de 'leidenalg'; usando Leiden simple con resolution={leiden_cfg['resolution']}.")
+            print(f"[INFO] Clustering de consenso no soportado en esta versiÃ³n de 'leidenalg'; usando Leiden simple con resolution={leiden_cfg['resolution']}.")
             part = la.find_partition(g, partition_type, resolution_parameter=leiden_cfg['resolution'])
             df_emb['cluster_id'] = part.membership
         else:
@@ -237,9 +237,9 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
         soft_t0 = time.perf_counter()
         n_items = len(df_emb)
         print(f"[INFO] Soft-membership: preparando centroides para {n_items} juegos; este paso puede tardar unos minutos...")
-        # Se calcula la similitud con todos los clústeres para obtener las probabilidades.
+        # Se calcula la similitud con todos los clÃºsteres para obtener las probabilidades.
         cluster_centroids = np.array([np.mean(X[np.where(df_emb['cluster_id'] == c_id)], axis=0) for c_id in np.unique(df_emb['cluster_id'])]).astype(np.float32, copy=False)
-        print(f"[INFO] Soft-membership: centroides listos ({cluster_centroids.shape[0]} clústeres).")
+        print(f"[INFO] Soft-membership: centroides listos ({cluster_centroids.shape[0]} clÃºsteres).")
         sims_to_centroids = (X @ cluster_centroids.T).astype(np.float32, copy=False)
         print('[INFO] Soft-membership: aplicando softmax por bloques sobre la matriz de similitudes...')
 
@@ -285,7 +285,7 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
         soft_elapsed = time.perf_counter() - soft_t0
         print(f"[INFO] Soft-membership completado en {soft_elapsed:.1f}s.")
     
-    print(f"[OK] Clustering de Leiden finalizado. Se encontraron {df_emb['cluster_id'].nunique()} clústeres.")
+    print(f"[OK] Clustering de Leiden finalizado. Se encontraron {df_emb['cluster_id'].nunique()} clÃºsteres.")
     
     cols = ['appid', 'cluster_id']
     if 'is_borderline' in df_emb.columns:
@@ -293,7 +293,7 @@ def _run_leiden_local(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame
     return df_emb[cols]
 
 def _compute_centroids(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> Dict[int, list]:
-    """Calcula centroides por clúster como media de embeddings."""
+    """Calcula centroides por clÃºster como media de embeddings."""
     joined = df_emb[['appid', 'embedding']].merge(df_clusters[['appid', 'cluster_id']], on='appid', how='inner')
     centroids: Dict[int, list] = {}
     for cid, grp in joined.groupby('cluster_id'):
@@ -302,13 +302,13 @@ def _compute_centroids(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> Dict[
     return centroids
 
 def _compute_cluster_stats(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> pd.DataFrame:
-    """Devuelve estadísticas por clúster y calcula métricas globales simples.
+    """Devuelve estadÃ­sticas por clÃºster y calcula mÃ©tricas globales simples.
 
     Columnas: cluster_id, size, pct_borderline (si existe),
     mean_p_assigned, mean_confidence_margin (si existen).
     """
     base = df_clusters.groupby('cluster_id').size().rename('size').reset_index()
-    # Enriquecer con métricas de post-análisis si existen
+    # Enriquecer con mÃ©tricas de post-anÃ¡lisis si existen
     if 'is_borderline' in df_clusters.columns:
         tmp = df_clusters.groupby('cluster_id')['is_borderline'].mean().rename('pct_borderline')
         base = base.merge(tmp.reset_index(), on='cluster_id', how='left')
@@ -319,7 +319,7 @@ def _compute_cluster_stats(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> p
         tmp = df_clusters.groupby('cluster_id')['confidence_margin'].mean().rename('mean_confidence_margin')
         base = base.merge(tmp.reset_index(), on='cluster_id', how='left')
 
-    # Similitud promedio al centroide por clúster (producto interno)
+    # Similitud promedio al centroide por clÃºster (producto interno)
     try:
         joined = df_emb[['appid', 'embedding']].merge(df_clusters[['appid', 'cluster_id']], on='appid', how='inner')
         sims = []
@@ -335,6 +335,30 @@ def _compute_cluster_stats(df_emb: pd.DataFrame, df_clusters: pd.DataFrame) -> p
         print(f"[WARN] No se pudo computar mean_sim_to_centroid: {e}")
     return base
 
+
+def _normalize_metadata_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Select and normalize metadata columns required downstream."""
+    if df.empty:
+        return pd.DataFrame()
+    if 'appid' not in df.columns or 'name' not in df.columns:
+        return pd.DataFrame()
+    meta = df.copy()
+    try:
+        meta['appid'] = meta['appid'].astype(str)
+    except Exception:
+        meta['appid'] = meta['appid'].apply(lambda x: str(x) if x is not None else None)
+    for col in ('short_description', 'detailed_description', 'about'):
+        if col not in meta.columns:
+            meta[col] = None
+    preferred = ['appid', 'name', 'short_description', 'detailed_description', 'about']
+    other_cols = [col for col in meta.columns if col not in preferred]
+    ordered_cols = preferred + other_cols
+    normalized = (
+        meta[ordered_cols]
+        .dropna(subset=['appid', 'name'])
+        .drop_duplicates('appid')
+    )
+    return normalized
 def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """Return app metadata (name/about) based on embeddings or configured sources."""
     if 'name' in df_emb.columns:
@@ -363,19 +387,17 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
                 elif 'appid' not in tmp_df.columns or 'name' not in tmp_df.columns:
                     print(f"[WARN] Metadata at {meta_path} does not contain 'appid' and 'name'; skipping metadata enrichment.")
                 else:
-                    about_col = next((col for col in ABOUT_FIELD_CANDIDATES if col in tmp_df.columns), None)
-                    if about_col:
-                        print(f"[INFO] Using '{about_col}' as about column for metadata enrichment.")
-                    meta_cols = ['appid', 'name'] + ([about_col] if about_col else [])
-                    meta_df = (
-                        tmp_df[meta_cols]
-                        .dropna(subset=['appid', 'name'])
-                        .drop_duplicates('appid')
-                    )
-                    if about_col and about_col != 'about':
-                        meta_df = meta_df.rename(columns={about_col: 'about'})
-                    elif 'about' not in meta_df.columns:
-                        meta_df['about'] = None
+                    meta_candidate = _normalize_metadata_frame(tmp_df)
+                    if meta_candidate.empty:
+                        print(f"[WARN] Metadata at {meta_path} does not contain the expected columns; skipping metadata enrichment.")
+                    else:
+                        available = [col for col in ('short_description', 'detailed_description', 'about') if col in meta_candidate.columns and meta_candidate[col].notna().any()]
+                        if available:
+                            print(f"[INFO] Metadata columns available for enrichment: {', '.join(available)}")
+                        missing = [col for col in ('short_description', 'detailed_description') if col in meta_candidate.columns and meta_candidate[col].isna().all()]
+                        if missing:
+                            print(f"[WARN] Metadata at {meta_path} is missing values for {', '.join(missing)}; topic profiling may have limited context.")
+                        meta_df = meta_candidate
         else:
             print(f"[WARN] No game metadata found at {meta_path}; skipping metadata enrichment.")
 
@@ -398,7 +420,7 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
     for field in ('appid', 'name'):
         if field not in projection_fields:
             projection_fields.append(field)
-    for candidate in ABOUT_FIELD_CANDIDATES:
+    for candidate in TEXT_FIELD_CANDIDATES:
         if candidate not in projection_fields:
             projection_fields.append(candidate)
     projection = {field: 1 for field in projection_fields}
@@ -408,6 +430,16 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
     try:
         client = MongoClient(uri)
         cursor = client[database][collection_name].find(query, projection)
+        def _first_non_empty(doc_obj, candidates):
+            for field in candidates:
+                value = doc_obj.get(field)
+                if isinstance(value, str):
+                    if value.strip():
+                        return value
+                elif value is not None:
+                    return value
+            return None
+
         rows = []
         for doc in cursor:
             appid = doc.get('appid')
@@ -418,19 +450,26 @@ def _build_name_lookup(df_emb: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFram
                 appid = str(appid)
             except Exception:
                 continue
-            about_value = None
-            for candidate in ABOUT_FIELD_CANDIDATES:
-                value = doc.get(candidate)
-                if value:
-                    about_value = value
-                    break
-            rows.append({'appid': appid, 'name': name, 'about': about_value})
+            row = {'appid': appid, 'name': name}
+            short_value = _first_non_empty(doc, ['short_description'])
+            if short_value is not None:
+                row['short_description'] = short_value
+            detailed_value = _first_non_empty(doc, ['detailed_description', 'about_the_game', 'about_the_game_text', 'about_the_game_clean', 'about'])
+            if detailed_value is not None:
+                row['detailed_description'] = detailed_value
+            about_value = _first_non_empty(doc, ['about', 'about_the_game', 'about_the_game_text', 'about_the_game_clean', 'detailed_description'])
+            if about_value is not None:
+                row['about'] = about_value
+            rows.append(row)
         lookup_df = pd.DataFrame(rows)
         if lookup_df.empty:
             print(f"[WARN] metadata_mongo query returned no documents with 'appid' and 'name'.")
             return pd.DataFrame()
         print(f"[INFO] Loaded {len(lookup_df)} app metadata records from MongoDB ({database}.{collection_name}).")
-        result = lookup_df.drop_duplicates('appid')
+        result = _normalize_metadata_frame(lookup_df)
+        if result.empty:
+            print(f"[WARN] Metadata obtained from MongoDB lacks the required text fields; skipping metadata enrichment.")
+            return pd.DataFrame()
         if meta_path and not result.empty:
             try:
                 makedirs_if_local(Path(meta_path).parent)
@@ -487,14 +526,14 @@ def _attach_game_names(df_clusters: pd.DataFrame, name_lookup: pd.DataFrame) -> 
 
 def _save_to_mongo(df: pd.DataFrame, cfg: Dict[str, Any]):
     """
-    Guarda el DataFrame de resultados de clustering en una colección de MongoDB.
+    Guarda el DataFrame de resultados de clustering en una colecciÃ³n de MongoDB.
     """
     mongo_cfg = cfg['mongo_connection']
     client = MongoClient(mongo_cfg['uri'])
     db = client[mongo_cfg['database']]
     collection = db[mongo_cfg['collection']]
     
-    print(f"[INFO] Conectando a MongoDB para guardar los resultados en la colección: {mongo_cfg['collection']}")
+    print(f"[INFO] Conectando a MongoDB para guardar los resultados en la colecciÃ³n: {mongo_cfg['collection']}")
 
     operations = []
     for _, row in df.iterrows():
@@ -513,7 +552,7 @@ def _save_to_mongo(df: pd.DataFrame, cfg: Dict[str, Any]):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True, help="Ruta al archivo de configuración YAML.")
+    ap.add_argument("--config", required=True, help="Ruta al archivo de configuraciÃ³n YAML.")
     args = ap.parse_args()
     
     with open(args.config, 'r') as f:
@@ -530,7 +569,7 @@ def main():
     
     with ctx:
         if mlflow_enabled:
-            print(f"[INFO] Iniciando ejecución MLflow '{run_name}' para clustering.")
+            print(f"[INFO] Iniciando ejecuciÃ³n MLflow '{run_name}' para clustering.")
             log_mlflow_params(cfg)
         
         input_paths = cfg.get('input_paths', {})
@@ -548,14 +587,14 @@ def main():
 
         name_lookup = _build_name_lookup(df_emb, cfg)
 
-        # Selección de método con fallback automático a Spark KMeans por umbral
+        # SelecciÃ³n de mÃ©todo con fallback automÃ¡tico a Spark KMeans por umbral
         method = cfg['method']
         n_samples = len(df_emb)
         kmeans_cfg = cfg.get('kmeans', {})
         spark_threshold = int(kmeans_cfg.get('threshold_spark', 1_000_000))
 
         if method != 'kmeans' and n_samples >= spark_threshold:
-            print(f"[INFO] Dataset grande (n={n_samples} >= {spark_threshold}). Anulando método '{method}' y usando Spark KMeans.")
+            print(f"[INFO] Dataset grande (n={n_samples} >= {spark_threshold}). Anulando mÃ©todo '{method}' y usando Spark KMeans.")
             if mlflow_enabled:
                 mlflow.log_param('fallback_to_spark_kmeans', True)
                 mlflow.log_param('fallback_trigger_n_samples', n_samples)
@@ -563,20 +602,20 @@ def main():
             cfg_forced = {**cfg, 'method': 'kmeans', 'kmeans': {**kmeans_cfg, 'threshold_spark': 0}}
             df_clusters = _run_kmeans(df_emb, cfg_forced)
         else:
-            print(f"[INFO] Iniciando el clustering con el método: {method}")
+            print(f"[INFO] Iniciando el clustering con el mÃ©todo: {method}")
             if method == "kmeans":
                 df_clusters = _run_kmeans(df_emb, cfg)
             elif method == "graph_leiden":
                 df_clusters = _run_leiden_local(df_emb, cfg)
             else:
-                raise ValueError(f"Método de clustering '{method}' no soportado.")
+                raise ValueError(f"MÃ©todo de clustering '{method}' no soportado.")
             
         out_paths = cfg.get('output_paths', {})
         
-        # 1. Guardar en disco (añadiendo versionado de clúster)
+        # 1. Guardar en disco (aÃ±adiendo versionado de clÃºster)
         out_clusters_path = Path(out_paths['clusters_parquet'])
         makedirs_if_local(out_clusters_path.parent)
-        # Versionado simple: YYYYMM, configurable vía cfg['cluster_version']
+        # Versionado simple: YYYYMM, configurable vÃ­a cfg['cluster_version']
         try:
             ver = str(cfg.get('cluster_version') or datetime.now().strftime('%Y%m'))
         except Exception:
@@ -597,12 +636,12 @@ def main():
             if mlflow_enabled:
                 mlflow.log_metric("n_clusters_found", n_clusters_found)
                 mlflow.log_artifact(str(out_clusters_path))
-            print(f"[OK] Se encontraron {n_clusters_found} clústeres. Registrado en MLflow.")
+            print(f"[OK] Se encontraron {n_clusters_found} clÃºsteres. Registrado en MLflow.")
 
             if 'is_borderline' in df_clusters.columns:
                 df_borderline = df_clusters[df_clusters['is_borderline']]
                 if not df_borderline.empty:
-                    # Guardar además en la ruta plana esperada por DVC/metrics
+                    # Guardar ademÃ¡s en la ruta plana esperada por DVC/metrics
                     out_borderline_dir = Path(out_paths['borderline_dir'])
                     out_borderline_path_nested = out_borderline_dir / 'borderline_games.csv'
                     makedirs_if_local(out_borderline_dir)
@@ -618,10 +657,10 @@ def main():
                         mlflow.log_metric("total_borderline_games", len(df_borderline))
                     print(f"[OK] Juegos borderline guardados en -> {out_borderline_path} y {out_borderline_path_nested}")
 
-            # Guardar centroides/medoides para asignación de nuevos juegos
+            # Guardar centroides/medoides para asignaciÃ³n de nuevos juegos
             try:
                 centroids = _compute_centroids(df_emb, df_clusters)
-                # Guardar centroides (medoids) para asignación diaria de nuevos juegos
+                # Guardar centroides (medoids) para asignaciÃ³n diaria de nuevos juegos
                 medoids_path = Path('models') / 'cluster_medoids.json'
                 makedirs_if_local(medoids_path.parent)
                 medoids_path.write_text(json.dumps({str(k): v for k, v in centroids.items()}), encoding='utf-8')
@@ -631,7 +670,7 @@ def main():
             except Exception as e:
                 print(f"[WARN] No se pudieron calcular/guardar centroides: {e}")
 
-            # Guardar estadísticas de clúster
+            # Guardar estadÃ­sticas de clÃºster
             try:
                 stats_df = _compute_cluster_stats(df_emb, df_clusters)
                 out_stats_dir = Path(out_paths.get('stats_dir', 'outputs/clustering/stats'))
@@ -646,14 +685,14 @@ def main():
                 if mlflow_enabled:
                     mlflow.log_artifact(str(out_stats_path_nested))
                     mlflow.log_artifact(str(out_stats_path))
-                    # Métricas globales simples
+                    # MÃ©tricas globales simples
                     mlflow.log_metric('avg_cluster_size', float(stats_df['size'].mean()))
                     mlflow.log_metric('max_cluster_size', int(stats_df['size'].max()))
                     if 'mean_sim_to_centroid' in stats_df.columns:
                         mlflow.log_metric('avg_mean_sim_to_centroid', float(stats_df['mean_sim_to_centroid'].mean()))
-                print(f"[OK] Estadísticas de clúster guardadas en -> {out_stats_path} y {out_stats_path_nested}")
+                print(f"[OK] EstadÃ­sticas de clÃºster guardadas en -> {out_stats_path} y {out_stats_path_nested}")
             except Exception as e:
-                print(f"[WARN] No se pudieron calcular/guardar estadísticas de clúster: {e}")
+                print(f"[WARN] No se pudieron calcular/guardar estadÃ­sticas de clÃºster: {e}")
 
         # 2. Guardar en MongoDB
         _save_to_mongo(df_clusters, cfg)
@@ -662,3 +701,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+

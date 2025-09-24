@@ -28,6 +28,7 @@ DEFAULT_TEXT_COLUMNS = [
     "name",
     "short_description",
     "detailed_description",
+    "about",
 ]
 
 
@@ -220,8 +221,8 @@ def main() -> None:
     parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Metadata con campos de texto.")
     parser.add_argument("--text-columns", nargs="*", default=DEFAULT_TEXT_COLUMNS, help="Columnas de texto a concatenar.")
     parser.add_argument("--out", default="outputs/clustering/cluster_topics.json", help="Salida JSON.")
-    parser.add_argument("--min-docs", type=int, default=30, help="Minimo de textos por cluster para ejecutar BERTopic.")
-    parser.add_argument("--min-chars", type=int, default=100, help="Longitud minima de cada documento.")
+    parser.add_argument("--min-docs", type=int, default=1, help="Minimo de textos por cluster para ejecutar BERTopic.")
+    parser.add_argument("--min-chars", type=int, default=50, help="Longitud minima de cada documento.")
     parser.add_argument("--embedding-model", default="paraphrase-multilingual-MiniLM-L12-v2", help="Modelo de SentenceTransformer.")
     parser.add_argument("--min-topic-size", type=int, default=10, help="min_topic_size de BERTopic.")
     parser.add_argument("--top-n-words", type=int, default=8, help="Numero de palabras clave a reportar por cluster.")
