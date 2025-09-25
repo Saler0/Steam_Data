@@ -26,7 +26,7 @@ Aplicacion Flask que renderiza el sitio Gamebooster y consume la API REST del ba
    python -m pip install --upgrade pip
    python -m pip install -r requirements.txt
    ```
-
+a
 ## Configuracion
 
 - `BACKEND_URL`: URL del backend. Por defecto `http://localhost:5001`.
