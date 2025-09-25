@@ -26,9 +26,9 @@ output_paths:
   # Ruta para el resultado principal (appid -> cluster_id).
   clusters_parquet: data/processed/clusters.parquet
   # Directorio para guardar los juegos con asignación ambigua.
-  borderline_dir: outputs/clustering/borderline/
+  borderline_dir: outputs/clustering/
   # Directorio para estadísticas del clúster (tamaño, etc.).
-  stats_dir: outputs/clustering/stats/
+  stats_dir: outputs/clustering/
 
   # --- Ejemplos en lago de objetos ---
   # GCS:

@@ -35,11 +35,16 @@ set "DVC_TARGETS=embeddings clustering cluster_topics_profile cluster_topics_map
 set "DVC_FLAGS="
 set "SKIP_EMB=0"
 set "RUN_TOPICS_ONLY=0"
+set "RUN_POC=0"
+set "POC_ARGS="
 
 for %%A in (%*) do (
     if /I "%%A"=="skip-embeddings" set "SKIP_EMB=1"
     if /I "%%A"=="topics-only" set "RUN_TOPICS_ONLY=1"
+    if /I "%%A"=="single-game-poc" set "RUN_POC=1"
 )
+
+if "!RUN_POC!"=="1" goto :run_poc
 
 if "!RUN_TOPICS_ONLY!"=="1" (
     set "DVC_TARGETS=cluster_topics_profile cluster_topics_map"
@@ -80,6 +85,23 @@ if "!RUN_TOPICS_ONLY!"=="1" (
 
 goto :dvc_success
 
+:run_poc
+echo.
+echo ============================
+echo Ejecutando PoC de asignacion de juego...
+echo ============================
+set "POC_ARGS=%*"
+set "POC_ARGS=!POC_ARGS:single-game-poc=!"
+set "POC_ARGS=!POC_ARGS:skip-embeddings=!"
+set "POC_ARGS=!POC_ARGS:topics-only=!"
+set "POC_ARGS=!POC_ARGS:  = !"
+for /f "tokens=* delims= " %%P in ("!POC_ARGS!") do set "POC_ARGS=%%P"
+echo [INFO] Lanzando scripts/poc_assign_single_game.py !POC_ARGS!
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/poc_assign_single_game.py !POC_ARGS!
+if errorlevel 1 goto :poc_failed
+goto :poc_success
+
 :dvc_failed
 echo.
 echo ERROR: Fallo al ejecutar el pipeline de DVC.
@@ -110,7 +132,29 @@ pause
 endlocal
 exit /b 0
 
+:poc_failed
+echo.
+echo ERROR: La PoC de asignacion de juego fallo.
+echo Revisa la salida del comando python dentro del contenedor analytics.
+pause
+endlocal
+exit /b 1
+
+:poc_success
+echo.
+echo ===============================================
+echo PoC de asignacion ejecutada correctamente.
+echo Puedes pasar argumentos extra tras 'single-game-poc' (ej. --scenario farm).
+echo ===============================================
+pause
+endlocal
+exit /b 0
+
 :RunSingleStage
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item %1
 exit /b %errorlevel%
+
+
+
+
