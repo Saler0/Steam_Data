@@ -253,6 +253,18 @@ def main() -> None:
         action="store_true",
         help="Imprime el documento ensamblado antes de generar el embedding.",
     )
+    parser.add_argument(
+        "--min-similarity",
+        type=float,
+        default=0.0,
+        help="Umbral mínimo de similitud coseno para mostrar vecinos.",
+    )
+    parser.add_argument(
+        "--max-neighbors",
+        type=int,
+        default=None,
+        help="Máximo de vecinos a listar (None = todos los que superen el umbral).",
+    )
     args = parser.parse_args()
 
     config = _load_config(Path(args.config))
@@ -283,13 +295,26 @@ def main() -> None:
         scores.append((cid, score))
     scores.sort(key=lambda x: x[1], reverse=True)
 
+    if not scores:
+        raise SystemExit("No se pudieron calcular similitudes contra los medoids.")
+
     best_cluster, best_score = scores[0]
     print("================= RESULTADO =================")
     print(f"Mejor clúster : {best_cluster}")
     print(f"Similitud     : {best_score:.4f}")
-    print("\nRanking completo:")
-    print(_format_similarity_table(scores[: min(10, len(scores))]))
+
+    filtered = [item for item in scores if item[1] >= args.min_similarity]
+    if args.max_neighbors is not None and args.max_neighbors > 0:
+        filtered = filtered[: args.max_neighbors]
+
+    if not filtered:
+        print("\nNo hay vecinos que superen el umbral de similitud solicitado.")
+    else:
+        print(f"\nRanking de vecinos (>= {args.min_similarity:.4f}) - mostrando {len(filtered)} de {len(scores)} medoids")
+        print(_format_similarity_table(filtered))
+
 
 
 if __name__ == "__main__":
     main()
+
