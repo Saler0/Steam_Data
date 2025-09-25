@@ -13,10 +13,10 @@ echo Limpiando contenedores previos con nombre estatico...
 echo ============================
 rem Borra si existen; ignora errores
 docker rm -f mongo 2>nul
-docker rm -f steam_mlflow 2>nul
+rem docker rm -f steam_mlflow 2>nul
 docker rm -f steam_analytics 2>nul
 docker rm -f data_management_pipeline 2>nul
-docker rm -f postgres_db 2>nul
+rem docker rm -f postgres_db 2>nul
 
 echo.
 echo ============================

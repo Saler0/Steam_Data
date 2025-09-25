@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 from __future__ import annotations
 """Genera un perfil tematico por cluster usando BERTopic con tracking opcional en MLflow."""
 
@@ -221,7 +221,7 @@ def main() -> None:
     parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Metadata con campos de texto.")
     parser.add_argument("--text-columns", nargs="*", default=DEFAULT_TEXT_COLUMNS, help="Columnas de texto a concatenar.")
     parser.add_argument("--out", default="outputs/clustering/cluster_topics.json", help="Salida JSON.")
-    parser.add_argument("--min-docs", type=int, default=1, help="Minimo de textos por cluster para ejecutar BERTopic.")
+    parser.add_argument("--min-docs", type=int, default=3, help="Minimo de textos por cluster para ejecutar BERTopic.")
     parser.add_argument("--min-chars", type=int, default=50, help="Longitud minima de cada documento.")
     parser.add_argument("--embedding-model", default="paraphrase-multilingual-MiniLM-L12-v2", help="Modelo de SentenceTransformer.")
     parser.add_argument("--min-topic-size", type=int, default=10, help="min_topic_size de BERTopic.")
