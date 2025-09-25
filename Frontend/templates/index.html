@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Inicio - Gamebooster{% endblock %}
+
+{% block content %}
+<section class="banner">
+    <div class="banner-slide">
+        <img src="{{ url_for('static', filename='img/banner1.jpg') }}" alt="Juego 1">
+        <div class="banner-text">
+            <h1>Experiencia Gamebooster</h1>
+            <p>La mejor herramienta para un videojuego exitoso</p>
+            <a href="#membresias" class="btn-primary">Empieza Ahora</a>
+        </div>
+    </div>
+</section>
+
+<section class="features">
+    <h2>Caracteristicas principales</h2>
+    <div class="features-grid">
+        <div class="feature-card">
+            <img src="{{ url_for('static', filename='img/feature1.png') }}" alt="Feature 1">
+            <h3>Tipologia de juegos</h3>
+            <p>Realiza comparativas con catalogos similares.</p>
+        </div>
+        <div class="feature-card">
+            <img src="{{ url_for('static', filename='img/feature2.png') }}" alt="Feature 2">
+            <h3>Analisis de sentimiento</h3>
+            <p>Entiende a tu comunidad a traves de sus resenas y valoraciones.</p>
+        </div>
+        <div class="feature-card">
+            <img src="{{ url_for('static', filename='img/feature3.png') }}" alt="Feature 3">
+            <h3>Estadisticas actuales</h3>
+            <p>Obtiene insights relevantes para la toma de decisiones.</p>
+        </div>
+    </div>
+</section>
+
+<section id="membresias" class="memberships">
+    <h2>Tipos de Membresia</h2>
+    <div class="membership-grid">
+        <div class="membership-card">
+            <h3>Free</h3>
+            <p>Exploracion basica y limitada de menos de 200K videojuegos.</p>
+            <a href="#" class="btn-secondary">Unete Gratis</a>
+        </div>
+        <div class="membership-card popular">
+            <h3>Premium</h3>
+            <p>Exploracion profunda e ilimitada con beneficios exclusivos.</p>
+            <a href="#" class="btn-primary">Suscribirse</a>
+        </div>
+        <div class="membership-card">
+            <h3>Ultimate</h3>
+            <p>Incluye el plan premium y soporte 24/7.</p>
+            <a href="#" class="btn-secondary">Ver mas</a>
+        </div>
+    </div>
+</section>
+
+<section id="noticias" class="news-section">
+    <h2>Ultimas Noticias</h2>
+    <div class="news-grid">
+        <div class="news-card">
+            <img src="{{ url_for('static', filename='img/news1.png') }}" alt="Noticia 1">
+            <div class="news-content">
+                <h3>Lanzamientos en contexto desafiante</h3>
+                <p>Nuestra herramienta de analisis te alerta de posibles fracasos.</p>
+                <span class="news-date">23 de septiembre de 2025</span>
+            </div>
+        </div>
+        <div class="news-card">
+            <img src="{{ url_for('static', filename='img/news2.png') }}" alt="Noticia 2">
+            <div class="news-content">
+                <h3>Gamebooster supera los 200K juegos registrados</h3>
+                <p>Alcanza el exito con un analisis profundo del sentir de tu comunidad.</p>
+                <span class="news-date">20 de septiembre de 2025</span>
+            </div>
+        </div>
+        <div class="news-card">
+            <img src="{{ url_for('static', filename='img/news3.png') }}" alt="Noticia 3">
+            <div class="news-content">
+                <h3>Metricas precisas, mejores resultados</h3>
+                <p>Toma decisiones con informes estadisticos actualizados.</p>
+                <span class="news-date">15 de septiembre de 2025</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="catalogo" class="games-section">
+    <div class="games-section-header">
+        <h2>Catalogo de juegos</h2>
+        <a class="btn-secondary" href="{{ url_for('agregar_juego') }}">Agregar nuevo juego</a>
+    </div>
+    {% if juegos %}
+    <div class="games-grid">
+        {% for juego in juegos %}
+        <article class="game-card">
+            <header>
+                <h3>{{ juego.nombre }}</h3>
+                <span class="game-category">{{ juego.categoria }}</span>
+            </header>
+            <p class="game-description">{{ juego.descripcion }}</p>
+            <p class="game-price">${{ "%.2f"|format(juego.precio) }}</p>
+            <a class="btn-primary" href="{{ url_for('juego', juego_id=juego.id) }}">Ver detalle</a>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-state">Todavia no hay juegos registrados. Agrega el primero para comenzar.</p>
+    {% endif %}
+</section>
+
+<section id="contacto" class="contact">
+    <h2>Contactanos</h2>
+    <form>
+        <input type="text" placeholder="Tu nombre" required>
+        <input type="email" placeholder="Tu correo" required>
+        <textarea placeholder="Tu mensaje"></textarea>
+        <button type="submit" class="btn-primary">Enviar</button>
+    </form>
+</section>
+{% endblock %}

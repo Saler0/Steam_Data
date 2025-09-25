@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo or "Error" }}{% endblock %}
+{% block content %}
+<section class="error-view">
+    <h1>{{ titulo or "Ups" }}</h1>
+    <p>{{ mensaje or "Ocurrio un problema inesperado." }}</p>
+    <a class="btn-secondary" href="{{ url_for('home') }}">Volver al inicio</a>
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Detalle del juego{% endblock %}
+{% block content %}
+<section class="game-detail">
+    {% if juego %}
+    <header>
+        <h1>{{ juego.nombre }}</h1>
+        <span class="game-category">{{ juego.categoria }}</span>
+    </header>
+    <p class="game-description">{{ juego.descripcion }}</p>
+    <p class="game-price">Precio: ${{ "%.2f"|format(juego.precio) }}</p>
+    <a class="btn-secondary" href="{{ url_for('home') }}">Volver al catalogo</a>
+    {% else %}
+    <p class="empty-state">No se encontro informacion de este juego.</p>
+    {% endif %}
+</section>
+{% endblock %}
