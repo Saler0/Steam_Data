@@ -1,6 +1,38 @@
-Steam Game Analytics — Pipeline y Uso
+# Steam Game Analytics – Pipeline y Storytelling
 
-Resumen del pipeline de analytics para juegos de Steam: embeddings → clustering → eventos/tópicos/CCF/noticias → enriquecimiento → reportes y vistas. Incluye orquestación con DVC y soporte Docker.
+Resumen del pipeline de analytics para juegos de Steam: embeddings -> clustering -> eventos/tópicos/CCF/noticias -> enriquecimiento -> reportes y vistas. Incluye orquestación con DVC y soporte Docker.
+
+## Narrativa y Storytelling de Insights
+
+1. **Cartografía del universo de juegos**: los embeddings construyen un espacio semántico donde `run_clustering.py` y FAISS/Leiden agrupan similitudes. Los artefactos `data/processed/clusters.parquet`, `models/cluster_medoids.json` y las métricas en `outputs/clustering/cluster_stats.csv` describen el territorio y marcan centros, fronteras y juegos borderline.
+2. **Motivos temáticos que explican cada clúster**: la etapa `cluster_topics_profile` resume cada comunidad con BERTopic, registra métricas narrativas en MLflow (clusters con suficientes reseñas, documentos representativos, distribución de keywords) y publica `outputs/clustering/cluster_topics.json` como guion temático.
+3. **Visual storytelling y acción**: `cluster_topics_map` proyecta los medoids en 3D con UMAP (`outputs/clustering/cluster_topics_umap.html`) para comunicar visualmente afinidades y matices borderline. Las etapas de eventos, noticias y reglas convierten esos hallazgos en contextos temporales, alertas y recomendaciones (`outputs/events/*`, `outputs/reports/*.json`). La combinación de DVC + MLflow preserva cada iteración de la historia con versionado, métricas y artefactos interactivos.
+
+Novedades clave (validación de tópicos con CCF)
+- Etapa nueva `topics_relevance`: anota cada tópico mensual con consistencia CCF y z-score de jugadores.
+- Consistencia mensual CCF: `outputs/ccf_analysis/consistency.parquet` (por appid/par/mes: `best_lag`, `lead_or_lag`, `local_corr_3m`, `ccf_consistent`).
+- Tópicos anotados: `outputs/events/topics_scored.parquet` añade `relevance_polarity` (positive/negative/mixed/neutral), `relevance_label` (ya penalizada si negative/mixed), `players_zscore`, `negative_alert`.
+- Reporte por juego: campo `alerts` con meses negativos; el payload de editor incluye `relevance_summary` agregado.
+- Reporte de cliente: por competidor `alerts` + `relevance_summary`; global en `rules_analysis.relevance_summary_global`.
+
+## Estructura del pipeline (DVC y storytelling)
+
+| Etapa DVC | Rol en la narrativa | Artefactos clave |
+| --- | --- | --- |
+| embeddings | Construye el espacio semantico con Sentence Transformers y normaliza metadata para iniciar la historia de cada juego. | `data/processed/embeddings/`, `data/processed/game_metadata.parquet` |
+| clustering | Agrupa juegos afines, calcula centroides, borderline y metricas de cohesion registradas en MLflow. | `data/processed/clusters.parquet`, `models/cluster_medoids.json`, `outputs/clustering/cluster_stats.csv`, `outputs/clustering/borderline_games.csv` |
+| cluster_topics_profile | Resume cada comunidad con BERTopic y deja rastro analitico en MLflow (clusters perfilados, docs representativos, keywords). | `outputs/clustering/cluster_topics.json`, run `cluster_topics_profile` en MLflow |
+| cluster_topics_map | Traduce el mapa de clusters a una visualizacion 3D interactiva para sesiones de storytelling. | `outputs/clustering/cluster_topics_umap.html` |
+| events | Detecta picos/caidas para activar capitulos temporales en la narrativa. | `outputs/events/events.parquet` |
+| topics | Profundiza motivos por evento con BERTopic (probabilidades, coherencia opcional). | `outputs/events/topics.parquet`, metricas MLflow |
+| news_classifier | Alinea titulares y sentimiento para dar contexto comunicacional. | `outputs/events/news_classified.parquet`, `outputs/events/topics_labeled.parquet` |
+| enrich | Anade senales externas (Twitch/YouTube/DLC) y explicaciones automaticas. | `outputs/events/explanations.parquet` |
+| ccf / topics_relevance | Vincula movimiento de jugadores con topicos para validar causalidad narrativa. | `outputs/ccf_analysis/summary.parquet`, `outputs/ccf_analysis/consistency.parquet`, `outputs/events/topics_scored.parquet` |
+| prepare -> apply_rules -> evaluate | Transforma insights en reglas accionables y KPIs de negocio. | `data/with_rules/`, `outputs/reports/metrics.json`, metricas MLflow |
+| report / editor_view / client_report | Entrega la historia final para stakeholders (reporte, payload editor, briefing cliente). | `outputs/reports/*.json` |
+
+
+Esta estructura vive en `dvc.yaml` y puede ejecutarse completa con `dvc repro` o en atajos como `run_only_analytics.bat`, asegurando reproducibilidad y versionado de cada capitulo.
 
 ## Modos de Ejecución: MVP vs Big Data
 
@@ -25,6 +57,8 @@ Este repositorio soporta dos formas de ejecutar el pipeline, pensadas para neces
   - Ejecutar todo lo principal: `dvc repro embeddings clustering events topics news_classifier enrich ccf report editor_view`
   - Con Makefile (dentro de Docker): `make run-all`
   - Solo clustering: `make clustering`
+  - Storytelling completo (tópicos + mapa): `dvc repro cluster_topics_profile cluster_topics_map` o `run_only_analytics.bat` (genera `outputs/clustering/cluster_topics.json` y `outputs/clustering/cluster_topics_umap.html`).
+  - Asignación diaria (sin reentrenar): `dvc repro cluster_assign`
   - Reporte por juego: `APPID=12345 make report`
 - Configuración relevante:
   - `configs/clustering.yaml`: `method: kmeans` o `graph_leiden`; sección `faiss` (índice y uso de GPU), y tracking en MLflow.
@@ -47,6 +81,18 @@ Este repositorio soporta dos formas de ejecutar el pipeline, pensadas para neces
   - DVC es la fuente de verdad del DAG (`dvc.yaml`).
   - Ejemplos de orquestación: Airflow (`airflow/dags/steam_analytics_dag.py`) y Prefect (`prefect/flow_steam_analytics.py`) invocando `dvc repro` por etapa.
   - MLflow como tracking; en producción se recomienda backend SQL + artifact store en object storage (ajusta `MLFLOW_TRACKING_URI`).
+
+## Cadencia y Versionado de Clusters
+
+- Refit de clustering: mensual (o trimestral) para estabilidad. Cada ejecución anota:
+  - `cluster_version`: string `YYYYMM` (configurable en `configs/clustering*.yaml` como `cluster_version`)
+  - `as_of_date`: fecha de generación del clustering
+- Asignación diaria de nuevos juegos: no reentrena; usa centroides/medoids guardados en `models/cluster_medoids.json` para asignar el clúster más cercano.
+  - Script: `src/pipelines/cluster_assignment/assign_new_games.py`
+  - Ejemplo:
+    - `python -m src.pipelines.cluster_assignment.assign_new_games --embeddings data/processed/embeddings_new.parquet --medoids models/cluster_medoids.json --out data/processed/clusters_assigned.parquet --cluster_version 202501`
+- Consumo aguas abajo: filtra por `cluster_id` (competidores del cliente) y, si necesitas, por `cluster_version` para congelar/compatibilizar análisis.
+
 - Cómo ejecutar (local con Docker o en cluster):
   - Eventos con Spark: `make events-spark`
   - Tópicos Spark + Ray: `make topics-prep && make topics-ray`
@@ -136,6 +182,7 @@ Notas sobre nuevas validaciones
 - Clustering: se generan métricas y artefactos en `outputs/clustering/*`; los checks del Makefile validan su existencia.
 - Tópicos: la coherencia C_v requiere `gensim`; si no está disponible, el cálculo se omite y el check avisará con WARN.
 - CCF/Granger: los p-values se corrigen por FDR (Benjamini–Hochberg) y se exponen columnas `*_p_fdr` y flags `*_sig_fdr`.
+- Tópicos + CCF (relevancia): nueva etapa `topics_relevance` anota `topics.parquet` con consistencia mensual CCF y z-score de players, genera `outputs/events/topics_scored.parquet` con `relevance_polarity` (positive/negative/mixed/neutral) y `relevance_label_final` (penaliza negative/mixed por defecto).
 - Paralelización: si Ray no está disponible, eventos/enriquecimiento hacen fallback a multiprocessing/secuencial.
 
 Despliegue con Docker
@@ -313,26 +360,41 @@ Estructura del Repo
 ├─ configs/
 │  ├─ embeddings.yaml
 │  ├─ clustering.yaml
+│  ├─ clustering_spark.yaml
 │  ├─ events.yaml
 │  ├─ ccf_analysis.yaml
-│  └─ params.yaml
+│  ├─ params.yaml
+│  └─ client_example.json
 ├─ src/
 │  ├─ pipelines/
 │  │  ├─ generate_embeddings.py
 │  │  ├─ run_clustering.py
-│  │  ├─ event_detection/{detect_events.py,enrich_events.py}
-│  │  └─ ccf_analysis/analyze_competitors_ccf.py
-│  ├─ insights/{build_game_report.py,topic_motives.py,make_client_report.py,compose_editor_payload.py}
+│  │  ├─ preaggregations/{reviews_monthly.py,players_monthly.py}
+│  │  ├─ event_detection/{detect_events.py,events_spark.py,enrich_events.py}
+│  │  └─ ccf_analysis/{analyze_competitors_ccf.py,ccf_spark.py}
+│  ├─ insights/{build_game_report.py,topic_motives.py,make_client_report.py,compose_editor_payload.py,topics_prep_spark.py,topics_from_prep_ray.py,score_topics_with_ccf.py}
 │  ├─ ingestion/{twitch.py,youtube.py,dlcs.py}
-│  └─ utils/{io.py,mlflow_utils.py,faiss_utils.py,spark_utils.py,config_utils.py,mongo_utils.py}
+│  └─ utils/{io.py,mlflow_utils.py,faiss_utils.py,spark_utils.py,config_utils.py,mongo_utils.py,timeseries.py}
+├─ scripts/ (run_pipeline.py)
+├─ airflow/dags/ (steam_analytics_dag.py)
+├─ prefect/ (flow_steam_analytics.py)
 ├─ data/
-│  ├─ processed/ (embeddings/, clusters.parquet, ...)
+│  ├─ processed/ (embeddings/, embeddings.parquet, clusters.parquet, game_metadata.parquet)
+│  ├─ warehouse/ (reviews_monthly.parquet/, players_monthly.parquet/)
 │  └─ external/ (players/, twitch/, youtube/, changelogs/)
 ├─ outputs/
-│  ├─ events/ (events.parquet, topics.parquet, topics_labeled.parquet, news_classified.parquet, explanations.parquet)
-│  └─ ccf_analysis/ (summary.parquet)
-├─ models/ (cluster_medoids.json)
-├─ docs/ (pipeline.mmd, DATA_CONTRACT.yaml)
+│  ├─ events/
+│  │  ├─ events.parquet
+│  │  ├─ topics.parquet
+│  │  ├─ topics_scored.parquet
+│  │  ├─ topics_labeled.parquet
+│  │  ├─ news_classified.parquet
+│  │  └─ explanations.parquet
+│  └─ ccf_analysis/
+│     ├─ summary.parquet
+│     └─ consistency.parquet
+├─ models/ (cluster_medoids.json, embeddings.faiss, emb_ids.json)
+├─ docs/ (pipeline.mmd, DATA_CONTRACT.yaml, diagrams/)
 ├─ dvc.yaml
 ├─ Dockerfile / docker-compose.yml
 ├─ Makefile
@@ -355,6 +417,35 @@ Requisitos de Datos
 Pipelines DVC
 - Ver definición completa en `dvc.yaml` y diagrama en `docs/pipeline.mmd`:
   - embeddings → clustering → {events → topics → news → enrich} + {ccf} → report/editor → client_report
+  - Extra: `topics_relevance` une `topics` + `ccf.consistency` (+ `events`) para producir `topics_scored` antes del `report`.
+
+Paralelismo entre etapas (DAG)
+- En paralelo: `preagg_reviews`, `preagg_players`, `embeddings`, y la rama de reglas (`prepare → apply_rules → evaluate`).
+- `clustering` depende de `embeddings`.
+- Ramas paralelas principales:
+  - Eventos/tópicos/noticias/enriquecimiento: `events → topics → news_classifier → enrich`.
+  - CCF/Granger: `ccf`.
+- Unión: `topics_relevance` espera `topics + events + ccf` y puede solaparse con `news/enrich`.
+- Final: `report` y `editor_view` dependen de `events + topics_scored + explanations + ccf + clusters`. `client_report` puede correr en paralelo cuando sus insumos existen.
+
+Sharding y nombres de archivos
+- Embeddings (local): `data/processed/embeddings/part-0000.parquet`, … y consolidado `data/processed/embeddings.parquet`.
+- Embeddings (Spark): directorio `embeddings_sharded_uri` con `part-*.snappy.parquet`.
+- Preagregados Spark:
+  - Reseñas: `data/warehouse/reviews_monthly.parquet/year_month=YYYY-MM-01/part-*.parquet`.
+  - Jugadores: `data/warehouse/players_monthly.parquet/year_month=YYYY-MM-01/part-*.parquet`.
+- Eventos/CCF Spark: directorios `.parquet/part-*.parquet` con `appid` en columnas.
+- Tópicos prep Spark: `outputs/events/topics_prep.parquet/appid=<APPID>/part-*.parquet`.
+- Tópicos anotados (scoring CCF): archivo único `outputs/events/topics_scored.parquet`.
+
+Configuración relevante (novedades)
+- `configs/ccf_analysis.yaml` → sección `consistency`:
+  - `window`: tamaño de ventana para correlación local (default 3).
+  - `min_abs_corr`: umbral de |corr| para marcar `ccf_consistent` (default 0.2).
+- `configs/events.yaml` → sección `topics_scoring`:
+  - `high_z`: umbral alto para etiqueta high (default 2.0).
+  - `penalize_negative`/`penalize_mixed`: degradan `relevance_label` cuando hay polaridad negativa/mixta.
+  - `degrade_levels`: niveles de degradación (1: high→medium, medium→low).
 
 Troubleshooting
 - Ray no instalado: cambia `parallel_mode` a `multiprocessing` en configs o `pip install ray`.
@@ -366,6 +457,8 @@ Troubleshooting
 Scripts y Funciones
 - `src/pipelines/generate_embeddings.py`: genera embeddings de juegos desde Mongo y metadata; guarda en `data/processed/embeddings/` y `embeddings.parquet`; opcional índice FAISS persistente (`models/embeddings.faiss`).
 - `src/pipelines/run_clustering.py`: agrupa juegos con KMeans (local/Spark) o Leiden; calcula soft-membership y borderline; guarda `data/processed/clusters.parquet`, `models/cluster_medoids.json`, y métricas/artefactos en `outputs/clustering/*`; persistencia en Mongo y logging en MLflow.
+- `src/pipelines/cluster_assignment/profile_clusters_topics.py`: sintetiza cada clúster con BERTopic, registra métricas narrativas en MLflow (clusters perfilados, docs representativos, keywords) y persiste `outputs/clustering/cluster_topics.json`.
+- `scripts/plot_cluster_topics_umap.py`: genera la visualización 3D (UMAP) de medoids, tópicos y juegos borderline; produce `outputs/clustering/cluster_topics_umap.html` listo para storytelling.
 - `src/pipelines/event_detection/detect_events.py`: detecta picos/caídas (z-score) en series y produce `outputs/events/events.parquet`.
 - `src/insights/topic_motives.py`: BERTopic por evento; pondera reseñas por votos; calcula coherencia C_v si `gensim` está disponible; salida `outputs/events/topics.parquet` y métricas en MLflow.
 - `src/insights/news_classifier.py`: clasifica noticias y tópicos con un LLM (configurable); salidas `outputs/events/news_classified.parquet` y `topics_labeled.parquet`.
@@ -374,6 +467,22 @@ Scripts y Funciones
 - `src/insights/build_game_report.py`: compone el reporte final por `appid` (`outputs/reports/{appid}.json`).
 - `src/insights/compose_editor_payload.py`: transforma el reporte en payload para editor (`{appid}_editor.json`).
 - `src/insights/make_client_report.py`: genera reporte por cliente a partir de archivo de entrada.
+- `src/pipelines/decision_rules/pipeline.py`:
+  - `prepare`: enriquece `data/prepared/` uniendo metadatos (`data/processed/game_metadata.parquet`),
+    clústeres (`data/processed/clusters.parquet`) y reviews mensuales (`data/warehouse/reviews_monthly.parquet`).
+    Calcula campos agregados por juego y por clúster esperados por las reglas: `median_price`, `median_ram_gb`,
+    `median_platforms`, `p75_install_size`, `k_neighbors`, `cluster_age`, `pct_recent_launches`,
+    `reviews_pos_total`, `reviews_neg_total`, `total_reviews`, `review_positive_ratio`, `review_neutral_ratio` (si hay datos),
+    y comparativas de clúster `otros_verificados`/`otros_requieren_conexion`. Si falta alguna fuente, deja `null`.
+  - `apply_rules`: aplica reglas (precio, saturación 1/2/3, actividad, experiencia, limitaciones, publishers/idiomas)
+    y guarda `data/with_rules/with_rules.parquet`. Además persiste métricas útiles para reporting
+    (`hours_played`, `median_hours`, `hours_last_2w`, `abandoned_after_review`, `review_positive`, `playtime_ratio`).
+  - `evaluate`: agrega métricas y las registra en MLflow; exporta `outputs/reports/metrics.json`.
+
+  Campos añadidos en `prepare` (si hay fuentes):
+  - Agregados por reviews: `reviews_pos_total`, `reviews_neg_total`, `total_reviews`, `review_positive_ratio`, `review_neutral_ratio`.
+  - Idiomas desde Mongo `steam_reviews`: `reviews_en`, `reviews_es`, `reviews_other`, `pct_es`, `pct_other`.
+  - Señales de actividad desde artefactos: `activity_change` (si hay eventos), `twitch_mentions` (spike o menciones YouTube), `patch_correlation` (noticias tipo patch>0), `f2p_switch` (nulo por defecto).
 - `src/ingestion/{twitch,youtube,dlcs}.py`: conectores para señales y contenidos externos.
 - `src/utils/{io,mlflow_utils,faiss_utils,spark_utils,config_utils,mongo_utils}.py`: utilidades de IO (local/GCS), MLflow, FAISS, Spark, expansión de env en configs y Mongo.
 - Spark: si no lo usas, los scripts caen a local; evita stages Spark en reglas si no tienes Java.

@@ -29,14 +29,23 @@ def build_schema():
         StructField('granger_yx_p_fdr', DoubleType(), True),
         StructField('granger_xy_sig_fdr', StringType(), True),
         StructField('granger_yx_sig_fdr', StringType(), True),
+        # Estacionariedad y blancura
+        StructField('adf_p_x', DoubleType(), True),
+        StructField('kpss_p_x', DoubleType(), True),
+        StructField('adf_p_y', DoubleType(), True),
+        StructField('kpss_p_y', DoubleType(), True),
+        StructField('ljung_p', DoubleType(), True),
+        StructField('ljung_ok', StringType(), True),
     ])
 
 
 def analyze_pairs_pdf(pdf: pd.DataFrame, pairs: list[dict], maxlag: int, alpha: float) -> pd.DataFrame:
     from statsmodels.tsa.stattools import ccf
-    from statsmodels.tsa.stattools import adfuller
+    from statsmodels.tsa.stattools import adfuller, kpss
     from statsmodels.tsa.stattools import grangercausalitytests
     from statsmodels.stats.multitest import multipletests
+    from statsmodels.tsa.arima.model import ARIMA
+    from statsmodels.stats.diagnostic import acorr_ljungbox
 
     def _dlog(s):
         s = pd.Series(s).astype(float)
@@ -87,8 +96,42 @@ def analyze_pairs_pdf(pdf: pd.DataFrame, pairs: list[dict], maxlag: int, alpha: 
             gyx = min([res[0]['ssr_chi2test'][1] for lag, res in res_yx.items()])
         except Exception:
             pass
+        # ADF/KPSS sobre las series transformadas
+        try:
+            adf_p_x = float(adfuller(x2.dropna())[1]) if len(x2.dropna()) >= 10 else np.nan
+        except Exception:
+            adf_p_x = np.nan
+        try:
+            # KPSS puede fallar; usa nlags='auto'
+            stat, kpss_p_x, _, _ = kpss(x2.dropna(), regression='c', nlags='auto') if len(x2.dropna()) >= 10 else (None, np.nan, None, None)
+        except Exception:
+            kpss_p_x = np.nan
+        try:
+            adf_p_y = float(adfuller(y2.dropna())[1]) if len(y2.dropna()) >= 10 else np.nan
+        except Exception:
+            adf_p_y = np.nan
+        try:
+            stat, kpss_p_y, _, _ = kpss(y2.dropna(), regression='c', nlags='auto') if len(y2.dropna()) >= 10 else (None, np.nan, None, None)
+        except Exception:
+            kpss_p_y = np.nan
+
+        # Ljung–Box sobre residuales AR(1) del predictor transformado (preblanqueo ligero)
+        ljung_p = np.nan
+        ljung_ok = None
+        try:
+            if len(x2.dropna()) >= 16:
+                model = ARIMA(x2.dropna(), order=(1, 0, 0)).fit()
+                resid = pd.Series(model.resid).dropna()
+                lb = acorr_ljungbox(resid, lags=[12], return_df=True)
+                ljung_p = float(lb['lb_pvalue'].iloc[-1]) if 'lb_pvalue' in lb.columns else float(lb.iloc[-1]['lb_pvalue'])
+                ljung_ok = (ljung_p >= alpha)
+        except Exception:
+            pass
+
         out_rows.append({'appid': appid, 'pair_name': p['name'], 'best_lag': best_lag, 'best_ccf': best_ccf,
-                         'granger_xy_pmin': gxy, 'granger_yx_pmin': gyx})
+                         'granger_xy_pmin': gxy, 'granger_yx_pmin': gyx,
+                         'adf_p_x': adf_p_x, 'kpss_p_x': kpss_p_x, 'adf_p_y': adf_p_y, 'kpss_p_y': kpss_p_y,
+                         'ljung_p': ljung_p, 'ljung_ok': bool(ljung_ok) if ljung_ok is not None else None})
     out = pd.DataFrame(out_rows)
     if not out.empty:
         # FDR por appid
@@ -145,4 +188,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -67,22 +67,24 @@ services:
   # --- MLflow ---
   mlflow:
     build:
-      context: ./modelos_steam_data2/mlflow
+      context: ./Data_analytics/mlflow
       dockerfile: Dockerfile
     container_name: steam_mlflow
     profiles: ["mlflow"] # <-- Solo se incluye si activas el profile "mlflow"
     ports:
       - "5000:5000"
+    volumes:
+      - mlflow_data:/mlruns
     restart: unless-stopped
 
   # --- Analytics (puede correr solo, con Mongo y opcionalmente MLflow) ---
   analytics:
     build:
-      context: ./modelos_steam_data2
+      context: ./Data_analytics
       dockerfile: Dockerfile
     container_name: steam_analytics
     profiles: ["analytics"] # <-- Solo se incluye si activas el profile "analytics"
-    env_file: ./modelos_steam_data2/.env
+    env_file: ./Data_analytics/.env
     depends_on:
       mongo:
         condition: service_healthy
@@ -94,6 +96,7 @@ services:
       - analytics_data:/app/data
       - analytics_models:/app/models
       - gcp_secrets:/secrets:ro
+      - mlflow_data:/mlruns
     command: ["/bin/bash", "-lc", "sleep infinity"]
 
 volumes:
@@ -103,3 +106,4 @@ volumes:
   analytics_outputs:
   analytics_data:
   analytics_models:
+  mlflow_data:

@@ -58,7 +58,7 @@ def _validate_app_report(obj: dict):
         except ImportError:
             pass
 
-def _neighbors(appid, df_emb, df_clu, df_meta, top_k=15, same_cluster_only=True):
+def _neighbors(appid, df_emb, df_clu, df_meta, top_k=15, same_cluster_only=True, min_similarity=0.0):
     ids = df_emb['appid'].astype(str).tolist()
     vecs = np.vstack(df_emb['embedding'].apply(np.asarray).to_list()).astype(np.float32)
     id2idx = {a: i for i, a in enumerate(ids)}
@@ -76,18 +76,23 @@ def _neighbors(appid, df_emb, df_clu, df_meta, top_k=15, same_cluster_only=True)
             for i, a in enumerate(ids):
                 if a not in allowed:
                     sims[i] = -np.inf
-    order = np.argsort(-sims)[:top_k]
+    order = np.argsort(-sims)
     out = []
     for i in order:
+        if sims[i] < min_similarity:
+            continue
         aid = ids[i]
         rmeta = df_meta[df_meta['appid'].astype(str) == aid].head(1)
         rclu = df_clu[df_clu['appid'].astype(str) == aid].head(1)
         out.append({"appid": aid, "name": None if rmeta.empty else rmeta.iloc[0].get('name'),
                      "cluster_id": None if rclu.empty else int(rclu.iloc[0]['cluster_id']), "similarity": float(sims[i])})
+        if len(out) >= top_k:
+            break
     return out
 
+
 def _neighbors_via_faiss(appid: str, df_emb: pd.DataFrame, df_clu: pd.DataFrame, df_meta: pd.DataFrame,
-                         top_k: int, same_cluster_only: bool,
+                         top_k: int, same_cluster_only: bool, min_similarity: float,
                          faiss_index_path: str, ids_path: str) -> list[dict]:
     try:
         idx_path = Path(faiss_index_path)
@@ -103,12 +108,15 @@ def _neighbors_via_faiss(appid: str, df_emb: pd.DataFrame, df_clu: pd.DataFrame,
         # construir consulta desde df_emb para mantener normalización consistente
         vecs = np.vstack(df_emb['embedding'].apply(np.asarray).to_list()).astype(np.float32)
         q = vecs[q_idx:q_idx+1]
-        D, I = search_faiss_index(index, q, top_k + 1)
+        query_k = min(len(ids), max(top_k * 3, top_k + 1))
+        D, I = search_faiss_index(index, q, query_k)
         sims = D[0]
         idxs = I[0]
         out = []
         for dist, i in zip(sims, idxs):
             if i == q_idx or i < 0 or i >= len(ids):
+                continue
+            if float(dist) < min_similarity:
                 continue
             aid = str(ids[i])
             if same_cluster_only and not df_clu.empty:
@@ -130,6 +138,7 @@ def _neighbors_via_faiss(appid: str, df_emb: pd.DataFrame, df_clu: pd.DataFrame,
         return out
     except Exception:
         return []
+
 
 # -----------------------------------------------------------------------------
 # Función principal del reporte (paralelizable)
@@ -165,18 +174,24 @@ def build_report_for_appid(appid, cfg, data_dict):
         r = clu[clu['appid'].astype(str) == appid].iloc[0]
         cluster_info = {"cluster_id": int(r.get('cluster_id')) if r.get('cluster_id') == r.get('cluster_id') else None}
 
+    neighbors_cfg = cfg.get('neighbors', {})
+    top_k = int(neighbors_cfg.get('top_k', cfg.get('neighbors_top_k', 15)))
+    same_cluster_only = bool(neighbors_cfg.get('same_cluster_only', cfg.get('neighbors_same_cluster_only', True)))
+    min_similarity = float(neighbors_cfg.get('min_similarity', cfg.get('neighbors_min_similarity', 0.0)))
+
     # Preferir FAISS persistido si existe
     neigh = []
     fcfg = cfg.get('neighbors_faiss', {})
     neigh = _neighbors_via_faiss(
         appid, emb, clu, meta,
-        top_k=int(cfg.get('neighbors_top_k', 15)),
-        same_cluster_only=bool(cfg.get('neighbors_same_cluster_only', True)),
+        top_k=top_k,
+        same_cluster_only=same_cluster_only,
+        min_similarity=min_similarity,
         faiss_index_path=fcfg.get('index_path', 'models/embeddings.faiss'),
         ids_path=fcfg.get('ids_path', 'models/emb_ids.json'),
     )
     if not neigh:
-        neigh = _neighbors(appid, emb, clu, meta, top_k=int(cfg.get('neighbors_top_k', 15)), same_cluster_only=bool(cfg.get('neighbors_same_cluster_only', True)))
+        neigh = _neighbors(appid, emb, clu, meta, top_k=top_k, same_cluster_only=same_cluster_only, min_similarity=min_similarity)
 
     ccf_section = []
     if not ccf.empty:
@@ -193,6 +208,7 @@ def build_report_for_appid(appid, cfg, data_dict):
             events_section = sub.to_dict(orient='records')
 
     topics_section = []
+    negative_topic_alerts = []
     if not topics.empty:
         sub = topics[topics['appid'].astype(str) == appid].copy()
         if not sub.empty:
@@ -200,6 +216,13 @@ def build_report_for_appid(appid, cfg, data_dict):
                 sub['event_year_month'] = pd.to_datetime(sub['event_year_month']).dt.strftime('%Y-%m-%d')
             if 'anchor_year_month' in sub.columns:
                 sub['anchor_year_month'] = pd.to_datetime(sub['anchor_year_month']).dt.strftime('%Y-%m-%d')
+            # Extraer alertas por polaridad negativa si las hay
+            if 'relevance_polarity' in sub.columns:
+                neg = sub[sub['relevance_polarity'] == 'negative'].copy()
+                if not neg.empty:
+                    cols_keep = [c for c in ['event_year_month', 'relevance_polarity', 'players_zscore'] if c in neg.columns]
+                    neg = neg[cols_keep]
+                    negative_topic_alerts = neg.rename(columns={'event_year_month': 'year_month'}).to_dict(orient='records')
             topics_section = sub.to_dict(orient='records')
 
     explanations_section = []
@@ -219,6 +242,7 @@ def build_report_for_appid(appid, cfg, data_dict):
               "metadata": metadata, "cluster": cluster_info, "neighbors": neigh,
               "ccf_granger": ccf_section, "events": events_section,
               "topics": topics_section, "explanations": explanations_section,
+              "alerts": negative_topic_alerts,
               "rules_analysis": rules_section, # <-- Añadido al reporte final
               "provenance": {k: str(v) for k, v in {
                   "metadata_parquet": cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet'),
@@ -254,6 +278,10 @@ def main():
     cfg.setdefault('neighbors_top_k', args.top_k)
 
     print("[INFO] Cargando todos los datasets. Esto se hace una vez.")
+    # Preferir tópicos anotados con CCF si existen
+    topics_default = Path('outputs/events/topics_scored.parquet')
+    if topics_default.exists():
+        cfg['topics_parquet'] = str(topics_default)
     data_dict = {
         'meta': _load_df(cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet')),
         'emb': _load_df(cfg.get('embeddings_parquet', 'data/processed/embeddings.parquet')),

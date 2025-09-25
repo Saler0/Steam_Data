@@ -16,6 +16,16 @@ embeddings_parquet: data/processed/embeddings/
 clusters_parquet: data/processed/clusters.parquet
 metadata_parquet: data/processed/game_metadata.parquet
 
+neighbors_top_k: 15
+neighbors_same_cluster_only: true
+neighbors_min_similarity: 0.4
+
+# Conexión a Mongo para leer reseñas de texto en BERTopic (topics)
+mongo_connection:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  database: ${MONGO_DB_REVIEWS:-exploitation_zone}
+  collection: ${MONGO_COLL_REVIEWS:-steam_reviews}
+
 # --- Ejemplos en lago de objetos ---
 # GCS:
 # output_dir: gs://mi-bucket-steam/outputs/events
@@ -183,3 +193,11 @@ mongodb:
   uri: ${MONGO_URI:-mongodb://mongo:27017}
   db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
   collection_name: ${MONGO_COLL_NEWS:-news_games}
+
+# --- CONFIGURACIÓN DE SCORING DE TÓPICOS (CCF) ---
+# Controla cómo se etiqueta la relevancia y cómo penalizar polaridad negativa/mixta
+topics_scoring:
+  high_z: 2.0              # umbral alto para marcar 'high'
+  penalize_negative: true  # degradar si la polaridad es negativa
+  penalize_mixed: true     # degradar si la polaridad es mixta
+  degrade_levels: 1        # niveles a degradar (1: high->medium, medium->low)

@@ -119,6 +119,27 @@ def _collect_sections_for_appid(aid: str, ccf: pd.DataFrame, events: pd.DataFram
         if not sub.empty:
             if 'event_year_month' in sub.columns:
                 sub['event_year_month'] = pd.to_datetime(sub['event_year_month']).dt.strftime('%Y-%m-%d')
+            # Agregar alertas por tópicos negativos si existen los campos de relevancia
+            if 'relevance_polarity' in sub.columns:
+                neg = sub[sub['relevance_polarity'] == 'negative'].copy()
+                if not neg.empty:
+                    cols_keep = [c for c in ['event_year_month', 'relevance_polarity', 'players_zscore'] if c in neg.columns]
+                    out['alerts'] = neg[cols_keep].rename(columns={'event_year_month': 'year_month'}).to_dict(orient='records')
+            # Resumen de relevancia para el competidor
+            try:
+                pol_counts = sub['relevance_polarity'].str.lower().value_counts(dropna=True).to_dict() if 'relevance_polarity' in sub.columns else {}
+                lbl_col = 'relevance_label' if 'relevance_label' in sub.columns else ('relevance_label_final' if 'relevance_label_final' in sub.columns else None)
+                lbl_counts = sub[lbl_col].str.lower().value_counts(dropna=True).to_dict() if lbl_col else {}
+                total_rows = int(len(sub))
+                negative_ratio = (pol_counts.get('negative', 0) / total_rows) if total_rows else 0.0
+                out['relevance_summary'] = {
+                    'polarity_counts': pol_counts,
+                    'label_counts': lbl_counts,
+                    'negative_ratio': negative_ratio,
+                    'total_topic_rows': total_rows,
+                }
+            except Exception:
+                pass
             out['topics'] = sub.to_dict(orient='records')
 
     if not expl.empty:
@@ -154,8 +175,9 @@ def main():
     ap.add_argument('--metadata', default='data/processed/game_metadata.parquet')
     ap.add_argument('--ccf', default='outputs/ccf_analysis/summary.parquet')
     ap.add_argument('--events', default='outputs/events/events.parquet')
-    ap.add_argument('--topics', default='outputs/events/topics.parquet')
+    ap.add_argument('--topics', default='outputs/events/topics_scored.parquet')
     ap.add_argument('--explanations', default='outputs/events/explanations.parquet')
+    ap.add_argument('--rules', default='data/with_rules/with_rules.parquet')
     ap.add_argument('--rules_dir', default='data/with_rules/')
     ap.add_argument('--emb_config', default='configs/embeddings.yaml')
     ap.add_argument('--medoids', default='models/cluster_medoids.json')
@@ -175,6 +197,12 @@ def main():
     events_df = _load_any_df(args.events) if path_exists(args.events) else pd.DataFrame()
     topics_df = _load_any_df(args.topics) if path_exists(args.topics) else pd.DataFrame()
     expl_df = _load_any_df(args.explanations) if path_exists(args.explanations) else pd.DataFrame()
+    rules_df = _load_any_df(args.rules) if path_exists(args.rules) else pd.DataFrame()
+    if not rules_df.empty:
+        # Normalizar columna de app id
+        if 'appid' not in rules_df.columns and 'app_id' in rules_df.columns:
+            rules_df = rules_df.rename(columns={'app_id': 'appid'})
+        rules_df['appid'] = rules_df['appid'].astype(str)
 
     if emb_df.empty:
         raise SystemExit('Embeddings no disponibles. Ejecuta el pipeline base primero.')
@@ -213,7 +241,29 @@ def main():
     for n in neigh:
         aid = n['appid']
         sections = _collect_sections_for_appid(aid, ccf_df, events_df, topics_df, expl_df)
-        competitors.append({**n, **sections})
+        # Inyectar métricas de reglas si existen
+        eng: Dict[str, Any] = {}
+        if not rules_df.empty and 'appid' in rules_df.columns:
+            rsub = rules_df[rules_df['appid'] == str(aid)]
+            if not rsub.empty:
+                r = rsub.iloc[0].to_dict()
+                # Preferir métricas derivadas si están disponibles desde apply_rules
+                playtime_ratio = r.get('playtime_ratio')
+                hours_last_2w = r.get('hours_last_2w')
+                experiencia = r.get('experiencia')
+                abandono_lbl = r.get('abandono')
+                # Indicadores simples
+                new_players_flag = 1 if isinstance(experiencia, str) and experiencia.lower().startswith('nuevo') else 0
+                abandonment_flag = 1 if isinstance(abandono_lbl, str) and 'abandono' in abandono_lbl.lower() else 0
+                eng = {
+                    'playtime_ratio': float(playtime_ratio) if playtime_ratio not in (None, '') else None,
+                    'recent_hours_2w': float(hours_last_2w) if hours_last_2w not in (None, '') else None,
+                    'experience_label': experiencia,
+                    'abandonment_label': abandono_lbl,
+                    'new_players_flag': int(new_players_flag),
+                    'abandonment_flag': int(abandonment_flag),
+                }
+        competitors.append({**n, **sections, **({'engagement': eng} if eng else {})})
 
     # Reglas mínimas para el cliente
     params_cfg = expand_env_in_obj(yaml.safe_load(Path(args.params).read_text(encoding='utf-8'))) if Path(args.params).exists() else {}
@@ -230,6 +280,49 @@ def main():
         'regla_precio': _price_rule(client_price, cluster_prices, params_cfg)
     }
 
+    # Resumen global de relevancia (agregado sobre todos los competidores)
+    def _global_relevance_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        pol_counts: Dict[str, int] = {}
+        lbl_counts: Dict[str, int] = {}
+        negative_months: List[str] = []
+        high_months: List[str] = []
+        total = 0
+        for comp in rows:
+            for r in comp.get('topics', []) or []:
+                pol = str(r.get('relevance_polarity') or '').lower()
+                lbl = str(r.get('relevance_label') or r.get('relevance_label_final') or '').lower()
+                ym = r.get('event_year_month') or r.get('year_month')
+                if pol:
+                    pol_counts[pol] = pol_counts.get(pol, 0) + 1
+                if lbl:
+                    lbl_counts[lbl] = lbl_counts.get(lbl, 0) + 1
+                if pol == 'negative' and ym:
+                    negative_months.append(str(ym))
+                if lbl == 'high' and ym:
+                    high_months.append(str(ym))
+                total += 1
+        negative_ratio = (pol_counts.get('negative', 0) / total) if total else 0.0
+        # Devolver listas únicas acotadas
+        def _dedup_keep(seq: List[str], limit: int = 20) -> List[str]:
+            seen = set(); out = []
+            for x in seq:
+                if x not in seen:
+                    seen.add(x); out.append(x)
+                if len(out) >= limit:
+                    break
+            return out
+        return {
+            'polarity_counts': pol_counts,
+            'label_counts': lbl_counts,
+            'negative_ratio': negative_ratio,
+            'negative_months': _dedup_keep(negative_months),
+            'high_months': _dedup_keep(high_months),
+            'total_topic_rows': total,
+            'competitors_with_negative': int(sum(1 for c in rows if any((t.get('relevance_polarity') or '').lower() == 'negative' for t in c.get('topics', []) or [])))
+        }
+
+    global_rel_summary = _global_relevance_summary(competitors)
+
     report = {
         "appid": client_id,
         "metadata": {
@@ -242,7 +335,8 @@ def main():
         "cluster": {"cluster_id": cid},
         "neighbors": neigh,
         "competitors": competitors,
-        "rules_analysis": rules_analysis,
+        # Inyectar resumen global dentro de rules_analysis para no romper el schema
+        "rules_analysis": {**rules_analysis, "relevance_summary_global": global_rel_summary},
         "provenance": {
             "embeddings_parquet": args.embeddings,
             "clusters_parquet": args.clusters,

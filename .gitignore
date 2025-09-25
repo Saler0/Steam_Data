@@ -194,4 +194,6 @@ landing_zone/
 
 docker-volume/
 
-/modelos_steam_data2
+Data_analytics/data/
+Data_analytics/outputs/
+Data_analytics/models/

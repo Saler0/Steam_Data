@@ -186,9 +186,10 @@ def _select_mlflow_experiment(cfg: Dict) -> str:
 
 def main():
     """Punto de entrada principal del script."""
-    ap = argparse.ArgumentParser(description="Clasifica noticias y etiqueta tópicos con un LLM.")
+    ap = argparse.ArgumentParser(description="Clasifica noticias y (opcional) etiqueta tópicos con un LLM.")
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     ap.add_argument("--appid", type=int, help="AppID para cargar y clasificar sus noticias desde MongoDB.")
+    ap.add_argument("--label-topics", action="store_true", help="Si se pasa, además etiqueta los tópicos de BERTopic.")
     args = ap.parse_args()
     
     with open(args.config, 'r', encoding='utf-8') as f:
@@ -256,18 +257,19 @@ def main():
             if (outdir / 'news_classified.parquet').exists():
                 mlflow.log_artifact(str(outdir / 'news_classified.parquet'))
 
-        topics_input_path = cfg.get("topics_input_path")
-        if topics_input_path and Path(topics_input_path).exists():
-            topics_df = read_parquet_any(Path(topics_input_path))
-            if not topics_df.empty:
-                print(f"\nEtiquetando tópicos desde '{topics_input_path}'...")
-                labeled_topics = label_topics(topics_df, llm_cfg)
-                output_path = outdir / 'topics_labeled.parquet'
-                write_parquet_any(labeled_topics, output_path)
-                mlflow.log_artifact(str(output_path), artifact_path="topics")
-                print(f"Tópicos etiquetados guardados en -> {output_path}")
-        else:
-             print(f"\nNo se encontró el fichero de tópicos o no fue especificado. Se omite este paso.")
+        if args.label_topics:
+            topics_input_path = cfg.get("topics_input_path") or str(outdir / 'topics.parquet')
+            if Path(topics_input_path).exists():
+                topics_df = read_parquet_any(Path(topics_input_path))
+                if not topics_df.empty:
+                    print(f"\nEtiquetando tópicos desde '{topics_input_path}'...")
+                    labeled_topics = label_topics(topics_df, llm_cfg)
+                    output_path = outdir / 'topics_labeled.parquet'
+                    write_parquet_any(labeled_topics, output_path)
+                    mlflow.log_artifact(str(output_path), artifact_path="topics")
+                    print(f"Tópicos etiquetados guardados en -> {output_path}")
+            else:
+                print(f"\nNo se encontró el fichero de tópicos ({topics_input_path}). Se omite el etiquetado.")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,130 @@
+schema: '2.0'
+stages:
+  embeddings:
+    cmd: python src/pipelines/generate_embeddings.py --config 
+      configs/embeddings.yaml
+    deps:
+    - path: configs/embeddings.yaml
+      hash: md5
+      md5: 662fee08b0c76fd1b452757a603f14c7
+      size: 2929
+      isexec: true
+    - path: src/pipelines/generate_embeddings.py
+      hash: md5
+      md5: 2a371ac6046ee5636de996df750c2642
+      size: 14927
+      isexec: true
+    outs:
+    - path: data/processed/embeddings.parquet
+      hash: md5
+      md5: d43ec7f170cb53169958badd9bf2d5df
+      size: 217068775
+    - path: data/processed/embeddings/
+      hash: md5
+      md5: a041034b9774a45fb56b8ec6867e8df5.dir
+      size: 217074773
+      nfiles: 4
+  clustering:
+    cmd: python src/pipelines/run_clustering.py --config configs/clustering.yaml
+    deps:
+    - path: configs/clustering.yaml
+      hash: md5
+      md5: 57cecf8ed2b7a155e0fbc6945656d807
+      size: 5708
+      isexec: true
+    - path: data/processed/embeddings/
+      hash: md5
+      md5: 9cd233515dec54328afc57b0542c5aa0.dir
+      size: 217068775
+      nfiles: 1
+    - path: src/pipelines/run_clustering.py
+      hash: md5
+      md5: da1518b7a6b5f3e81fa60e63b90544c2
+      size: 33862
+      isexec: true
+    outs:
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: eb4c99b9081ae32639d740b03f581685
+      size: 118009366
+    - path: data/processed/game_metadata.parquet
+      hash: md5
+      md5: 959337e6a935510625aef8417896143a
+      size: 246805470
+    - path: models/cluster_medoids.json
+      hash: md5
+      md5: 245f34d7abcdd7c12f5e8d72c57f1838
+      size: 18404051
+    - path: outputs/clustering/borderline_games.csv
+      hash: md5
+      md5: a93467c36e40eeebc1f0f5cb3c28c81e
+      size: 21492164
+    - path: outputs/clustering/cluster_stats.csv
+      hash: md5
+      md5: c07848ebfd8366ac3da9799e43c8e309
+      size: 91168
+  cluster_topics_profile:
+    cmd: python src/pipelines/cluster_assignment/profile_clusters_topics.py 
+      --clusters data/processed/clusters.parquet --metadata 
+      data/processed/game_metadata.parquet --mongo-config 
+      configs/clustering.yaml --out outputs/clustering/cluster_topics.json 
+      --mlflow-enabled --mlflow-experiment steam_rules_pipeline 
+      --mlflow-run-name cluster_topics_profile --mlflow-tracking-uri 
+      http://mlflow:5000
+    deps:
+    - path: configs/clustering.yaml
+      hash: md5
+      md5: 57cecf8ed2b7a155e0fbc6945656d807
+      size: 5708
+      isexec: true
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 176625ac3aea189b26f1fdc0ac5e2702
+      size: 118019717
+    - path: data/processed/game_metadata.parquet
+      hash: md5
+      md5: 959337e6a935510625aef8417896143a
+      size: 246805470
+    - path: src/pipelines/cluster_assignment/profile_clusters_topics.py
+      hash: md5
+      md5: e4eec17838185f846eab968aa1e79934
+      size: 13026
+      isexec: true
+    outs:
+    - path: outputs/clustering/cluster_topics.json
+      hash: md5
+      md5: f8f6b41c07d7477740ec6a7468ff6c71
+      size: 12322
+  cluster_topics_map:
+    cmd: python scripts/plot_cluster_topics_umap.py --medoids 
+      models/cluster_medoids.json --stats outputs/clustering/cluster_stats.csv 
+      --topics outputs/clustering/cluster_topics.json --borderline 
+      outputs/clustering/borderline_games.csv --out-html 
+      outputs/clustering/cluster_topics_umap.html
+    deps:
+    - path: models/cluster_medoids.json
+      hash: md5
+      md5: 6093766bfbfd822b31943e23e8194ab4
+      size: 18412565
+    - path: outputs/clustering/borderline_games.csv
+      hash: md5
+      md5: 577077310fd1a1230acd4838e09719fd
+      size: 21517673
+    - path: outputs/clustering/cluster_stats.csv
+      hash: md5
+      md5: 0908084314ade9e90fec586ca471b407
+      size: 91251
+    - path: outputs/clustering/cluster_topics.json
+      hash: md5
+      md5: f8f6b41c07d7477740ec6a7468ff6c71
+      size: 12322
+    - path: scripts/plot_cluster_topics_umap.py
+      hash: md5
+      md5: 650e082dcb213caf057745113f00a886
+      size: 10580
+      isexec: true
+    outs:
+    - path: outputs/clustering/cluster_topics_umap.html
+      hash: md5
+      md5: 64b4ae5e3d2f07d328fcaf48a86b4392
+      size: 6705579

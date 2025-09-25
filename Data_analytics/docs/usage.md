@@ -27,6 +27,11 @@ Paralelización
 Datos y Contrato
 - Revisa `docs/DATA_CONTRACT.yaml` y completa campos para adaptar lectores/validaciones.
 
+Clustering: cadencia y asignación diaria
+- Refit mensual del clustering (o trimestral) para estabilidad; las salidas incluyen `cluster_version` (YYYYMM) y `as_of_date`.
+- Asignación diaria de nuevos juegos con medoids: `python -m src.pipelines.cluster_assignment.assign_new_games --embeddings data/processed/embeddings_new.parquet --medoids models/cluster_medoids.json --out data/processed/clusters_assigned.parquet --cluster_version 202501`
+ - También disponible como etapa DVC: `dvc repro cluster_assign`
+
 Evidencias gráficas
 - Genera gráficos a partir de `outputs/` y colócalos en `docs/img/`.
 - Enlázalos desde las páginas de método (`docs/methods/*.md`).

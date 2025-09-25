@@ -6,6 +6,15 @@
 input_paths:
   # Ruta a los ficheros de embeddings (salida de la etapa 'embeddings').
   embeddings_sharded_uri: data/processed/embeddings/
+  metadata_parquet: data/processed/game_metadata.parquet
+
+  # Fallback opcional para nombres si no existe metadata_parquet.
+metadata_mongo:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  database: ${MONGO_DB_GAMES:-exploitation_zone}
+  collection: ${MONGO_COLL_GAMES:-juegos_steam}
+  query: {}
+  projection: [appid, name]
 
   # --- Ejemplos en lago de objetos ---
   # GCS:
@@ -67,15 +76,22 @@ faiss:
 # -----------------------------------------------------------------------------
 graph_leiden:
   # Número de vecinos más cercanos (k) a considerar para cada juego al construir la red.
-  k_neighbors: 30
+  k_neighbors: 70
 
   # Umbral de similitud del coseno. Se ignorarán las conexiones entre juegos con una similitud menor a este valor.
-  sim_threshold: 0.2
+  sim_threshold: 0.35
+
+  mutual_knn: true
+
+  snn:
+    enabled: true
+    method: "jaccard"   # opciones: jaccard | count | overlap
+    min_shared_neighbors: 3
 
   # Parámetro de resolución para el algoritmo Leiden.
   # > 1.0: Tiende a crear MÁS clústeres.
   # < 1.0: Tiende a crear MENOS clústeres.
-  resolution: 1.0
+  resolution: 1.3
   
   # Si el número de juegos supera el threshold_spark de kmeans, se usaría Spark para el procesamiento de grafos (si estuviera implementado).
   use_spark_if_large: false # Cambiar a 'true' si se implementa la lógica de Spark.
@@ -90,7 +106,7 @@ post_analysis:
     enabled: true
     # Parámetro 'tau' (temperatura) para la función softmax.
     # Un valor más bajo (ej. 0.05) crea probabilidades más "agudas" y seguras.
-    temperature: 0.07
+    temperature: 0.05
 
   # Identifica juegos con asignación ambigua (entre dos o más clústeres).
   borderline:
@@ -100,9 +116,9 @@ post_analysis:
     
   # Clustering de Consenso: ejecuta Leiden varias veces para encontrar clústeres más estables.
   consensus:
-    enabled: false
+    enabled: true
     resolutions: [0.8, 1.0, 1.2, 1.5]
-    min_coassoc: 0.6
+    min_coassoc: 0.7
 
 # -----------------------------------------------------------------------------
 # SECCIÓN DE LOGGING CON MLFLOW
@@ -113,3 +129,7 @@ mlflow:
   experiment: "Steam Analytics"
   # Prefijo para el nombre de las ejecuciones, para organizarlas fácilmente.
   run_name_prefix: "clustering_"
+
+# Versión lógica del clustering (YYYYMM). Si no se define, se usa el mes actual.
+# Sirve para rastrear y congelar análisis por versión.
+cluster_version: 202509

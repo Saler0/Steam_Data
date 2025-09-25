@@ -24,6 +24,8 @@ datasets:
     schema:
       - { name: appid, type: string, required: true }
       - { name: cluster_id, type: int32, required: true }
+      - { name: cluster_version, type: string, required: true, description: YYYYMM de la versión de clustering }
+      - { name: as_of_date, type: date, required: true, description: Fecha de generación del clustering }
       - { name: is_borderline, type: bool, required: false }
       - { name: confidence_margin, type: float64, required: false }
       - { name: p_assigned, type: float64, required: false }

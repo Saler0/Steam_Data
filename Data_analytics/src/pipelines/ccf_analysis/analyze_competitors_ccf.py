@@ -9,6 +9,12 @@ import yaml
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import os
+import sys
+
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
 import mlflow
 from pymongo import MongoClient
 from typing import Dict, Any, List
@@ -28,8 +34,9 @@ except ImportError:
 # Importaciones de utilidades del proyecto
 from src.utils.io import read_parquet_any, write_parquet_any, write_csv_any, makedirs_if_local, path_exists
 from src.utils.timeseries import dlog
-from statsmodels.tsa.stattools import adfuller, grangercausalitytests
+from statsmodels.tsa.stattools import adfuller, grangercausalitytests, kpss
 from statsmodels.stats.multitest import multipletests
+from statsmodels.stats.diagnostic import acorr_ljungbox
 
 def _apply_transform(series: pd.Series, method: str, cfg: Dict[str, Any]) -> pd.Series:
     s = series.copy()
@@ -54,13 +61,12 @@ def _transform_to_stationary_new(series: pd.Series, transform_methods: List[str]
     series.name = series.name if series.name else 'series'
     if series.empty or np.std(series) == 0:
         return None
-    alpha = float(cfg.get('stationarity', {}).get('adf_alpha', 0.05))
     for m in transform_methods:
         try:
             cand = _apply_transform(series, m, cfg)
             if cand is None or cand.empty or np.std(cand) == 0:
                 continue
-            ok, _ = check_stationarity(cand, alpha)
+            ok, _, _ = check_stationarity_dual(cand, cfg)
             if ok:
                 print(f"[INFO] Transformación '{m}' aplicada a {series.name} -> estacionaria.")
                 return cand
@@ -157,10 +163,37 @@ def _ccf_series(x: pd.Series, y: pd.Series, max_lag: int) -> dict:
 def check_stationarity(series: pd.Series, alpha: float = 0.05) -> tuple[bool, float]:
     """Realiza el test de Dickey-Fuller Aumentado (ADF)."""
     series = series.dropna()
-    if len(series) < 10 or np.std(series) == 0: return False, 1.0
+    if len(series) < 10 or np.std(series) == 0:
+        return False, 1.0
     result = adfuller(series)
-    p_value = result[1]
+    p_value = float(result[1])
     return p_value < alpha, p_value
+
+
+def check_stationarity_dual(series: pd.Series, cfg: Dict[str, Any]) -> tuple[bool, float, float | None]:
+    """Decisión conjunta ADF + KPSS (opcional).
+
+    - ADF rechaza H0 (p_adf < adf_alpha) → estacionaria
+    - KPSS no rechaza H0 (p_kpss >= kpss_alpha) → estacionaria
+    - Si KPSS.disabled → usa solo ADF.
+    """
+    series = series.dropna()
+    if len(series) < 10 or np.std(series) == 0:
+        return False, 1.0, None
+    st = cfg.get('stationarity', {}) or {}
+    adf_alpha = float(st.get('adf_alpha', 0.05))
+    ok_adf, p_adf = check_stationarity(series, adf_alpha)
+    kcfg = st.get('kpss', {}) or {}
+    if not kcfg.get('enabled', False):
+        return ok_adf, p_adf, None
+    try:
+        reg = str(kcfg.get('regression', 'c'))
+        kpss_alpha = float(kcfg.get('alpha', 0.05))
+        stat, p_kpss, _, _ = kpss(series, regression=reg, nlags='auto')
+        ok_kpss = p_kpss >= kpss_alpha
+        return (ok_adf and ok_kpss), p_adf, float(p_kpss)
+    except Exception:
+        return ok_adf, p_adf, None
 
 def _transform_to_stationary(series: pd.Series, transform_methods: List[str]) -> pd.Series | None:
     """
@@ -227,7 +260,7 @@ def analyze_pair(df: pd.DataFrame, predictor: str, target: str, cfg: dict) -> di
     
     x_final, y_final = x_whitened.align(y_filtered, join='inner')
     if len(x_final) < 8: return None
-    
+
     ccf_results = _ccf_series(x_final.reset_index(drop=True), y_final.reset_index(drop=True), int(cfg.get('ccf_lags', 6)))
     if not ccf_results or all(pd.isna(v) for v in ccf_results.values()): return None
     best_lag = max(ccf_results, key=lambda k: abs(ccf_results.get(k, 0) or 0))
@@ -244,18 +277,47 @@ def analyze_pair(df: pd.DataFrame, predictor: str, target: str, cfg: dict) -> di
         gyx_pmin = min([res[0]['ssr_chi2test'][1] for lag, res in res_yx.items()])
     except Exception: pass
     
-    return {
+    # P-valores de estacionariedad (ADF/KPSS) sobre las series utilizadas
+    try:
+        sx_ok, sx_adf_p, sx_kpss_p = check_stationarity_dual(pd.Series(x_final).astype(float), cfg)
+    except Exception:
+        sx_adf_p, sx_kpss_p = np.nan, np.nan
+    try:
+        sy_ok, sy_adf_p, sy_kpss_p = check_stationarity_dual(pd.Series(y_final).astype(float), cfg)
+    except Exception:
+        sy_adf_p, sy_kpss_p = np.nan, np.nan
+
+    out = {
         'best_lag': best_lag, 'best_ccf': best_ccf,
         'granger_xy_pmin': gxy_pmin, 'granger_xy_sig': gxy_pmin is not None and gxy_pmin < granger_cfg['alpha'],
-        'granger_yx_pmin': gyx_pmin, 'granger_yx_sig': gyx_pmin is not None and gyx_pmin < granger_cfg['alpha']
+        'granger_yx_pmin': gyx_pmin, 'granger_yx_sig': gyx_pmin is not None and gyx_pmin < granger_cfg['alpha'],
+        'adf_p_x': sx_adf_p, 'kpss_p_x': sx_kpss_p,
+        'adf_p_y': sy_adf_p, 'kpss_p_y': sy_kpss_p,
     }
+    # Whiteness (Ljung–Box) sobre residuales del preblanqueo
+    try:
+        lb_cfg = ((cfg.get('whiteness') or {}).get('ljung_box') or {})
+        if lb_cfg.get('enabled', False):
+            h = int(lb_cfg.get('h', 12))
+            alpha_lb = float(lb_cfg.get('alpha', 0.05))
+            ser = pd.Series(x_whitened).dropna()
+            if len(ser) > h + 2:
+                lb = acorr_ljungbox(ser, lags=[h], return_df=True)
+                p_lb = float(lb['lb_pvalue'].iloc[-1]) if 'lb_pvalue' in lb.columns else float(lb.iloc[-1]['lb_pvalue'])
+                out['ljung_p'] = p_lb
+                out['ljung_ok'] = (p_lb >= alpha_lb)
+    except Exception:
+        pass
+    return out
 
-def _process_single_game(appid: str, cfg: Dict[str, Any]) -> List[Dict]:
+def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict]]:
     """
-    Función que encapsula el análisis para un solo juego.
-    Retorna una lista de resultados (uno por cada par analizado).
+    Analiza un juego y retorna:
+    - summary: lista de filas (una por par) con best_lag, best_ccf, p-values, flags FDR (se llena en main)
+    - consistency: filas por mes con máscara de consistencia según el best_lag del par
     """
-    game_results = []
+    results_summary: List[Dict] = []
+    results_consistency: List[Dict] = []
     pre = cfg.get('preaggregated', {})
     df_raw = _read_reviews(cfg['mongo_connection'], appid, pre.get('reviews_monthly'))
     players_df = _read_players(cfg['players_data'], appid, pre.get('players_monthly'))
@@ -263,7 +325,7 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> List[Dict]:
         df_raw = pd.merge(df_raw, players_df, on='year_month', how='outer').sort_values('year_month').fillna(0)
     
     if df_raw is None or df_raw.empty or len(df_raw) < 12:
-        return game_results
+        return {"summary": [], "consistency": []}
         
     df_transformed = df_raw.copy()
     
@@ -302,12 +364,59 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> List[Dict]:
             analysis_results.update({
                 'appid': str(appid), 'pair_name': pair['name']
             })
-            game_results.append(analysis_results)
-    return game_results
+            results_summary.append(analysis_results)
+
+            # --- Cálculo de consistencia mensual con el best_lag ---
+            try:
+                best_lag = int(analysis_results['best_lag'])
+                # series transformadas alineadas por fecha
+                s_x = df_analysis.set_index('year_month')[predictor_name].astype(float)
+                s_y = df_analysis.set_index('year_month')[target_name].astype(float)
+                # Alinear predictor con el desfase encontrado: x_aligned[t] = x[t - lag]
+                s_x_aligned = s_x.shift(best_lag)
+                # Emparejar y limpiar nulos
+                aligned = (
+                    pd.DataFrame({
+                        'x_aligned': s_x_aligned,
+                        'y': s_y
+                    })
+                    .dropna()
+                    .sort_index()
+                )
+                if not aligned.empty:
+                    # Consistencia de signo y correlación local en ventana corta
+                    sign_consistent = np.sign(aligned['x_aligned']) == np.sign(aligned['y'])
+                    # correlación rodante (3 meses por defecto)
+                    win = int(((cfg.get('consistency') or {}).get('window') or 3))
+                    min_abs_corr = float(((cfg.get('consistency') or {}).get('min_abs_corr') or 0.2))
+                    local_corr = aligned['x_aligned'].rolling(win).corr(aligned['y'])
+                    lead_or_lag = (
+                        'predictor_leads' if best_lag > 0 else
+                        'predictor_lags' if best_lag < 0 else
+                        'simultaneous'
+                    )
+                    for ts, row in aligned.iterrows():
+                        lc = float(local_corr.get(ts)) if pd.notna(local_corr.get(ts)) else np.nan
+                        sc = bool(sign_consistent.get(ts)) if ts in sign_consistent.index else False
+                        ccf_consistent = sc and (not np.isnan(lc)) and (abs(lc) >= min_abs_corr)
+                        results_consistency.append({
+                            'appid': str(appid),
+                            'pair_name': pair['name'],
+                            'year_month': pd.to_datetime(ts),
+                            'best_lag': best_lag,
+                            'lead_or_lag': lead_or_lag,
+                            'local_corr_3m': lc,
+                            'sign_consistent': sc,
+                            'ccf_consistent': bool(ccf_consistent)
+                        })
+            except Exception:
+                pass
+
+    return {"summary": results_summary, "consistency": results_consistency}
 
 # El decorador @ray.remote debe estar en el nivel superior del módulo.
-if RAY_AVAILABLE:
-    _process_single_game_ray = ray.remote(_process_single_game)
+    if RAY_AVAILABLE:
+        _process_single_game_ray = ray.remote(_process_single_game)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -344,23 +453,30 @@ def main():
         appids_to_process = clusters['appid'].astype(str).unique()
         
         # 3. Lanzar las tareas y recolectar resultados
-        all_results = []
+        all_results_summary: List[Dict] = []
+        all_results_consistency: List[Dict] = []
         if parallel_mode == 'ray':
             futures = [_process_single_game_ray.remote(appid, cfg) for appid in appids_to_process]
-            list_of_results_lists = ray.get(futures)
-            all_results = [item for sublist in list_of_results_lists for item in sublist]
+            results = ray.get(futures)
+            for r in results:
+                all_results_summary.extend(r.get('summary', []))
+                all_results_consistency.extend(r.get('consistency', []))
             ray.shutdown()
         elif parallel_mode == 'multiprocessing':
             with Pool(processes=num_processes) as pool:
-                list_of_results_lists = pool.starmap(_process_single_game, [(appid, cfg) for appid in appids_to_process])
-                all_results = [item for sublist in list_of_results_lists for item in sublist]
+                results = pool.starmap(_process_single_game, [(appid, cfg) for appid in appids_to_process])
+                for r in results:
+                    all_results_summary.extend(r.get('summary', []))
+                    all_results_consistency.extend(r.get('consistency', []))
         else: # Modo secuencial
             for appid in appids_to_process:
-                all_results.extend(_process_single_game(appid, cfg))
+                r = _process_single_game(appid, cfg)
+                all_results_summary.extend(r.get('summary', []))
+                all_results_consistency.extend(r.get('consistency', []))
 
         # 4. Consolidar, guardar y loguear los resultados finales
-        if all_results:
-            df_summary = pd.DataFrame(all_results)
+        if all_results_summary:
+            df_summary = pd.DataFrame(all_results_summary)
             out_dir = Path(cfg['output_dir']); makedirs_if_local(out_dir)
             out_path_pq = out_dir / 'summary.parquet'
             out_path_csv = out_dir / 'summary.csv'
@@ -403,6 +519,15 @@ def main():
                 mlflow.log_metric("significant_granger_xy_pct_fdr", float(df_summary['granger_xy_sig_fdr'].mean() * 100))
             if 'granger_yx_sig_fdr' in df_summary.columns:
                 mlflow.log_metric("significant_granger_yx_pct_fdr", float(df_summary['granger_yx_sig_fdr'].mean() * 100))
+
+            # Métrica de blancura de residuales (si disponible)
+            if 'ljung_ok' in df_summary.columns:
+                try:
+                    mask = df_summary['ljung_ok'].notna()
+                    if mask.any():
+                        mlflow.log_metric("whiteness_ok_pct", float(df_summary.loc[mask, 'ljung_ok'].mean() * 100))
+                except Exception:
+                    pass
             
             mlflow.log_artifact(str(out_path_pq))
             mlflow.log_artifact(str(out_path_csv))
@@ -411,6 +536,18 @@ def main():
             print("[WARN] No se generó summary (faltan datos o series no estacionarias).")
             mlflow.log_metric("games_analyzed", 0)
             mlflow.log_metric("stationary_series_count", 0)
+
+        # 5. Guardar consistencia mensual si existe
+        if all_results_consistency:
+            df_cons = pd.DataFrame(all_results_consistency)
+            out_dir = Path(cfg['output_dir']); makedirs_if_local(out_dir)
+            cons_path = out_dir / 'consistency.parquet'
+            write_parquet_any(df_cons, cons_path)
+            try:
+                mlflow.log_artifact(str(cons_path))
+            except Exception:
+                pass
+            print(f"[OK] CCF consistency guardado en -> {cons_path}")
     
 if __name__ == "__main__":
     main()

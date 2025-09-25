@@ -11,9 +11,13 @@ import yaml
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import json
 import mlflow
 import os
 import sys
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # Asegúrate de que los módulos de utils estén en el PATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -28,6 +32,9 @@ import html as _html
 # Función que realiza la tarea de embedding para un único worker/proceso.
 def _embed_shard(docs_df: pd.DataFrame, model_name: str, normalize: bool, batch_size: int) -> pd.DataFrame:
     """Genera embeddings para un shard de datos."""
+
+    print(f"[EMB ] Cargando modelo '{model_name}' para shard con {len(docs_df)} filas...")
+
     # Importar dentro de la función para evitar problemas de serialización en Ray/multiprocessing
     from sentence_transformers import SentenceTransformer
     try:
@@ -40,12 +47,20 @@ def _embed_shard(docs_df: pd.DataFrame, model_name: str, normalize: bool, batch_
     
     # Manejar el caso de una lista vacía
     if not docs_list:
+        print("[EMB ] Shard vacío; devolviendo DataFrame vacío.")
         return pd.DataFrame(columns=['appid', 'embedding'])
 
-    embeddings = model.encode(docs_list, normalize_embeddings=normalize, show_progress_bar=False, batch_size=batch_size)
-    
+    embeddings = model.encode(docs_list, normalize_embeddings=normalize, show_progress_bar=True, batch_size=batch_size)
+    print(f"[EMB ] Shard embebido")
+
     docs_df['embedding'] = list(embeddings)
     return docs_df.drop(columns=['doc'])
+
+def _embed_shard_worker(args):
+    idx, shard_df, model_name, normalize, batch_size = args
+    return idx, _embed_shard(shard_df, model_name, normalize, batch_size)
+
+
 
 def _clean_text(s: str) -> str:
     """Limpieza ligera: quita HTML, URLs y normaliza espacios."""
@@ -170,32 +185,93 @@ def main(cfg: dict):
     
     print(f"[INFO] Generando embeddings en paralelo con '{method}' en {n_shards} shards...")
 
+    output_uri = Path(cfg['output_paths']['embeddings_sharded_uri'])
+    makedirs_if_local(output_uri)
+
+    faiss_cfg = cfg.get('faiss_index', {})
+    build_faiss = faiss_cfg.get('enabled', True)
+    index_type = faiss_cfg.get('index', 'FlatIP')
+    use_gpu = bool(faiss_cfg.get('use_gpu', False))
+    faiss_index = None
+    ids_accum = []
+    total_embeddings = 0
+
+    consolidated_path = Path('data/processed/embeddings.parquet')
+    makedirs_if_local(consolidated_path.parent)
+    parquet_writer = None
+
+    def _process_shard(idx: int, res_df: pd.DataFrame) -> None:
+        nonlocal faiss_index, parquet_writer, total_embeddings
+        if res_df is None or res_df.empty:
+            print(f"[WARN] Shard {idx} vacío; se omite.")
+            return
+        res_df = res_df.copy()
+        res_df['appid'] = res_df['appid'].astype(str)
+
+        shard_path = output_uri / f"part-{idx:04d}.parquet"
+        makedirs_if_local(shard_path.parent)
+        write_parquet_any(res_df, shard_path)
+        print(f"[OK] Shard {idx} guardado en -> {shard_path}")
+        try:
+            mlflow.log_artifact(str(shard_path))
+        except Exception:
+            pass
+
+        if build_faiss:
+            vectors = np.vstack([np.asarray(e, dtype=np.float32) for e in res_df['embedding']])
+            if faiss_index is None:
+                faiss_index = build_faiss_index(vectors, index_type=index_type, use_gpu=use_gpu)
+            else:
+                faiss_index.add(vectors)
+        ids_accum.extend(res_df['appid'].tolist())
+        total_embeddings += len(res_df)
+
+        table = pa.Table.from_pandas(res_df, preserve_index=False)
+        if parquet_writer is None:
+            parquet_writer = pq.ParquetWriter(str(consolidated_path), table.schema)
+        parquet_writer.write_table(table)
+
     if method == 'ray':
         import ray
         if not ray.is_initialized():
             ray.init(ignore_reinit_error=True)
-            
+
         @ray.remote
         def ray_embed_shard(shard_df):
             return _embed_shard(shard_df, model_name, cfg.get('normalize_embeddings', True), batch_size)
-            
+
         futures = [ray_embed_shard.remote(shard) for shard in shards_list]
-        results = ray.get(futures)
+        for idx, res_df in enumerate(ray.get(futures)):
+            _process_shard(idx, res_df)
         ray.shutdown()
-        
+
     elif method == 'multiprocessing':
         from multiprocessing import Pool
+        tasks = [
+            (i, shard, model_name, cfg.get('normalize_embeddings', True), batch_size)
+            for i, shard in enumerate(shards_list)
+        ]
         with Pool(n_shards) as pool:
-            results = pool.starmap(_embed_shard, [(shard, model_name, cfg.get('normalize_embeddings', True), batch_size) for shard in shards_list])
+            for idx, res_df in pool.imap_unordered(_embed_shard_worker, tasks):
+                _process_shard(idx, res_df)
     elif method == 'spark':
         # Backend Spark para grandes volúmenes: procesa por particiones con mapInPandas
         from pyspark.sql import SparkSession
         from pyspark.sql import types as T
         spark_cfg = (para_cfg.get('spark') or {})
         num_partitions = int(spark_cfg.get('partitions', 200))
+        driver_mem = spark_cfg.get('driver_memory', '6g')
+        executor_mem = spark_cfg.get('executor_memory', '6g')
+
 
         print(f"[INFO] Usando Spark con {num_partitions} particiones para generar embeddings...")
-        spark = SparkSession.builder.appName("EmbeddingsSpark").getOrCreate()
+        spark = (
+            SparkSession.builder
+            .appName("EmbeddingsSpark")
+            .config("spark.driver.memory", driver_mem)
+            .config("spark.executor.memory", executor_mem)
+            .getOrCreate()
+        )
 
         sdf = spark.createDataFrame(df[['appid', 'doc']])
         sdf = sdf.repartition(num_partitions)
@@ -245,50 +321,26 @@ def main(cfg: dict):
         return
     else:
         raise ValueError(f"Método de paralelización '{method}' no soportado.")
-        
-    # 3. Guardar los resultados shardeados y consolidados
-    output_uri = cfg['output_paths']['embeddings_sharded_uri']
 
-    all_embeddings_df = pd.concat(results)
-
-    # Guardar cada shard en su propio archivo Parquet
-    for i, res_df in enumerate(results):
-        shard_path = Path(output_uri) / f"part-{i:04d}.parquet"
-        makedirs_if_local(shard_path.parent)
-        write_parquet_any(res_df, shard_path)
-        print(f"[OK] Shard {i} guardado en -> {shard_path}")
+    if parquet_writer is not None:
+        parquet_writer.close()
         try:
-            mlflow.log_artifact(str(shard_path))
+            mlflow.log_artifact(str(consolidated_path))
         except Exception:
             pass
-
-    # Guardar parquet consolidado para consumidores que prefieren 1 archivo
-    consolidated_path = Path('data/processed/embeddings.parquet')
-    makedirs_if_local(consolidated_path.parent)
-    write_parquet_any(all_embeddings_df, consolidated_path)
-    print(f"[OK] Embeddings consolidados en -> {consolidated_path}")
-    try:
-        mlflow.log_artifact(str(consolidated_path))
-    except Exception:
-        pass
+    else:
+        # No hubo datos; crear parquet vacío para mantener contrato
+        write_parquet_any(pd.DataFrame(columns=['appid', 'embedding']), consolidated_path)
 
     # 4. (Opcional) Construir y guardar índice FAISS persistente para ANN/kNN
     idx_cfg = cfg.get('faiss_index', {})
-    if idx_cfg.get('enabled', True):
-        index_type = idx_cfg.get('index', 'FlatIP')
-        use_gpu = bool(idx_cfg.get('use_gpu', False))
-        try:
-            X = np.vstack(all_embeddings_df['embedding'].apply(np.asarray).to_list()).astype(np.float32)
-            index = build_faiss_index(X, index_type=index_type, use_gpu=use_gpu)
+    if build_faiss:
+        if faiss_index is not None:
             idx_path = Path(idx_cfg.get('path', 'models/embeddings.faiss'))
             ids_path = Path(idx_cfg.get('ids_path', 'models/emb_ids.json'))
             makedirs_if_local(idx_path.parent)
-            save_faiss_index(index, str(idx_path))
-            # Guardar mapeo de appids en orden
-            ids_path.write_text(
-                __import__('json').dumps(all_embeddings_df['appid'].astype(str).tolist(), ensure_ascii=False),
-                encoding='utf-8'
-            )
+            save_faiss_index(faiss_index, str(idx_path))
+            ids_path.write_text(json.dumps(ids_accum, ensure_ascii=False), encoding='utf-8')
             print(f"[OK] Índice FAISS guardado en -> {idx_path}")
             print(f"[OK] IDs guardados en -> {ids_path}")
             try:
@@ -296,12 +348,11 @@ def main(cfg: dict):
                 mlflow.log_artifact(str(ids_path))
             except Exception:
                 pass
-        except Exception as e:
-            print(f"[WARN] No se pudo construir/guardar índice FAISS: {e}")
-
+        else:
+            print("[WARN] No se construyó el índice FAISS porque no se generaron embeddings.")
     print("[OK] Proceso de embeddings completado.")
     try:
-        mlflow.log_metric("embeddings_generated", len(all_embeddings_df))
+        mlflow.log_metric("embeddings_generated", total_embeddings)
     except Exception:
         pass
 

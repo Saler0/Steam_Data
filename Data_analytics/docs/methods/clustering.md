@@ -6,7 +6,7 @@ Esta etapa agrupa juegos a partir de sus embeddings.
 - Config: `configs/clustering.yaml`
 - Entradas: `data/processed/embeddings/`
 - Salidas:
-  - `data/processed/clusters.parquet` (appid -> cluster_id [+ columnas soft])
+  - `data/processed/clusters.parquet` (appid -> cluster_id [+ columnas soft, versionado])
   - `models/cluster_medoids.json` (centroides por clúster)
   - `outputs/clustering/cluster_stats.csv` (tamaño, similitud media al centroide, etc.)
   - `outputs/clustering/borderline_games.csv` (si aplica)
@@ -41,6 +41,14 @@ Fallback automático a Spark KMeans
 Ejecución
 - Makefile: `make clustering` o `make clustering-check`
 - DVC: `dvc repro clustering` (tras `embeddings`)
+
+Versionado y asignación diaria
+- `clusters.parquet` incluye:
+  - `cluster_version` (YYYYMM) para identificar la “versión” de la partición vigente.
+  - `as_of_date` (fecha) de generación del clustering.
+- Asignación diaria de nuevos juegos: usa `models/cluster_medoids.json` sin reentrenar.
+  - Script: `src/pipelines/cluster_assignment/assign_new_games.py`
+  - Output: Parquet con `appid, cluster_id, cluster_version, assigned_date`.
 
 Evidencias gráficas sugeridas (colócalas en `docs/img/` y enlázalas aquí)
 - Histograma de tamaños de clúster (`cluster_stats.size`).

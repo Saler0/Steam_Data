@@ -56,6 +56,11 @@ stationarity:
   adf_alpha: 0.05
   seasonal:
     period: 12   # Diferenciación estacional (e.g., 12 meses)
+  # Test KPSS (opcional): exige no rechazar H0 en combinación con ADF para aceptar estacionariedad
+  kpss:
+    enabled: true
+    regression: "c"   # "c" nivel, "ct" tendencia
+    alpha: 0.05
 
 # --- CONFIGURACIÓN DE PARALELIZACIÓN ---
 # Elige el modo de paralelización.
@@ -95,6 +100,18 @@ granger:
   # Nivel de significancia (p-value) para considerar un resultado como causal.
   # 0.05 es el estándar.
   alpha: 0.05
+
+# Consistencia mensual (para integrar con tópicos)
+consistency:
+  window: 3         # tamaño de ventana para correlación local (meses)
+  min_abs_corr: 0.2 # umbral mínimo de |corr| para marcar consistencia
+
+# Blancura de residuales (Ljung–Box) tras preblanqueo AR(1)
+whiteness:
+  ljung_box:
+    enabled: true
+    h: 12
+    alpha: 0.05
 
 # -----------------------------------------------------------------------------
 # SECCIÓN DE LOGGING CON MLFLOW

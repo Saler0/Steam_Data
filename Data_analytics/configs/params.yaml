@@ -1,4 +1,4 @@
-# Parámetros globales
+﻿# ParÃ¡metros globales
 mongo:
   # En Docker, usa el hostname del servicio en la red (p.ej., 'mongo').
   # En local, puedes sobrescribir con la variable de entorno MONGO_URI.
@@ -8,7 +8,7 @@ mongo:
 
 mlflow:
   experiment_name: "steam_rules_pipeline"
-  tracking_uri: "http://localhost:5000"
+  tracking_uri: "http://mlflow:5000"
 
 # ----------------------
 # Report parameters (for DVC report/editor)
@@ -27,7 +27,14 @@ client_report:
   same_cluster_only: true
 
 # ----------------------
-# Parámetros de reglas
+# Clustering params (for DVC cluster_assign)
+# ----------------------
+clustering:
+  # Si null, el script usarÃ¡ el mes actual (YYYYMM)
+  cluster_version: 202509
+
+# ----------------------
+# ParÃ¡metros de reglas
 # ----------------------
 
 regla_precio:
@@ -40,7 +47,7 @@ justificacion_precio:
 
 saturacion_cluster_1:
   vecinos_min: 20
-  edad_umbral: 6   # años
+  edad_umbral: 6   # aÃ±os
 
 saturacion_cluster_2:
   reviews_min: 1000
@@ -92,3 +99,12 @@ prioridad_idiomas:
   otro_reviews_min: 1000
   otro_reviews_pct: 0.15
   otro_reviews_abs: 300
+
+cluster_history:
+  cluster_id: "12345"
+  launch_date: null
+  start_date: null
+  end_date: null
+  min_points: 90
+
+
