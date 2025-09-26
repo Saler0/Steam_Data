@@ -148,6 +148,74 @@ body {
 .feature-card:hover {
     transform: translateY(-10px);
 }
+/* Inpulsojuego*/
+.Inpulsojuego-banner {
+    background: url('../img/fondoimpulso1.jpg') center 35%/cover no-repeat;
+    padding: 100px 0;
+    color: #fff;
+    position: relative;
+}
+
+.Inpulsojuego-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1200px;
+    margin: 0 auto;
+    gap: 40px;
+}
+
+.Inpulsojuego-left {
+    flex: 1;
+    z-index: 2;
+}
+
+.Inpulsojuego-left h2,
+.Inpulsojuego-left h3,
+.Inpulsojuego-left p {
+    margin-bottom: 16px;
+}
+
+.Inpulsojuego-right {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2;
+}
+
+.Inpulsojuego-right img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+}
+
+/* Opcional: fondo semitransparente para mejorar legibilidad del texto */
+.Inpulsojuego-banner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.1);
+    z-index: 1;
+}
+
+.Inpulsojuego-content {
+    position: relative;
+    z-index: 2;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .Inpulsojuego-content {
+        flex-direction: column;
+        text-align: center;
+        gap: 24px;
+    }
+    .Inpulsojuego-right, .Inpulsojuego-left {
+        flex: unset;
+    }
+}
 
 /* ====== Sección: Membresías ====== */
 .memberships {
@@ -433,5 +501,108 @@ body {
     .games-section-header {
         flex-direction: column;
         align-items: flex-start;
+    }
+}
+
+
+/* ====== Sección: Flujo de Proceso ====== */
+.flujo-proceso {
+    background: #181c22;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.flujo-proceso h2 {
+    color: #00d9ff;
+    margin-bottom: 2.5rem;
+    font-size: 2rem;
+}
+
+.flujo-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3rem;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.flujo-nodo {
+    background: #23272f;
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 2rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    width: 100%;
+    position: relative;
+}
+
+.flujo-numero {
+    background: #00d9ff;
+    color: #181c22;
+    font-weight: bold;
+    font-size: 1.5rem;
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 4px #23272f;
+    flex-shrink: 0;
+}
+
+.flujo-contenido {
+    text-align: left;
+}
+
+.flujo-ejemplo {
+    font-size: 1rem;
+    color: #a8f5ff;
+    margin-top: 0.5rem;
+}
+
+.flujo-ejemplo span {
+    background: #1f2937;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    color: #fff;
+    font-family: monospace;
+}
+
+.flujo-cargando {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-top: 0.5rem;
+}
+
+.loader {
+    width: 22px;
+    height: 22px;
+    border: 3px solid #00d9ff;
+    border-top: 3px solid #23272f;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .flujo-nodo {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1.2rem 1rem;
+    }
+    .flujo-contenido {
+        text-align: left;
+        width: 100%;
     }
 }
