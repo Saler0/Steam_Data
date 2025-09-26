@@ -76,22 +76,22 @@ faiss:
 # -----------------------------------------------------------------------------
 graph_leiden:
   # Número de vecinos más cercanos (k) a considerar para cada juego al construir la red.
-  k_neighbors: 70
+  k_neighbors: 40
 
   # Umbral de similitud del coseno. Se ignorarán las conexiones entre juegos con una similitud menor a este valor.
-  sim_threshold: 0.35
+  sim_threshold: 0.3
 
   mutual_knn: true
 
   snn:
-    enabled: true
+    enabled: false
     method: "jaccard"   # opciones: jaccard | count | overlap
-    min_shared_neighbors: 3
+    min_shared_neighbors: 1
 
   # Parámetro de resolución para el algoritmo Leiden.
   # > 1.0: Tiende a crear MÁS clústeres.
   # < 1.0: Tiende a crear MENOS clústeres.
-  resolution: 1.3
+  resolution: 1.1
   
   # Si el número de juegos supera el threshold_spark de kmeans, se usaría Spark para el procesamiento de grafos (si estuviera implementado).
   use_spark_if_large: false # Cambiar a 'true' si se implementa la lógica de Spark.
@@ -106,7 +106,7 @@ post_analysis:
     enabled: true
     # Parámetro 'tau' (temperatura) para la función softmax.
     # Un valor más bajo (ej. 0.05) crea probabilidades más "agudas" y seguras.
-    temperature: 0.05
+    temperature: 0.06
 
   # Identifica juegos con asignación ambigua (entre dos o más clústeres).
   borderline:
@@ -116,9 +116,9 @@ post_analysis:
     
   # Clustering de Consenso: ejecuta Leiden varias veces para encontrar clústeres más estables.
   consensus:
-    enabled: true
-    resolutions: [0.8, 1.0, 1.2, 1.5]
-    min_coassoc: 0.7
+    enabled: false
+    resolutions: [1.0, 1.2]
+    min_coassoc: 0.65
 
 # -----------------------------------------------------------------------------
 # SECCIÓN DE LOGGING CON MLFLOW

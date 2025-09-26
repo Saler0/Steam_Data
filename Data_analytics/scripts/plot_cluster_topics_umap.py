@@ -233,7 +233,7 @@ def main() -> None:
             title=colorbar_title,
             bgcolor="#000000",
             tickcolor="#f5f5f5",
-            titlefont=dict(color="#f5f5f5"),
+            title_font=dict(color="#f5f5f5"),
         ),
         opacity=0.9,
     )
@@ -341,7 +341,7 @@ def main() -> None:
                     zerolinecolor="#666666",
                     showbackground=True,
                     color="#f5f5f5",
-                    titlefont=dict(color="#f5f5f5"),
+                    title_font=dict(color="#f5f5f5"),
                 ),
                 yaxis=dict(
                     title="UMAP-2",
@@ -350,7 +350,7 @@ def main() -> None:
                     zerolinecolor="#666666",
                     showbackground=True,
                     color="#f5f5f5",
-                    titlefont=dict(color="#f5f5f5"),
+                    title_font=dict(color="#f5f5f5"),
                 ),
                 zaxis=dict(
                     title="UMAP-3",
@@ -359,7 +359,7 @@ def main() -> None:
                     zerolinecolor="#666666",
                     showbackground=True,
                     color="#f5f5f5",
-                    titlefont=dict(color="#f5f5f5"),
+                    title_font=dict(color="#f5f5f5"),
                 ),
             ),
         )
@@ -367,13 +367,7 @@ def main() -> None:
         fig.update_layout(
             **dark_layout,
             xaxis=dict(
-                title="UMAP-1",
-                gridcolor="#333333",
-                zerolinecolor="#666666",
-                showline=True,
-                linecolor="#666666",
-                tickcolor="#f5f5f5",
-                titlefont=dict(color="#f5f5f5"),
+                title_font=dict(color="#f5f5f5"),
                 color="#f5f5f5",
             ),
             yaxis=dict(
@@ -383,7 +377,7 @@ def main() -> None:
                 showline=True,
                 linecolor="#666666",
                 tickcolor="#f5f5f5",
-                titlefont=dict(color="#f5f5f5"),
+                title_font=dict(color="#f5f5f5"),
                 color="#f5f5f5",
             ),
             hovermode="closest",
