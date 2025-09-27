@@ -153,9 +153,10 @@ def _prepare_category_counts(df: pd.DataFrame, metric: str, thresholds: Sequence
     counts = (
         category_series
         .value_counts(sort=False)
+        .rename("cluster_count")
         .reindex(category_series.cat.categories, fill_value=0)
         .reset_index()
-        .rename(columns={"index": "bin_label", "bin_label": "cluster_count"})
+        .rename(columns={"index": "bin_label"})
     )
     counts["cluster_count"] = counts["cluster_count"].astype(int)
     counts["_order"] = range(len(labels))
