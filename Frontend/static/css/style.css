@@ -149,9 +149,18 @@ body {
     transform: translateY(-10px);
 }
 /* Inpulsojuego*/
+.section-title.section-title-facil {
+    background: #161616;
+    color: #00d9ff;
+    text-align: center;
+    padding: 0rem 0 2rem 0;
+    margin-bottom: 0;
+    font-size: 2.2rem;
+}
+
 .Inpulsojuego-banner {
     background: url('../img/fondoimpulso1.jpg') center 35%/cover no-repeat;
-    padding: 100px 0;
+    padding: 85px 0;
     color: #fff;
     position: relative;
 }
@@ -160,7 +169,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-width: 1200px;
+    max-width: 1100px;
     margin: 0 auto;
     gap: 40px;
 }
