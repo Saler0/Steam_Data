@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal enabledelayedexpansion
 
 rem Ir a la carpeta del script (donde esta docker-compose.yml)
@@ -154,7 +154,3 @@ exit /b 0
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item %1
 exit /b %errorlevel%
-
-
-
-

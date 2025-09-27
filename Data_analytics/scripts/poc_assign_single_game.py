@@ -83,6 +83,89 @@ SAMPLE_GAMES: Dict[str, Dict[str, Any]] = {
         "genres": ["Strategy", "Card Game", "Roguelike"],
         "categories": ["Single-player"],
     },
+    "echoes": {
+        "name": "Echoes of the Abyss",
+        "short_description": (
+            "A survival exploration game set in a bioluminescent cave system, "
+            "where sound is both a weapon and a guide."
+        ),
+        "detailed_description": (
+            "In Echoes of the Abyss, players step into the role of an explorer trapped in an "
+            "ever-shifting underground world. The caves are alive with dangers: creatures that "
+            "hunt through sound, fungi that glow in response to your movement, and shifting "
+            "tunnels that force constant adaptation. "
+            "Instead of light, your survival depends on sound. Use echoes to navigate, distract "
+            "predators with thrown objects, and play instruments to interact with mysterious species. "
+            "Along the way, uncover the lost history of a civilization that once harnessed acoustics "
+            "as a source of power. "
+            "The game emphasizes atmosphere, immersion, and replayability through procedurally "
+            "generated cave networks and branching narrative paths. Every run is a new descent into the unknown."
+        ),
+        "genres": ["Action", "Adventure", "Indie", "Simulation"],
+        "categories": [
+            "Single-player",
+            "Steam Achievements",
+            "Steam Cloud",
+            "Full controller support",
+            "Captions available",
+            "Adjustable Difficulty",
+        ],
+    },
+    "stellar": {
+        "name": "Stellar Dominion",
+        "short_description": (
+            "A grand strategy game of interstellar conquest where every decision "
+            "shapes the fate of galaxies."
+        ),
+        "detailed_description": (
+            "In Stellar Dominion, you command a rising civilization in a distant future where "
+            "countless factions struggle for control over the galaxy’s dwindling resources. "
+            "The game combines large-scale strategic planning with deep political and technological systems. "
+            "Players must expand their empire by colonizing new planets, researching advanced technologies, "
+            "and forging fragile alliances—or breaking them in decisive wars. "
+            "Each choice carries long-term consequences: do you pursue diplomacy to unite the stars, "
+            "or domination to rule them with force? "
+            "Dynamic AI factions react to your playstyle, creating unpredictable rivalries and alliances. "
+            "Procedurally generated star systems ensure no two campaigns are the same, "
+            "while branching story events push players to balance survival, ambition, and morality in a harsh universe."
+        ),
+        "genres": ["Strategy", "Simulation", "Indie"],
+        "categories": [
+            "Single-player",
+            "Steam Achievements",
+            "Steam Cloud",
+            "Full controller support",
+            "Adjustable Difficulty",
+            "Stats",
+        ],
+    },
+    "harvest": {
+        "name": "Harvest Haven",
+        "short_description": (
+            "A relaxing farming simulation where you build your dream farm, "
+            "raise animals, and cultivate thriving crops."
+        ),
+        "detailed_description": (
+            "In Harvest Haven, players inherit an abandoned farm on the outskirts of a peaceful valley. "
+            "Your goal is to restore it to life by planting crops, raising animals, and building a thriving homestead. "
+            "You’ll manage seasonal cycles, care for livestock, and experiment with crop rotations to maximize harvests. "
+            "Beyond farming, the valley holds a lively community of characters to befriend, festivals to join, "
+            "and hidden secrets to uncover. "
+            "The game emphasizes creativity and relaxation: customize your farm layout, breed unique animals, "
+            "and craft tools and recipes to expand your possibilities. "
+            "Whether you prefer carefully planning your fields or simply enjoying the calm pace of rural life, "
+            "Harvest Haven offers an immersive farming experience."
+        ),
+        "genres": ["Simulation", "Casual", "Indie"],
+        "categories": [
+            "Single-player",
+            "Steam Achievements",
+            "Steam Cloud",
+            "Family Sharing",
+            "Adjustable Difficulty",
+            "Full controller support",
+        ],
+    },
 }
 
 
