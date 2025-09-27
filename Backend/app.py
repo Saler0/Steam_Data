@@ -8,6 +8,8 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.exceptions import NotFound
 
+from db.mongodb import MongoDBClient
+
 
 db = SQLAlchemy()
 
@@ -39,10 +41,15 @@ def create_app() -> Flask:
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
     )
 
+    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+    mongo_db_name = os.environ.get("MONGO_DB", "exploitation_zone")
+    mongo_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_name)
+    app.config["MONGO_CLIENT"] = mongo_client
+
     db.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-    register_routes(app)
+    register_routes(app, mongo_client)
 
     with app.app_context():
         db.create_all()
@@ -50,13 +57,21 @@ def create_app() -> Flask:
     return app
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
     @app.errorhandler(NotFound)
     def handle_not_found(error: NotFound):
         return jsonify({"message": error.description or "Recurso no encontrado"}), 404
 
     @app.get("/api/health")
     def health() -> Tuple[Dict[str, str], int]:
+        return {"status": "ok"}, 200
+
+    @app.get("/api/mongo-health")
+    def mongo_health() -> Tuple[Dict[str, str], int]:
+        try:
+            mongo_client.ping()
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}, 503
         return {"status": "ok"}, 200
 
     @app.get("/api/games")
