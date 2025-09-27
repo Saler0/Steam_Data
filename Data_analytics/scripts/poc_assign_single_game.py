@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 import numpy as np
+import pandas as pd
 import yaml
 from sentence_transformers import SentenceTransformer
 
@@ -17,6 +18,8 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.pipelines.generate_embeddings import _build_doc
+from src.utils.io import read_parquet_any
+from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
 
 # Prototipos de medoids de respaldo para que el PoC funcione incluso sin haber corrido el pipeline completo
 PROTOTYPE_GAMES: List[Dict[str, Any]] = [
@@ -221,6 +224,216 @@ def _prepare_sample(args: argparse.Namespace) -> Dict[str, Any]:
     return SAMPLE_GAMES[args.scenario]
 
 
+def _load_optional_df(path_str: str | None) -> pd.DataFrame:
+    if not path_str:
+        return pd.DataFrame()
+    path = Path(path_str)
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        suffix = path.suffix.lower()
+        if suffix in {'.parquet', '.pq'}:
+            return read_parquet_any(path)
+        if suffix == '.csv':
+            return pd.read_csv(path)
+        if suffix == '.tsv':
+            return pd.read_csv(path, sep='	')
+        if suffix == '.json':
+            return pd.read_json(path)
+        return read_parquet_any(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _vector_from_value(value: Any) -> np.ndarray | None:
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float32)
+    if isinstance(value, list):
+        return np.asarray(value, dtype=np.float32)
+    if isinstance(value, str):
+        try:
+            return np.asarray(json.loads(value), dtype=np.float32)
+        except Exception:
+            return None
+    return None
+
+
+def _prepare_lookup(df: pd.DataFrame, key: str, value: str) -> dict:
+    if df.empty or key not in df.columns or value not in df.columns:
+        return {}
+    series = df[[key, value]].dropna()
+    try:
+        series[key] = series[key].astype(str)
+    except Exception:
+        series[key] = series[key].apply(lambda x: str(x) if x is not None else None)
+    return {row[key]: row[value] for _, row in series.iterrows()}
+
+
+def _prepare_query_metadata(sample: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean(values: Any) -> List[str]:
+        if not values:
+            return []
+        if isinstance(values, (list, tuple, set)):
+            items = values
+        else:
+            items = str(values).split(',')
+        out: List[str] = []
+        for item in items:
+            token = str(item).strip()
+            if token:
+                out.append(token)
+        return out
+
+    genres = _clean(sample.get('genres'))
+    tags = _clean(sample.get('tags')) or genres
+    categories = _clean(sample.get('categories'))
+    price = sample.get('price')
+    try:
+        price_val = float(price) if price is not None else None
+    except Exception:
+        price_val = None
+    is_free = None
+    if price_val is not None:
+        is_free = price_val == 0
+    elif isinstance(sample.get('is_free'), bool):
+        is_free = sample['is_free']
+
+    modes = []
+    for token in categories:
+        low = token.lower()
+        if 'pvp' in low:
+            modes.append('pvp')
+        if 'pve' in low:
+            modes.append('pve')
+        if 'coop' in low or 'co-op' in low:
+            modes.append('coop')
+        if 'single' in low:
+            modes.append('singleplayer')
+    modes = sorted(set(modes))
+
+    return {
+        'genres': genres,
+        'tags': tags,
+        'categories': categories,
+        'modes': modes,
+        'price': price_val,
+        'is_free': is_free,
+        'name': sample.get('name'),
+    }
+
+
+def _neighbors_with_strategy(
+    sample_vec: np.ndarray,
+    sample_metadata: Dict[str, Any],
+    query_cluster_id: int | None,
+    emb_df: pd.DataFrame,
+    clusters_df: pd.DataFrame,
+    metadata_df: pd.DataFrame,
+    medoids: Dict[str, np.ndarray],
+    *,
+    target_total: int,
+    allow_cross: bool,
+    k_in: int,
+    k_out: int,
+    min_sim_in: float,
+    min_sim_out: float,
+    max_out_ratio: float,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    if emb_df.empty or 'embedding' not in emb_df.columns:
+        return [], {}
+    df = emb_df.copy()
+    if 'appid' not in df.columns and 'app_id' in df.columns:
+        df = df.rename(columns={'app_id': 'appid'})
+    if 'appid' not in df.columns:
+        return [], {}
+    df = df[['appid', 'embedding']].dropna()
+    df['appid'] = df['appid'].astype(str)
+    index = EmbeddingIndex.from_dataframe(df)
+    if index.matrix.size == 0:
+        return [], {}
+
+    cluster_df = clusters_df.copy()
+    if not cluster_df.empty:
+        if 'app_id' in cluster_df.columns and 'appid' not in cluster_df.columns:
+            cluster_df = cluster_df.rename(columns={'app_id': 'appid'})
+        if 'appid' in cluster_df.columns:
+            cluster_df['appid'] = cluster_df['appid'].astype(str)
+
+    meta_df = metadata_df.copy()
+    if not meta_df.empty and 'appid' in meta_df.columns:
+        meta_df['appid'] = meta_df['appid'].astype(str)
+
+    user_cfg = {
+        'target_total': target_total,
+        'allow_cross_cluster': allow_cross,
+        'k_in': k_in,
+        'k_out': k_out,
+        'min_similarity_in': min_sim_in,
+        'min_similarity_out': min_sim_out,
+        'max_out_ratio': max_out_ratio,
+    }
+
+    neighbors, diagnostics = select_competitor_neighbors(
+        query_vec=sample_vec,
+        query_metadata=sample_metadata,
+        query_appid=None,
+        query_cluster_id=query_cluster_id,
+        embeddings=index,
+        clusters_df=cluster_df,
+        metadata_df=meta_df,
+        medoids=medoids,
+        user_cfg=user_cfg,
+    )
+    return neighbors, diagnostics
+
+
+def _find_neighbors(sample_vec: np.ndarray,
+                    emb_df: pd.DataFrame,
+                    clusters_df: pd.DataFrame,
+                    metadata_df: pd.DataFrame,
+                    top_k: int,
+                    min_similarity: float) -> List[Dict[str, Any]]:
+    if emb_df.empty or 'embedding' not in emb_df.columns:
+        return []
+    df = emb_df.copy()
+    if 'appid' not in df.columns and 'app_id' in df.columns:
+        df = df.rename(columns={'app_id': 'appid'})
+    if 'appid' not in df.columns:
+        return []
+    df['appid'] = df['appid'].astype(str)
+    vectors: List[np.ndarray] = []
+    ids: List[str] = []
+    for _, row in df.iterrows():
+        vec = _vector_from_value(row.get('embedding'))
+        if vec is None:
+            continue
+        vectors.append(_ensure_unit(vec))
+        ids.append(row.get('appid'))
+    if not vectors:
+        return []
+    matrix = np.vstack(vectors)
+    query = _ensure_unit(sample_vec.astype(np.float32))
+    sims = matrix @ query
+    order = np.argsort(-sims)
+    clusters_lookup = _prepare_lookup(clusters_df.rename(columns={'app_id': 'appid'}) if 'app_id' in clusters_df.columns else clusters_df, 'appid', 'cluster_id')
+    names_lookup = _prepare_lookup(metadata_df.rename(columns={'app_id': 'appid'}) if 'app_id' in metadata_df.columns else metadata_df, 'appid', 'name')
+    neighbors: List[Dict[str, Any]] = []
+    for idx in order:
+        app = ids[idx]
+        similarity = float(sims[idx])
+        if similarity < min_similarity:
+            continue
+        neighbors.append({
+            'appid': app,
+            'similarity': similarity,
+            'cluster_id': clusters_lookup.get(app),
+            'name': names_lookup.get(app),
+        })
+        if len(neighbors) >= top_k:
+            break
+    return neighbors
+
+
 def _format_similarity_table(scores: List[tuple[str, float]]) -> str:
     header = "cluster_id | similitud"
     lines = [header, "-" * len(header)]
@@ -259,12 +472,19 @@ def main() -> None:
         default=0.0,
         help="Umbral mínimo de similitud coseno para mostrar vecinos.",
     )
-    parser.add_argument(
-        "--max-neighbors",
-        type=int,
-        default=None,
-        help="Máximo de vecinos a listar (None = todos los que superen el umbral).",
-    )
+    parser.add_argument("--embeddings", default="data/processed/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
+    parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet para mapear appid -> cluster_id.")
+    parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Ruta opcional a metadata con nombres de juego.")
+    parser.add_argument("--neighbors", type=int, default=20, help="Numero de vecinos mas cercanos a mostrar desde embeddings.")
+    parser.add_argument("--max-neighbors", type=int, dest="neighbors", help=argparse.SUPPRESS)
+    parser.add_argument("--allow-cross", dest="allow_cross", action="store_true", default=True, help="Permite candidatos cross-cluster en el re-ranking.")
+    parser.add_argument("--no-allow-cross", dest="allow_cross", action="store_false", help="Desactiva candidatos cross-cluster.")
+    parser.add_argument("--k-in", type=int, default=25, help="Numero de vecinos intra-cluster a considerar en la primera banda.")
+    parser.add_argument("--k-out", type=int, default=15, help="Numero de candidatos cross-cluster iniciales.")
+    parser.add_argument("--min-sim-in", type=float, default=0.0, help="Similitud minima para vecinos intra-cluster.")
+    parser.add_argument("--min-sim-out", type=float, default=0.78, help="Similitud minima para candidatos cross-cluster.")
+    parser.add_argument("--max-out-ratio", type=float, default=0.3, help="Proporcion maxima de cross-cluster en la lista final.")
+    parser.add_argument("--show-diagnostics", action="store_true", help="Muestra diagnosticos de la estrategia de vecinos.")
     args = parser.parse_args()
 
     config = _load_config(Path(args.config))
@@ -304,8 +524,8 @@ def main() -> None:
     print(f"Similitud     : {best_score:.4f}")
 
     filtered = [item for item in scores if item[1] >= args.min_similarity]
-    if args.max_neighbors is not None and args.max_neighbors > 0:
-        filtered = filtered[: args.max_neighbors]
+    if args.neighbors is not None and args.neighbors > 0:
+        filtered = filtered[: args.neighbors]
 
     if not filtered:
         print("\nNo hay vecinos que superen el umbral de similitud solicitado.")
@@ -313,7 +533,58 @@ def main() -> None:
         print(f"\nRanking de vecinos (>= {args.min_similarity:.4f}) - mostrando {len(filtered)} de {len(scores)} medoids")
         print(_format_similarity_table(filtered))
 
+    emb_df = _load_optional_df(args.embeddings)
+    clusters_df = _load_optional_df(args.clusters)
+    metadata_df = _load_optional_df(args.metadata)
 
+    sample_metadata = _prepare_query_metadata(sample)
+    try:
+        query_cluster_id = int(best_cluster)
+    except Exception:
+        query_cluster_id = None
+
+    strategy_neighbors, diagnostics = _neighbors_with_strategy(
+        sample_vec,
+        sample_metadata,
+        query_cluster_id,
+        emb_df,
+        clusters_df,
+        metadata_df,
+        medoids,
+        target_total=args.neighbors,
+        allow_cross=args.allow_cross,
+        k_in=args.k_in,
+        k_out=args.k_out,
+        min_sim_in=args.min_sim_in,
+        min_sim_out=args.min_sim_out,
+        max_out_ratio=args.max_out_ratio,
+    )
+
+    if not strategy_neighbors:
+        strategy_neighbors = _find_neighbors(sample_vec, emb_df, clusters_df, metadata_df, args.neighbors, args.min_similarity)
+        diagnostics = {}
+
+    if strategy_neighbors:
+        print(f"\nVecinos mas cercanos (top {len(strategy_neighbors)}):")
+        header = f"{'appid':<12}{'cluster':<10}{'sim':<8}{'score':<8}{'src':<8}name"
+        print(header)
+        print('-' * len(header))
+        for row in strategy_neighbors:
+            cluster_val = row.get('cluster_id')
+            cluster_txt = str(cluster_val) if cluster_val is not None else '-'
+            score_val = row.get('score')
+            score_txt = f"{score_val:.4f}" if isinstance(score_val, (float, int)) else '-'
+            source_txt = row.get('source') or '-'
+            name_txt = row.get('name') or ''
+            sim_val = row.get('similarity', 0.0)
+            print(f"{row['appid']:<12}{cluster_txt:<10}{sim_val:.4f}{score_txt:>8}{source_txt:>8} {name_txt}")
+    else:
+        print('\nNo se pudieron calcular vecinos desde embeddings (archivo ausente o sin datos).')
+
+    if args.show_diagnostics and diagnostics:
+        print('\n[Diag] estrategia de vecinos:')
+        for key, value in diagnostics.items():
+            print(f" - {key}: {value}")
 
 if __name__ == "__main__":
     main()
