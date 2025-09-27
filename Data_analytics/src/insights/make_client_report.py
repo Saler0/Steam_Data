@@ -678,8 +678,23 @@ def _load_medoids_for_neighbors(path: str) -> Dict[str, np.ndarray]:
 
 
 def _neighbor_user_config(params_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    strategy_cfg = params_cfg.get('neighbor_strategy') or {}
     client_cfg = params_cfg.get('client_report') or {}
-    return client_cfg.get('neighbors_config') or {}
+    legacy_cfg = client_cfg.get('neighbors_config') or {}
+
+    merged: Dict[str, Any] = {}
+    def _merge(base: Dict[str, Any], override: Dict[str, Any]) -> None:
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                _merge(base[key], value)
+            else:
+                base[key] = value
+
+    if isinstance(strategy_cfg, dict):
+        _merge(merged, strategy_cfg)
+    if isinstance(legacy_cfg, dict):
+        _merge(merged, legacy_cfg)
+    return merged
 
 
 def _now_iso() -> str:

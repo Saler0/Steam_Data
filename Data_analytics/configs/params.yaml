@@ -1,4 +1,4 @@
-﻿# ParÃ¡metros globales
+# Parámetros globales
 mongo:
   # En Docker, usa el hostname del servicio en la red (p.ej., 'mongo').
   # En local, puedes sobrescribir con la variable de entorno MONGO_URI.
@@ -30,11 +30,11 @@ client_report:
 # Clustering params (for DVC cluster_assign)
 # ----------------------
 clustering:
-  # Si null, el script usarÃ¡ el mes actual (YYYYMM)
+  # Si null, el script usará el mes actual (YYYYMM)
   cluster_version: 202509
 
 # ----------------------
-# ParÃ¡metros de reglas
+# Parámetros de reglas
 # ----------------------
 
 regla_precio:
@@ -47,7 +47,7 @@ justificacion_precio:
 
 saturacion_cluster_1:
   vecinos_min: 20
-  edad_umbral: 6   # aÃ±os
+  edad_umbral: 6   # años
 
 saturacion_cluster_2:
   reviews_min: 1000
@@ -108,3 +108,18 @@ cluster_history:
   min_points: 90
 
 
+
+neighbor_strategy:
+  target_total: 20
+  allow_cross_cluster: true
+  k_in: 25
+  k_out: 15
+  min_similarity_in: 0.0
+  min_similarity_out: 0.78
+  max_out_ratio: 0.3
+  rerank:
+    alpha_cosine: 1.0
+    beta_cluster_penalty: 0.15
+    gamma_tag_overlap: 0.10
+    delta_monetization: 0.05
+    epsilon_mode_match: 0.05

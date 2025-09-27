@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -19,7 +20,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.pipelines.generate_embeddings import _build_doc
 from src.utils.io import read_parquet_any
-from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
+from src.insights.neighbor_strategy import DEFAULT_CONFIG, EmbeddingIndex, select_competitor_neighbors
 
 # Prototipos de medoids de respaldo para que el PoC funcione incluso sin haber corrido el pipeline completo
 PROTOTYPE_GAMES: List[Dict[str, Any]] = [
@@ -330,14 +331,7 @@ def _neighbors_with_strategy(
     clusters_df: pd.DataFrame,
     metadata_df: pd.DataFrame,
     medoids: Dict[str, np.ndarray],
-    *,
-    target_total: int,
-    allow_cross: bool,
-    k_in: int,
-    k_out: int,
-    min_sim_in: float,
-    min_sim_out: float,
-    max_out_ratio: float,
+    strategy_cfg: Dict[str, Any],
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     if emb_df.empty or 'embedding' not in emb_df.columns:
         return [], {}
@@ -363,15 +357,7 @@ def _neighbors_with_strategy(
     if not meta_df.empty and 'appid' in meta_df.columns:
         meta_df['appid'] = meta_df['appid'].astype(str)
 
-    user_cfg = {
-        'target_total': target_total,
-        'allow_cross_cluster': allow_cross,
-        'k_in': k_in,
-        'k_out': k_out,
-        'min_similarity_in': min_sim_in,
-        'min_similarity_out': min_sim_out,
-        'max_out_ratio': max_out_ratio,
-    }
+    user_cfg = strategy_cfg.copy() if strategy_cfg else {}
 
     neighbors, diagnostics = select_competitor_neighbors(
         query_vec=sample_vec,
@@ -472,20 +458,81 @@ def main() -> None:
         default=0.0,
         help="Umbral mínimo de similitud coseno para mostrar vecinos.",
     )
+    parser.add_argument("--params-config", default="configs/params.yaml", help="YAML con neighbor_strategy para defaults y pesos del re-ranking.")
     parser.add_argument("--embeddings", default="data/processed/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
     parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet para mapear appid -> cluster_id.")
     parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Ruta opcional a metadata con nombres de juego.")
-    parser.add_argument("--neighbors", type=int, default=20, help="Numero de vecinos mas cercanos a mostrar desde embeddings.")
+    parser.add_argument("--neighbors", type=int, default=None, help="Numero de vecinos mas cercanos a mostrar (override).")
     parser.add_argument("--max-neighbors", type=int, dest="neighbors", help=argparse.SUPPRESS)
-    parser.add_argument("--allow-cross", dest="allow_cross", action="store_true", default=True, help="Permite candidatos cross-cluster en el re-ranking.")
+    parser.add_argument("--allow-cross", dest="allow_cross", action="store_true", help="Permite candidatos cross-cluster en el re-ranking.")
     parser.add_argument("--no-allow-cross", dest="allow_cross", action="store_false", help="Desactiva candidatos cross-cluster.")
-    parser.add_argument("--k-in", type=int, default=25, help="Numero de vecinos intra-cluster a considerar en la primera banda.")
-    parser.add_argument("--k-out", type=int, default=15, help="Numero de candidatos cross-cluster iniciales.")
-    parser.add_argument("--min-sim-in", type=float, default=0.0, help="Similitud minima para vecinos intra-cluster.")
-    parser.add_argument("--min-sim-out", type=float, default=0.78, help="Similitud minima para candidatos cross-cluster.")
-    parser.add_argument("--max-out-ratio", type=float, default=0.3, help="Proporcion maxima de cross-cluster en la lista final.")
+    parser.set_defaults(allow_cross=None)
+    parser.add_argument("--k-in", type=int, default=None, help="Numero de vecinos intra-cluster a considerar en la primera banda.")
+    parser.add_argument("--k-out", type=int, default=None, help="Numero de candidatos cross-cluster iniciales.")
+    parser.add_argument("--min-sim-in", type=float, default=None, help="Similitud minima para vecinos intra-cluster.")
+    parser.add_argument("--min-sim-out", type=float, default=None, help="Similitud minima para candidatos cross-cluster.")
+    parser.add_argument("--max-out-ratio", type=float, default=None, help="Proporcion maxima de cross-cluster en la lista final.")
     parser.add_argument("--show-diagnostics", action="store_true", help="Muestra diagnosticos de la estrategia de vecinos.")
     args = parser.parse_args()
+
+    params_cfg: Dict[str, Any] = {}
+    if args.params_config:
+        cfg_path = Path(args.params_config)
+        if cfg_path.exists():
+            try:
+                loaded = yaml.safe_load(cfg_path.read_text(encoding='utf-8'))
+                if isinstance(loaded, dict):
+                    params_cfg = loaded
+                else:
+                    print(f"[WARN] params_config {cfg_path} no contiene un diccionario, ignorando.")
+            except Exception as exc:
+                print(f"[WARN] No se pudo leer params_config {cfg_path}: {exc}")
+        else:
+            print(f"[WARN] params_config no encontrado: {cfg_path}")
+
+    strategy_cfg = deepcopy(DEFAULT_CONFIG)
+
+    def _merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> None:
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                _merge_dict(base[key], value)
+            else:
+                base[key] = value
+
+    file_cfg = params_cfg.get('neighbor_strategy') or {}
+    if isinstance(file_cfg, dict):
+        _merge_dict(strategy_cfg, file_cfg)
+    legacy_cfg = (params_cfg.get('client_report') or {}).get('neighbors_config') or {}
+    if isinstance(legacy_cfg, dict):
+        _merge_dict(strategy_cfg, legacy_cfg)
+
+    if args.neighbors is None:
+        args.neighbors = int(strategy_cfg.get('target_total', DEFAULT_CONFIG.get('target_total', 20)))
+    strategy_cfg['target_total'] = int(args.neighbors)
+
+    if args.allow_cross is None:
+        args.allow_cross = bool(strategy_cfg.get('allow_cross_cluster', True))
+    strategy_cfg['allow_cross_cluster'] = bool(args.allow_cross)
+
+    if args.k_in is not None:
+        strategy_cfg['k_in'] = int(args.k_in)
+    args.k_in = int(strategy_cfg.get('k_in', DEFAULT_CONFIG.get('k_in', 25)))
+
+    if args.k_out is not None:
+        strategy_cfg['k_out'] = int(args.k_out)
+    args.k_out = int(strategy_cfg.get('k_out', DEFAULT_CONFIG.get('k_out', 15)))
+
+    if args.min_sim_in is not None:
+        strategy_cfg['min_similarity_in'] = float(args.min_sim_in)
+    args.min_sim_in = float(strategy_cfg.get('min_similarity_in', DEFAULT_CONFIG.get('min_similarity_in', 0.0)))
+
+    if args.min_sim_out is not None:
+        strategy_cfg['min_similarity_out'] = float(args.min_sim_out)
+    args.min_sim_out = float(strategy_cfg.get('min_similarity_out', DEFAULT_CONFIG.get('min_similarity_out', 0.78)))
+
+    if args.max_out_ratio is not None:
+        strategy_cfg['max_out_ratio'] = float(args.max_out_ratio)
+    args.max_out_ratio = float(strategy_cfg.get('max_out_ratio', DEFAULT_CONFIG.get('max_out_ratio', 0.3)))
 
     config = _load_config(Path(args.config))
     doc_fields = config.get("document_fields") or {}
@@ -551,13 +598,7 @@ def main() -> None:
         clusters_df,
         metadata_df,
         medoids,
-        target_total=args.neighbors,
-        allow_cross=args.allow_cross,
-        k_in=args.k_in,
-        k_out=args.k_out,
-        min_sim_in=args.min_sim_in,
-        min_sim_out=args.min_sim_out,
-        max_out_ratio=args.max_out_ratio,
+        strategy_cfg,
     )
 
     if not strategy_neighbors:
