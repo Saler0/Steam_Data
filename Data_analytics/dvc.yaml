@@ -37,7 +37,7 @@ stages:
       - configs/embeddings.yaml
     outs:
       - data/processed/embeddings/
-      - data/processed/embeddings.parquet
+      - data/processed/embeddings/embeddings.parquet
 
   # --- Etapa 2: AgrupaciÃ³n de Juegos (Clustering) ---
   # Utiliza los embeddings para agrupar juegos similares.
@@ -291,7 +291,7 @@ stages:
     deps:
       - src/insights/make_client_report.py
       - configs/embeddings.yaml
-      - data/processed/embeddings.parquet
+      - data/processed/embeddings/embeddings.parquet
       - data/processed/clusters.parquet
       - data/processed/game_metadata.parquet
       - outputs/ccf_analysis/summary.parquet

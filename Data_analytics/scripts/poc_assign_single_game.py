@@ -459,7 +459,7 @@ def main() -> None:
         help="Umbral mínimo de similitud coseno para mostrar vecinos.",
     )
     parser.add_argument("--params-config", default="configs/params.yaml", help="YAML con neighbor_strategy para defaults y pesos del re-ranking.")
-    parser.add_argument("--embeddings", default="data/processed/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
+    parser.add_argument("--embeddings", default="data/processed/embeddings/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
     parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet para mapear appid -> cluster_id.")
     parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Ruta opcional a metadata con nombres de juego.")
     parser.add_argument("--neighbors", type=int, default=None, help="Numero de vecinos mas cercanos a mostrar (override).")
