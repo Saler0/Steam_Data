@@ -57,7 +57,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--log-y",
         action="store_true",
-        help="Use a logarithmic scale for the Y axis (useful for heavy-tailed distributions).",
+        help="Use a logarithmic scale for the Y axis (counts only).",
+    )
+    parser.add_argument(
+        "--value-mode",
+        choices=("count", "share", "both"),
+        default="both",
+        help="Display raw counts, percentages, or both (categories mode only shows both/percent).",
+    )
+    parser.add_argument(
+        "--show-labels",
+        action="store_true",
+        help="Overlay text labels on bars (useful when bars are very small).",
     )
     parser.add_argument(
         "--title",
@@ -183,10 +194,14 @@ def _build_chart(
     mode: str,
     thresholds: Sequence[int],
     min_size: int,
+    value_mode: str,
+    show_labels: bool,
 ) -> alt.Chart:
     alt.data_transformers.disable_max_rows()
 
     if mode == "hist":
+        if value_mode != "count":
+            print("[WARN] value-mode share/both not supported with mode=hist; falling back to counts.")
         base = alt.Chart(df, title=title).transform_bin(
             ["metric_bin", "metric_bin_end"],
             field=metric,
@@ -243,31 +258,106 @@ def _build_chart(
 
         return (bars + rule + percentile_rules).interactive(bind_x=False)
 
+
+
     freq_df = _prepare_category_counts(df, metric, thresholds, min_size)
     order = freq_df["bin_label"].tolist()
-    plot_df = freq_df if not log_y else freq_df[freq_df["cluster_count"] > 0]
-    if plot_df.empty:
-        plot_df = freq_df
+    total_clusters = freq_df["cluster_count"].sum()
+    if total_clusters <= 0:
+        total_clusters = 1
+    freq_df["cluster_pct"] = (freq_df["cluster_count"] / total_clusters) * 100.0
 
-    bars = alt.Chart(plot_df, title=title).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-        x=alt.X("bin_label:N", sort=order, title="Games per cluster"),
-        y=alt.Y(
-            "cluster_count:Q",
-            title="Number of clusters",
-            scale=alt.Scale(type="log" if log_y else "linear", nice=True, zero=not log_y),
-        ),
-        color=alt.Color(
-            "cluster_count:Q",
-            scale=alt.Scale(scheme="tableau10", type="log" if log_y else "linear"),
-            legend=None,
-        ),
-        tooltip=[
-            alt.Tooltip("bin_label:N", title="Range"),
-            alt.Tooltip("cluster_count:Q", title="Clusters", format=","),
-        ],
-    ).properties(width=width, height=height)
+    count_chart = None
+    share_chart = None
 
-    return bars
+    if value_mode in ("count", "both"):
+        count_data = freq_df if not log_y else freq_df[freq_df["cluster_count"] > 0]
+        if count_data.empty:
+            count_data = freq_df
+        count_height = height if value_mode == "count" else max(200, int(height * 0.6))
+        count_title = title if value_mode == "count" else f"{title} – clusters (abs)"
+        count_chart = alt.Chart(count_data, title=count_title).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X("bin_label:N", sort=order, title="Games per cluster"),
+            y=alt.Y(
+                "cluster_count:Q",
+                title="Number of clusters",
+                scale=alt.Scale(type="log" if log_y else "linear", nice=True, zero=not log_y),
+            ),
+            color=alt.Color(
+                "cluster_count:Q",
+                scale=alt.Scale(scheme="tableau10", type="log" if log_y else "linear"),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("bin_label:N", title="Range"),
+                alt.Tooltip("cluster_count:Q", title="Clusters", format=","),
+                alt.Tooltip("cluster_pct:Q", title="Share (%)", format=".2f"),
+            ],
+        ).properties(width=width, height=count_height)
+
+        if show_labels:
+            label_data = count_data[count_data["cluster_count"] > 0]
+            if not label_data.empty:
+                count_chart = count_chart + alt.Chart(label_data).mark_text(
+                    align="center",
+                    baseline="bottom",
+                    dy=-6,
+                    color="#333",
+                    fontSize=12,
+                ).encode(
+                    x=alt.X("bin_label:N", sort=order),
+                    y=alt.Y("cluster_count:Q"),
+                    text=alt.Text("cluster_count:Q", format=","),
+                )
+
+    if value_mode in ("share", "both"):
+        share_height = height if value_mode == "share" else max(180, int(height * 0.5))
+        share_title = title if value_mode == "share" else f"{title} – clusters (%)"
+        share_chart = alt.Chart(freq_df, title=share_title).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X("bin_label:N", sort=order, title="Games per cluster"),
+            y=alt.Y(
+                "cluster_pct:Q",
+                title="Clusters (%)",
+                scale=alt.Scale(type="linear", nice=True, zero=True),
+                axis=alt.Axis(format=".1f"),
+            ),
+            color=alt.Color(
+                "cluster_pct:Q",
+                scale=alt.Scale(scheme="blues"),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("bin_label:N", title="Range"),
+                alt.Tooltip("cluster_pct:Q", title="Clusters (%)", format=".2f"),
+                alt.Tooltip("cluster_count:Q", title="Clusters", format=","),
+            ],
+        ).properties(width=width, height=share_height)
+
+        if show_labels:
+            label_share = freq_df[freq_df["cluster_pct"] > 0]
+            if not label_share.empty:
+                share_chart = share_chart + alt.Chart(label_share).mark_text(
+                    align="center",
+                    baseline="bottom",
+                    dy=-6,
+                    color="#333",
+                    fontSize=12,
+                ).encode(
+                    x=alt.X("bin_label:N", sort=order),
+                    y=alt.Y("cluster_pct:Q"),
+                    text=alt.Text("cluster_pct:Q", format=".1f"),
+                )
+
+    if value_mode == "count":
+        return count_chart if count_chart is not None else alt.Chart().mark_text(text="No data")
+    if value_mode == "share":
+        return share_chart if share_chart is not None else alt.Chart().mark_text(text="No data")
+
+    if count_chart is None:
+        count_chart = alt.Chart().mark_text(text="No count data")
+    if share_chart is None:
+        share_chart = alt.Chart().mark_text(text="No share data")
+    return alt.vconcat(count_chart, share_chart).resolve_scale(y="independent")
 
 
 def main() -> None:
@@ -293,6 +383,8 @@ def main() -> None:
         mode=args.mode,
         thresholds=thresholds,
         min_size=args.min_size,
+        value_mode=args.value_mode,
+        show_labels=args.show_labels,
     )
 
     out_path = Path(args.out_html)
