@@ -1,4 +1,6 @@
-from pymongo import MongoClient, ASCENDING
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.errors import CollectionInvalid
 
 
 class MongoDBClient:
@@ -13,3 +15,11 @@ class MongoDBClient:
     def ping(self) -> bool:
         self.client.admin.command("ping")
         return True
+
+    def get_collection(self, name: str) -> Collection:
+        if name not in self.db.list_collection_names():
+            try:
+                self.db.create_collection(name)
+            except CollectionInvalid:
+                pass
+        return self.db[name]
