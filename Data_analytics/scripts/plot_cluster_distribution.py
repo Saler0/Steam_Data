@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,23 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=40,
         help="Maximum number of histogram bins (Altair's maxbins).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("hist", "categories"),
+        default="categories",
+        help="Histogram bins or named ranges for the distribution visualization.",
+    )
+    parser.add_argument(
+        "--bin-thresholds",
+        default="10,50,200,500,2000",
+        help="Comma-separated inclusive upper bounds for bins when mode=categories.",
+    )
+    parser.add_argument(
+        "--min-size",
+        type=int,
+        default=1,
+        help="Lower bound for the first categorical bin when mode=categories.",
     )
     parser.add_argument(
         "--log-y",
@@ -72,6 +89,24 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _parse_thresholds(raw: str) -> List[int]:
+    values: List[int] = []
+    for part in raw.split(','):
+        cleaned = part.strip()
+        if not cleaned:
+            continue
+        try:
+            values.append(int(cleaned))
+        except ValueError as exc:
+            raise SystemExit(f"Invalid threshold value '{cleaned}'. Use integers separated by commas.") from exc
+    if not values:
+        raise SystemExit("At least one threshold is required when mode=categories.")
+    values = sorted(set(values))
+    if any(val <= 0 for val in values):
+        raise SystemExit("Thresholds must be positive integers.")
+    return values
+
+
 def _load_stats(path: Path, metric: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Stats file not found: {path}")
@@ -91,6 +126,42 @@ def _load_stats(path: Path, metric: str) -> pd.DataFrame:
     return df
 
 
+def _prepare_category_counts(df: pd.DataFrame, metric: str, thresholds: Sequence[int], min_size: int) -> pd.DataFrame:
+    if min_size <= 0:
+        raise SystemExit("min-size must be a positive integer.")
+    if not thresholds:
+        raise SystemExit("mode=categories requires at least one threshold.")
+    lower = min_size
+    labels: List[str] = []
+    edges = [float(min_size - 1)]
+    for upper in thresholds:
+        if upper < lower:
+            raise SystemExit("Thresholds must be in non-decreasing order and >= min-size.")
+        edges.append(float(upper))
+        labels.append(f"{lower}-{upper}")
+        lower = upper + 1
+    edges.append(float('inf'))
+    labels.append(f"{lower}+")
+    categorized = pd.cut(
+        df[metric].astype(float),
+        bins=edges,
+        labels=labels,
+        include_lowest=True,
+        right=True,
+    )
+    category_series = pd.Series(categorized, name="bin_label")
+    counts = (
+        category_series
+        .value_counts(sort=False)
+        .reindex(category_series.cat.categories, fill_value=0)
+        .reset_index()
+        .rename(columns={"index": "bin_label", "bin_label": "cluster_count"})
+    )
+    counts["cluster_count"] = counts["cluster_count"].astype(int)
+    counts["_order"] = range(len(labels))
+    return counts.sort_values("_order").drop(columns="_order")
+
+
 def _enable_theme(name: Optional[str]) -> None:
     if not name:
         return
@@ -100,24 +171,85 @@ def _enable_theme(name: Optional[str]) -> None:
         print(f"[WARN] Altair theme '{name}' is not available. Using default theme.")
 
 
-def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, width: int, height: int, title: str) -> alt.Chart:
+def _build_chart(
+    df: pd.DataFrame,
+    metric: str,
+    max_bins: int,
+    log_y: bool,
+    width: int,
+    height: int,
+    title: str,
+    mode: str,
+    thresholds: Sequence[int],
+    min_size: int,
+) -> alt.Chart:
     alt.data_transformers.disable_max_rows()
 
-    base = alt.Chart(df, title=title).transform_bin(
-        ["metric_bin", "metric_bin_end"],
-        field=metric,
-        bin=alt.Bin(maxbins=max_bins, nice=True),
-    ).transform_aggregate(
-        cluster_count="count()",
-        size_mean=f"mean({metric})",
-        size_min=f"min({metric})",
-        size_max=f"max({metric})",
-        groupby=["metric_bin", "metric_bin_end"],
-    )
+    if mode == "hist":
+        base = alt.Chart(df, title=title).transform_bin(
+            ["metric_bin", "metric_bin_end"],
+            field=metric,
+            bin=alt.Bin(maxbins=max_bins, nice=True),
+        ).transform_aggregate(
+            cluster_count="count()",
+            size_mean=f"mean({metric})",
+            size_min=f"min({metric})",
+            size_max=f"max({metric})",
+            groupby=["metric_bin", "metric_bin_end"],
+        )
 
-    bars = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-        x=alt.X("metric_bin:Q", title="Games per cluster", axis=alt.Axis(labelAngle=0)),
-        x2=alt.X2("metric_bin_end:Q"),
+        bars = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X("metric_bin:Q", title="Games per cluster", axis=alt.Axis(labelAngle=0)),
+            x2=alt.X2("metric_bin_end:Q"),
+            y=alt.Y(
+                "cluster_count:Q",
+                title="Number of clusters",
+                scale=alt.Scale(type="log" if log_y else "linear", nice=True, zero=not log_y),
+            ),
+            color=alt.Color(
+                "cluster_count:Q",
+                scale=alt.Scale(scheme="tableau10", type="log" if log_y else "linear"),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("cluster_count:Q", title="Clusters", format=","),
+                alt.Tooltip("size_min:Q", title="Min size", format=","),
+                alt.Tooltip("size_max:Q", title="Max size", format=","),
+                alt.Tooltip("size_mean:Q", title="Avg size", format=",.1f"),
+            ],
+        ).properties(width=width, height=height)
+
+        rule = alt.Chart(df).mark_rule(color="#ff7f0e", strokeDash=[8, 4]).encode(
+            x=alt.X(f"mean({metric}):Q"),
+            tooltip=[alt.Tooltip(f"mean({metric}):Q", title="Global mean", format=",.1f")],
+        )
+
+        percentile_df = (
+            df[metric]
+            .quantile([0.25, 0.5, 0.75])
+            .rename(index={0.25: "25th", 0.5: "50th", 0.75: "75th"})
+            .reset_index()
+            .rename(columns={"index": "quantile", metric: "value"})
+        )
+
+        percentile_rules = alt.Chart(percentile_df).mark_rule(color="#2ca02c", strokeWidth=1.5).encode(
+            x="value:Q",
+            tooltip=[
+                alt.Tooltip("value:Q", title="Percentile", format=",.1f"),
+                alt.Tooltip("quantile:N", title="Quantile"),
+            ],
+        )
+
+        return (bars + rule + percentile_rules).interactive(bind_x=False)
+
+    freq_df = _prepare_category_counts(df, metric, thresholds, min_size)
+    order = freq_df["bin_label"].tolist()
+    plot_df = freq_df if not log_y else freq_df[freq_df["cluster_count"] > 0]
+    if plot_df.empty:
+        plot_df = freq_df
+
+    bars = alt.Chart(plot_df, title=title).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+        x=alt.X("bin_label:N", sort=order, title="Games per cluster"),
         y=alt.Y(
             "cluster_count:Q",
             title="Number of clusters",
@@ -129,35 +261,12 @@ def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, widt
             legend=None,
         ),
         tooltip=[
+            alt.Tooltip("bin_label:N", title="Range"),
             alt.Tooltip("cluster_count:Q", title="Clusters", format=","),
-            alt.Tooltip("size_min:Q", title="Min size", format=","),
-            alt.Tooltip("size_max:Q", title="Max size", format=","),
-            alt.Tooltip("size_mean:Q", title="Avg size", format=",.1f"),
         ],
     ).properties(width=width, height=height)
 
-    rule = alt.Chart(df).mark_rule(color="#ff7f0e", strokeDash=[8, 4]).encode(
-        x=alt.X(f"mean({metric}):Q"),
-        tooltip=[alt.Tooltip(f"mean({metric}):Q", title="Global mean", format=",.1f")],
-    )
-
-    percentile_df = (
-        df[metric]
-        .quantile([0.25, 0.5, 0.75])
-        .rename(index={0.25: "25th", 0.5: "50th", 0.75: "75th"})
-        .reset_index()
-        .rename(columns={"index": "quantile", metric: "value"})
-    )
-
-    percentile_rules = alt.Chart(percentile_df).mark_rule(color="#2ca02c", strokeWidth=1.5).encode(
-        x="value:Q",
-        tooltip=[
-            alt.Tooltip("value:Q", title="Percentile", format=",.1f"),
-            alt.Tooltip("quantile:N", title="Quantile"),
-        ],
-    )
-
-    return (bars + rule + percentile_rules).interactive(bind_x=False)
+    return bars
 
 
 def main() -> None:
@@ -168,6 +277,10 @@ def main() -> None:
 
     _enable_theme(args.theme)
 
+    thresholds: Sequence[int] = []
+    if args.mode == "categories":
+        thresholds = _parse_thresholds(args.bin_thresholds)
+
     chart = _build_chart(
         df,
         metric=args.metric,
@@ -176,6 +289,9 @@ def main() -> None:
         width=args.width,
         height=args.height,
         title=args.title,
+        mode=args.mode,
+        thresholds=thresholds,
+        min_size=args.min_size,
     )
 
     out_path = Path(args.out_html)
