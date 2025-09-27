@@ -104,7 +104,7 @@ def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, widt
     alt.data_transformers.disable_max_rows()
 
     base = alt.Chart(df, title=title).transform_bin(
-        "metric_bin",
+        ["metric_bin", "metric_bin_end"],
         field=metric,
         bin=alt.Bin(maxbins=max_bins, nice=True),
     ).transform_aggregate(
@@ -112,11 +112,12 @@ def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, widt
         size_mean=f"mean({metric})",
         size_min=f"min({metric})",
         size_max=f"max({metric})",
-        groupby=["metric_bin"],
+        groupby=["metric_bin", "metric_bin_end"],
     )
 
     bars = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
         x=alt.X("metric_bin:Q", title="Games per cluster", axis=alt.Axis(labelAngle=0)),
+        x2=alt.X2("metric_bin_end:Q"),
         y=alt.Y(
             "cluster_count:Q",
             title="Number of clusters",
