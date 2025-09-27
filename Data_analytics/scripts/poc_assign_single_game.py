@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 from copy import deepcopy
@@ -21,6 +22,21 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.pipelines.generate_embeddings import _build_doc
 from src.utils.io import read_parquet_any
 from src.insights.neighbor_strategy import DEFAULT_CONFIG, EmbeddingIndex, select_competitor_neighbors
+try:
+    import mlflow
+    from src.utils.mlflow_utils import (
+        start_mlflow_run,
+        log_mlflow_params,
+        log_mlflow_metrics,
+        log_mlflow_artifacts,
+    )
+except Exception:  # pragma: no cover
+    mlflow = None
+    start_mlflow_run = None
+    log_mlflow_params = None
+    log_mlflow_metrics = None
+    log_mlflow_artifacts = None
+
 
 # Prototipos de medoids de respaldo para que el PoC funcione incluso sin haber corrido el pipeline completo
 PROTOTYPE_GAMES: List[Dict[str, Any]] = [
@@ -323,6 +339,7 @@ def _prepare_query_metadata(sample: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+
 def _neighbors_with_strategy(
     sample_vec: np.ndarray,
     sample_metadata: Dict[str, Any],
@@ -332,6 +349,8 @@ def _neighbors_with_strategy(
     metadata_df: pd.DataFrame,
     medoids: Dict[str, np.ndarray],
     strategy_cfg: Dict[str, Any],
+    faiss_index_path: str | None = None,
+    faiss_ids_path: str | None = None,
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     if emb_df.empty or 'embedding' not in emb_df.columns:
         return [], {}
@@ -342,8 +361,12 @@ def _neighbors_with_strategy(
         return [], {}
     df = df[['appid', 'embedding']].dropna()
     df['appid'] = df['appid'].astype(str)
-    index = EmbeddingIndex.from_dataframe(df)
-    if index.matrix.size == 0:
+    index = EmbeddingIndex.from_dataframe(
+        df,
+        faiss_index_path=faiss_index_path,
+        faiss_ids_path=faiss_ids_path,
+    )
+    if not index.ids:
         return [], {}
 
     cluster_df = clusters_df.copy()
@@ -371,6 +394,8 @@ def _neighbors_with_strategy(
         user_cfg=user_cfg,
     )
     return neighbors, diagnostics
+
+
 
 
 def _find_neighbors(sample_vec: np.ndarray,
@@ -418,8 +443,6 @@ def _find_neighbors(sample_vec: np.ndarray,
         if len(neighbors) >= top_k:
             break
     return neighbors
-
-
 def _format_similarity_table(scores: List[tuple[str, float]]) -> str:
     header = "cluster_id | similitud"
     lines = [header, "-" * len(header)]
@@ -462,6 +485,8 @@ def main() -> None:
     parser.add_argument("--embeddings", default="data/processed/embeddings/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
     parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet para mapear appid -> cluster_id.")
     parser.add_argument("--metadata", default="data/processed/game_metadata.parquet", help="Ruta opcional a metadata con nombres de juego.")
+    parser.add_argument("--faiss-index", default=None, help="Ruta opcional a un indice FAISS persistido.")
+    parser.add_argument("--faiss-ids", default=None, help="Ruta opcional al JSON con el orden de appids del indice FAISS.")
     parser.add_argument("--neighbors", type=int, default=None, help="Numero de vecinos mas cercanos a mostrar (override).")
     parser.add_argument("--max-neighbors", type=int, dest="neighbors", help=argparse.SUPPRESS)
     parser.add_argument("--allow-cross", dest="allow_cross", action="store_true", help="Permite candidatos cross-cluster en el re-ranking.")
@@ -473,6 +498,7 @@ def main() -> None:
     parser.add_argument("--min-sim-out", type=float, default=None, help="Similitud minima para candidatos cross-cluster.")
     parser.add_argument("--max-out-ratio", type=float, default=None, help="Proporcion maxima de cross-cluster en la lista final.")
     parser.add_argument("--show-diagnostics", action="store_true", help="Muestra diagnosticos de la estrategia de vecinos.")
+    parser.add_argument("--mlflow-run-name", default=None, help="Nombre personalizado para la corrida de MLflow.")
     args = parser.parse_args()
 
     params_cfg: Dict[str, Any] = {}
@@ -505,6 +531,12 @@ def main() -> None:
     legacy_cfg = (params_cfg.get('client_report') or {}).get('neighbors_config') or {}
     if isinstance(legacy_cfg, dict):
         _merge_dict(strategy_cfg, legacy_cfg)
+    faiss_index_path = args.faiss_index or strategy_cfg.pop("faiss_index_path", None)
+    faiss_ids_path = args.faiss_ids or strategy_cfg.pop("faiss_ids_path", None)
+    if not faiss_index_path:
+        faiss_index_path = params_cfg.get("faiss_index_path")
+    if not faiss_ids_path:
+        faiss_ids_path = params_cfg.get("faiss_ids_path")
 
     if args.neighbors is None:
         args.neighbors = int(strategy_cfg.get('target_total', DEFAULT_CONFIG.get('target_total', 20)))
@@ -533,6 +565,37 @@ def main() -> None:
     if args.max_out_ratio is not None:
         strategy_cfg['max_out_ratio'] = float(args.max_out_ratio)
     args.max_out_ratio = float(strategy_cfg.get('max_out_ratio', DEFAULT_CONFIG.get('max_out_ratio', 0.3)))
+    mlflow_cfg = params_cfg.get("mlflow") or {}
+    mlflow_run_name = args.mlflow_run_name or f"single-game-poc-{args.scenario}"
+    mlflow_run_active = False
+    artifact_path: str | None = None
+    if mlflow and start_mlflow_run and mlflow_cfg:
+        try:
+            start_mlflow_run(
+                mlflow_cfg.get("experiment_name", "single-game-poc"),
+                mlflow_run_name,
+                tracking_uri=mlflow_cfg.get("tracking_uri"),
+            )
+            if log_mlflow_params:
+                params_to_log = {
+                    "scenario": args.scenario,
+                    "neighbors_target": args.neighbors,
+                    "allow_cross_cluster": strategy_cfg.get("allow_cross_cluster"),
+                    "k_in": args.k_in,
+                    "k_out": args.k_out,
+                    "min_similarity_in": args.min_sim_in,
+                    "min_similarity_out": args.min_sim_out,
+                    "max_out_ratio": args.max_out_ratio,
+                    "faiss_index_path": faiss_index_path or "",
+                    "faiss_ids_path": faiss_ids_path or "",
+                }
+                log_mlflow_params({k: ("" if v is None else str(v)) for k, v in params_to_log.items()})
+            mlflow_run_active = True
+        except Exception as exc:
+            print(f"[WARN] No se pudo iniciar MLflow: {exc}")
+            mlflow_run_active = False
+    else:
+        mlflow_run_active = False
 
     config = _load_config(Path(args.config))
     doc_fields = config.get("document_fields") or {}
@@ -566,6 +629,11 @@ def main() -> None:
         raise SystemExit("No se pudieron calcular similitudes contra los medoids.")
 
     best_cluster, best_score = scores[0]
+    if mlflow_run_active and log_mlflow_params:
+        try:
+            log_mlflow_params({"best_cluster": str(best_cluster)})
+        except Exception as exc:
+            print(f"[WARN] No se pudo registrar parámetro en MLflow: {exc}")
     print("================= RESULTADO =================")
     print(f"Mejor clúster : {best_cluster}")
     print(f"Similitud     : {best_score:.4f}")
@@ -599,12 +667,43 @@ def main() -> None:
         metadata_df,
         medoids,
         strategy_cfg,
+        faiss_index_path=faiss_index_path,
+        faiss_ids_path=faiss_ids_path,
     )
 
     if not strategy_neighbors:
         strategy_neighbors = _find_neighbors(sample_vec, emb_df, clusters_df, metadata_df, args.neighbors, args.min_similarity)
         diagnostics = {}
 
+    if mlflow_run_active and log_mlflow_metrics:
+        metrics = {
+            "best_cluster_similarity": float(best_score),
+            "neighbors_selected": len(strategy_neighbors or []),
+        }
+        if diagnostics:
+            for key, value in diagnostics.items():
+                if isinstance(value, (int, float, np.floating)):
+                    metrics[f"diag_{key}"] = float(value)
+            faiss_used = diagnostics.get("faiss_used")
+            if isinstance(faiss_used, bool):
+                metrics["diag_faiss_used"] = 1.0 if faiss_used else 0.0
+        try:
+            log_mlflow_metrics(metrics)
+        except Exception as exc:
+            print(f"[WARN] No se pudieron registrar métricas en MLflow: {exc}")
+        if log_mlflow_artifacts and strategy_neighbors:
+            try:
+                tmp_file = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json")
+                with tmp_file:
+                    json.dump({"neighbors": strategy_neighbors, "diagnostics": diagnostics}, tmp_file, ensure_ascii=False, indent=2)
+                artifact_path = tmp_file.name
+                log_mlflow_artifacts(artifact_path, artifact_path="single_game_poc")
+            except Exception as exc:
+                print(f"[WARN] No se pudo registrar artefactos en MLflow: {exc}")
+            finally:
+                if artifact_path:
+                    Path(artifact_path).unlink(missing_ok=True)
+                    artifact_path = None
     if strategy_neighbors:
         print(f"\nVecinos mas cercanos (top {len(strategy_neighbors)}):")
         header = f"{'appid':<12}{'cluster':<10}{'sim':<8}{'score':<8}{'src':<8}name"
@@ -626,6 +725,12 @@ def main() -> None:
         print('\n[Diag] estrategia de vecinos:')
         for key, value in diagnostics.items():
             print(f" - {key}: {value}")
+
+    if mlflow_run_active and mlflow:
+        try:
+            mlflow.end_run()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

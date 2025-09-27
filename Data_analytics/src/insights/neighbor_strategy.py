@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import math
+import json
+from pathlib import Path
 
 import numpy as np
 
@@ -13,6 +15,12 @@ try:
     from sklearn.metrics.pairwise import cosine_similarity
 except ImportError:  # pragma: no cover
     cosine_similarity = None  # type: ignore
+
+try:
+    from src.utils.faiss_utils import load_faiss_index, search_faiss_index
+except ImportError:  # pragma: no cover
+    load_faiss_index = None  # type: ignore
+    search_faiss_index = None  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +78,23 @@ def _coerce_float(value: Any, default: float = math.nan) -> float:
     except Exception:  # noqa: BLE001
         return default
 
+def _vector_from_value(value: Any) -> Optional[np.ndarray]:
+    if isinstance(value, np.ndarray):
+        arr = value.astype(np.float32)
+    elif isinstance(value, list):
+        arr = np.asarray(value, dtype=np.float32)
+    elif isinstance(value, str):
+        try:
+            arr = np.asarray(json.loads(value), dtype=np.float32)
+        except Exception:
+            return None
+    else:
+        return None
+    if arr.size == 0:
+        return None
+    return _ensure_unit_vector(arr)
+
+
 
 @dataclass
 class MetadataView:
@@ -87,31 +112,34 @@ class MetadataAccessor:
     """Caches normalized metadata rows for quick reuse."""
 
     def __init__(self, df):
-        self._df = df
         self._cache: Dict[str, MetadataView] = {}
+        self._lookup: Dict[str, Dict[str, Any]] = {}
+        if df is None or getattr(df, 'empty', True):
+            return
+        if 'appid' not in df.columns:
+            return
+        tmp = df.copy()
+        tmp['appid'] = tmp['appid'].astype(str)
+        self._lookup = {row['appid']: row.to_dict() for _, row in tmp.iterrows()}
 
     def get(self, appid: str) -> MetadataView:
         if appid in self._cache:
             return self._cache[appid]
-        if self._df.empty:
+        record = self._lookup.get(appid)
+        if not record:
             view = MetadataView([], [], [], [], None, math.nan, None)
             self._cache[appid] = view
             return view
-        sub = self._df[self._df['appid'].astype(str) == appid]
-        if sub.empty:
-            view = MetadataView([], [], [], [], None, math.nan, None)
-            self._cache[appid] = view
-            return view
-        row = sub.iloc[0]
-        genres = _normalize_collection(row.get('genres'))
-        tags = _normalize_collection(row.get('tags')) or _normalize_collection(row.get('steamspy_tags'))
-        categories = _normalize_collection(row.get('categories'))
-        modes = self._infer_modes(categories + _normalize_collection(row.get('modes')))
-        is_free = row.get('is_free')
-        price = _coerce_float(row.get('price'))
-        if math.isnan(price) and row.get('final_price') is not None:
-            price = _coerce_float(row.get('final_price')) / 100 if _coerce_float(row.get('final_price')) > 5 else math.nan
-        raw_name = row.get('name')
+        genres = _normalize_collection(record.get('genres'))
+        tags = _normalize_collection(record.get('tags')) or _normalize_collection(record.get('steamspy_tags'))
+        categories = _normalize_collection(record.get('categories'))
+        modes = self._infer_modes(categories + _normalize_collection(record.get('modes')))
+        is_free = record.get('is_free')
+        price = _coerce_float(record.get('price'))
+        if math.isnan(price) and record.get('final_price') is not None:
+            final_price_val = _coerce_float(record.get('final_price'))
+            price = final_price_val / 100 if final_price_val > 5 else math.nan
+        raw_name = record.get('name')
         if isinstance(raw_name, float) and math.isnan(raw_name):
             raw_name = None
         view = MetadataView(
@@ -154,21 +182,85 @@ class EmbeddingIndex:
     ids: List[str]
     matrix: np.ndarray
     id_to_idx: Dict[str, int]
+    faiss_index: Optional[Any] = None
+    vector_map: Dict[str, np.ndarray] | None = None
+
+    def __post_init__(self) -> None:
+        if self.vector_map is None:
+            self.vector_map = {}
+
+    @property
+    def uses_faiss(self) -> bool:
+        return self.faiss_index is not None and search_faiss_index is not None
+
+    def __len__(self) -> int:
+        return len(self.ids)
 
     @classmethod
-    def from_dataframe(cls, df) -> 'EmbeddingIndex':
+    def from_dataframe(
+        cls,
+        df,
+        faiss_index_path: Optional[str] = None,
+        faiss_ids_path: Optional[str] = None,
+    ) -> 'EmbeddingIndex':
         if df.empty:
             return cls([], np.zeros((0, 0), dtype=np.float32), {})
-        ids = df['appid'].astype(str).tolist()
-        vectors = [_as_float32(vec if isinstance(vec, (list, tuple, np.ndarray)) else []) for vec in df['embedding']]
-        if not vectors:
+
+        tmp = df.copy()
+        tmp['appid'] = tmp['appid'].astype(str)
+        vector_map: Dict[str, np.ndarray] = {}
+        for _, row in tmp.iterrows():
+            vec = _vector_from_value(row.get('embedding'))
+            if vec is None:
+                continue
+            vector_map[row['appid']] = vec
+
+        if not vector_map:
             return cls([], np.zeros((0, 0), dtype=np.float32), {})
-        matrix = np.vstack(vectors).astype(np.float32)
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        norms[norms == 0.0] = 1.0
-        matrix = matrix / norms
+
+        faiss_index = None
+        ids: List[str] = list(vector_map.keys())
+        idx_path = Path(faiss_index_path) if faiss_index_path else None
+        ids_path = Path(faiss_ids_path) if faiss_ids_path else None
+        if idx_path and ids_path and load_faiss_index is not None and search_faiss_index is not None:
+            if idx_path.exists() and ids_path.exists():
+                try:
+                    faiss_index = load_faiss_index(str(idx_path))
+                    faiss_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+                    ids = [str(item) for item in faiss_ids]
+                    if faiss_index.ntotal != len(ids):
+                        print(f"[WARN] FAISS index size ({faiss_index.ntotal}) no coincide con ids ({len(ids)}); ignorando base FAISS.")
+                        faiss_index = None
+                except Exception as exc:
+                    print(f"[WARN] No se pudo cargar FAISS index '{idx_path}': {exc}")
+                    faiss_index = None
+            else:
+                missing = []
+                if idx_path and not idx_path.exists():
+                    missing.append(str(idx_path))
+                if ids_path and not ids_path.exists():
+                    missing.append(str(ids_path))
+                if missing:
+                    joined = ', '.join(missing)
+                    print(f"[WARN] FAISS solicitado pero faltan archivos: {joined}")
+        first_vec = next(iter(vector_map.values()))
+        dim = int(first_vec.shape[0])
+        matrix = np.zeros((len(ids), dim), dtype=np.float32)
+
+        for idx, aid in enumerate(ids):
+            vec = vector_map.get(aid)
+            if vec is None and faiss_index is not None:
+                try:
+                    vec = np.asarray(faiss_index.reconstruct(idx), dtype=np.float32)
+                    vec = _ensure_unit_vector(vec)
+                    vector_map[aid] = vec
+                except Exception:
+                    vec = None
+            if vec is not None:
+                matrix[idx] = vec
+
         id_to_idx = {aid: idx for idx, aid in enumerate(ids)}
-        return cls(ids, matrix, id_to_idx)
+        return cls(ids, matrix, id_to_idx, faiss_index=faiss_index, vector_map=vector_map)
 
     def similarity_vector(self, query: np.ndarray) -> np.ndarray:
         if self.matrix.size == 0:
@@ -176,13 +268,49 @@ class EmbeddingIndex:
         q = _ensure_unit_vector(query.astype(np.float32))
         return self.matrix @ q
 
+    def top_similar(self, query: np.ndarray, top_k: int) -> List[Tuple[str, float, int]]:
+        if not self.ids:
+            return []
+        top_k = max(0, min(top_k, len(self.ids)))
+        if top_k == 0:
+            return []
+        q = _ensure_unit_vector(query.astype(np.float32))
+        if self.uses_faiss:
+            distances, indices = search_faiss_index(self.faiss_index, q.reshape(1, -1), top_k)
+            results: List[Tuple[str, float, int]] = []
+            for dist, idx in zip(distances[0], indices[0]):
+                if idx < 0 or idx >= len(self.ids):
+                    continue
+                results.append((self.ids[idx], float(dist), int(idx)))
+            return results
+        sims = self.matrix @ q
+        order = np.argsort(-sims)[:top_k]
+        return [(self.ids[i], float(sims[i]), int(i)) for i in order]
+
     def vector_for(self, appid: str) -> Optional[np.ndarray]:
         idx = self.id_to_idx.get(appid)
         if idx is None:
             return None
-        return self.matrix[idx]
-
-
+        vec = None
+        if self.vector_map:
+            vec = self.vector_map.get(appid)
+        if vec is None and self.matrix.size and idx < self.matrix.shape[0]:
+            row = self.matrix[idx]
+            if row.size and np.any(row):
+                vec = row.astype(np.float32)
+                if self.vector_map is not None:
+                    self.vector_map[appid] = vec
+        if vec is None and self.uses_faiss:
+            try:
+                arr = np.asarray(self.faiss_index.reconstruct(idx), dtype=np.float32)
+                vec = _ensure_unit_vector(arr)
+                if self.vector_map is not None:
+                    self.vector_map[appid] = vec
+                if self.matrix.size and idx < self.matrix.shape[0]:
+                    self.matrix[idx] = vec
+            except Exception:
+                return None
+        return vec
 DEFAULT_CONFIG: Dict[str, Any] = {
     'target_total': 40,
     'same_cluster_only': True,
@@ -192,6 +320,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     'min_similarity_in': 0.82,
     'min_similarity_out': 0.80,
     'max_out_ratio': 0.30,
+    'max_cross_clusters': None,
     'business_filters': {
         'genre_match': True,
         'min_shared_tags': 2,
@@ -284,7 +413,30 @@ def _compute_cluster_distance(query_cluster: Optional[int], candidate_cluster: O
     return 1.0 - similarity
 
 
+def _closest_clusters(query_cluster: Optional[int], medoids: Dict[str, np.ndarray], limit: int) -> set[int]:
+    if query_cluster is None or limit <= 0:
+        return set()
+    key = str(query_cluster)
+    if key not in medoids:
+        return set()
+    query_vec = medoids[key]
+    scores: List[Tuple[int, float]] = []
+    for cid_str, vec in medoids.items():
+        if cid_str == key:
+            continue
+        similarity = float(np.dot(query_vec, vec))
+        scores.append((int(cid_str), similarity))
+    scores.sort(key=lambda item: item[1], reverse=True)
+    top = scores[:limit]
+    return {cid for cid, _ in top}
+
+
 def _microsegment_neighbors(query_vec: np.ndarray, candidates: List[Dict[str, Any]], threshold: float, min_neighbors: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    valid_candidates = [cand for cand in candidates if isinstance(cand.get('vector'), np.ndarray) and getattr(cand.get('vector'), 'size', 0) > 0]
+    if len(valid_candidates) < len(candidates):
+        if not valid_candidates:
+            return candidates, {'applied': False, 'reason': 'missing_vectors'}
+        candidates = valid_candidates
     if not candidates:
         return candidates, {'applied': False}
     if len(candidates) < max(2, min_neighbors):
@@ -332,6 +484,7 @@ def _silhouette_proxy(in_sims: Sequence[float], cross_sims: Sequence[float]) -> 
     return (mean_in - mean_out) / denom
 
 
+
 def select_competitor_neighbors(
     query_vec: np.ndarray,
     query_metadata: Dict[str, Any],
@@ -377,48 +530,121 @@ def select_competitor_neighbors(
         name=query_metadata.get('name'),
     )
 
-    sims = embeddings.similarity_vector(query_vec)
-    ids = embeddings.ids
+    total_embeddings = len(embeddings.ids)
+    if total_embeddings == 0:
+        return [], {
+            'target_total': int(cfg.get('target_total', 0)),
+            'intra_candidates': 0,
+            'cross_candidates': 0,
+            'selected': 0,
+            'cross_selected': 0,
+            'diluted': False,
+            'silhouette_proxy': 0.0,
+            'average_in_similarity': 0.0,
+            'microsegmentation': {'applied': False},
+            'allow_cross_effective': bool(cfg.get('allow_cross_cluster')),
+            'scanned': 0,
+            'gathered_in': 0,
+            'gathered_cross': 0,
+            'fallback_used': False,
+            'faiss_used': embeddings.uses_faiss,
+        }
 
-    ordered = np.argsort(-sims)
     min_sim_in = float(cfg.get('min_similarity_in', 0.0))
     min_sim_out = float(cfg.get('min_similarity_out', 0.0))
     k_in = int(cfg.get('k_in', 50) or 0)
     k_out = int(cfg.get('k_out', 20) or 0)
+    total_target = int(cfg.get('target_total', 40))
+    business_cfg = cfg.get('business_filters', {})
+
+    gather_in_limit = max(total_target * 3, (k_in or total_target) * 3, (k_in or total_target) + 40)
+    gather_out_limit = max(total_target * 3, (k_out or total_target) * 3, (k_out or total_target) + 80)
+    base_max_scan = max(gather_in_limit + gather_out_limit, total_target * 25, 2000)
+    max_scan = min(base_max_scan, total_embeddings) if embeddings.uses_faiss else total_embeddings
+    if max_scan <= 0:
+        max_scan = total_embeddings
+    gather_size = min(max_scan, max(total_target * 4, gather_in_limit + gather_out_limit, 128))
+    if gather_size <= 0:
+        gather_size = max_scan
+
+    max_cross_clusters = int(cfg.get('max_cross_clusters') or 0)
+    allowed_cross_clusters: Optional[set[int]] = None
+    if max_cross_clusters > 0 and query_cluster_id is not None:
+        allowed_cross_clusters = _closest_clusters(query_cluster_id, medoid_vectors, max_cross_clusters)
+        if allowed_cross_clusters and query_cluster_id in allowed_cross_clusters:
+            allowed_cross_clusters.discard(query_cluster_id)
+        if not allowed_cross_clusters:
+            allowed_cross_clusters = None
 
     in_raw: List[Dict[str, Any]] = []
     out_raw: List[Dict[str, Any]] = []
+    in_all: List[Dict[str, Any]] = []
+    out_all: List[Dict[str, Any]] = []
 
-    for idx in ordered:
-        aid = ids[idx]
-        if query_appid is not None and aid == query_appid:
-            continue
-        sim = float(sims[idx])
-        candidate_cluster = cluster_map.get(aid)
-        candidate_meta = metadata_accessor.get(aid)
-        vector = embeddings.matrix[idx]
-        entry = {
-            'appid': aid,
-            'similarity': sim,
-            'cluster_id': candidate_cluster,
-            'vector': vector,
-            'meta': candidate_meta,
-        }
-        if candidate_cluster is not None and query_cluster_id is not None and candidate_cluster == query_cluster_id:
-            if sim >= min_sim_in:
-                in_raw.append(entry)
-                if len(in_raw) >= max(k_in * 5, k_in + 20):
-                    # Enough intra-cluster candidates gathered
-                    pass
-        else:
-            if sim >= min_sim_out:
-                out_raw.append(entry)
-                if len(out_raw) >= max(k_out * 5, k_out + 50):
-                    pass
-        if len(in_raw) >= max(k_in * 5, k_in + 50) and len(out_raw) >= max(k_out * 5, k_out + 200):
+    seen_ids: set[str] = set()
+    scanned = 0
+    expansion = max(1, gather_size)
+    while True:
+        top_results = embeddings.top_similar(query_vec, expansion)
+        added_any = False
+        for aid, sim, idx in top_results:
+            if aid in seen_ids:
+                continue
+            if query_appid is not None and aid == query_appid:
+                continue
+            seen_ids.add(aid)
+            scanned += 1
+            candidate_cluster = cluster_map.get(aid)
+            candidate_meta = metadata_accessor.get(aid)
+            vector = embeddings.vector_for(aid)
+            entry = {
+                'appid': aid,
+                'similarity': float(sim),
+                'cluster_id': candidate_cluster,
+                'vector': vector,
+                'meta': candidate_meta,
+            }
+
+            same_cluster = (
+                candidate_cluster is not None
+                and query_cluster_id is not None
+                and candidate_cluster == query_cluster_id
+            )
+            if same_cluster:
+                in_all.append(entry)
+                if sim >= min_sim_in:
+                    in_raw.append(entry)
+            else:
+                cluster_allowed = (
+                    allowed_cross_clusters is None
+                    or candidate_cluster is None
+                    or candidate_cluster in allowed_cross_clusters
+                )
+                if cluster_allowed:
+                    out_all.append(entry)
+                    if sim >= min_sim_out:
+                        out_raw.append(entry)
+            added_any = True
+
+        if (
+            (len(in_raw) >= gather_in_limit and len(out_raw) >= gather_out_limit)
+            or expansion >= max_scan
+            or not added_any
+        ):
             break
 
-    in_candidates = in_raw[:k_in] if k_in else in_raw
+        expansion = min(max_scan, max(expansion + total_target, expansion * 2))
+
+    in_candidates = in_raw[:k_in] if k_in else list(in_raw)
+    if k_in and len(in_candidates) < k_in and in_all:
+        seen_in_ids = {cand['appid'] for cand in in_candidates}
+        for cand in in_all:
+            if cand['appid'] in seen_in_ids:
+                continue
+            in_candidates.append(cand)
+            seen_in_ids.add(cand['appid'])
+            if len(in_candidates) >= k_in:
+                break
 
     micro_cfg = cfg.get('microsegmentation', {})
     micro_info = {'applied': False}
@@ -446,15 +672,24 @@ def select_competitor_neighbors(
 
     out_candidates: List[Dict[str, Any]] = []
     if allow_cross and out_raw:
-        business_cfg = cfg.get('business_filters', {})
         for cand in out_raw:
             if not _business_filters_pass(cand['meta'], query_view, business_cfg):
                 continue
             out_candidates.append(cand)
             if len(out_candidates) >= k_out:
                 break
+    if allow_cross and len(out_candidates) < k_out and out_all:
+        seen_out_ids = {cand['appid'] for cand in out_candidates}
+        for cand in out_all:
+            if cand['appid'] in seen_out_ids:
+                continue
+            if not _business_filters_pass(cand['meta'], query_view, business_cfg):
+                continue
+            out_candidates.append(cand)
+            seen_out_ids.add(cand['appid'])
+            if len(out_candidates) >= k_out:
+                break
 
-    total_target = int(cfg.get('target_total', 40))
     max_out_ratio = float(cfg.get('max_out_ratio', 0.3))
     max_cross_allowed = max(0, int(round(total_target * max_out_ratio))) if allow_cross else 0
 
@@ -493,9 +728,6 @@ def select_competitor_neighbors(
 
     selected: List[Dict[str, Any]] = []
     cross_selected = 0
-    remaining_in_pool = [cand for cand in pool if cand['source'] == 'intra']
-    remaining_cross_pool = [cand for cand in pool if cand['source'] == 'cross']
-
     for cand in pool:
         if cand['source'] == 'cross' and cross_selected >= max_cross_allowed and len(selected) < total_target:
             continue
@@ -506,26 +738,60 @@ def select_competitor_neighbors(
             break
 
     if len(selected) < total_target:
-        # Attempt to top up with remaining candidates irrespective of ratio
         remaining = [cand for cand in pool if cand not in selected]
         for cand in remaining:
             selected.append(cand)
             if len(selected) >= total_target:
                 break
 
-    # Deduplicate preserving order
+    fallback_used = False
+    if len(selected) < total_target:
+        existing_ids = {cand['appid'] for cand in selected}
+        fallback_pool: List[Dict[str, Any]] = []
+
+        def add_fallback(entries: List[Dict[str, Any]], source: str) -> None:
+            for cand in entries:
+                appid = cand['appid']
+                if appid in existing_ids:
+                    continue
+                if source == 'cross':
+                    if not allow_cross:
+                        continue
+                    if allowed_cross_clusters is not None:
+                        cluster_val = cand.get('cluster_id')
+                        if cluster_val is not None and cluster_val not in allowed_cross_clusters:
+                            continue
+                candidate_copy = dict(cand)
+                candidate_copy['source'] = source
+                candidate_copy['score'] = compute_score(candidate_copy)
+                fallback_pool.append(candidate_copy)
+
+        add_fallback(in_all, 'intra')
+        add_fallback(out_all, 'cross')
+
+        if fallback_pool:
+            fallback_used = True
+            fallback_pool.sort(key=lambda item: (item['score'], item['similarity']), reverse=True)
+            for cand in fallback_pool:
+                appid = cand['appid']
+                if appid in existing_ids:
+                    continue
+                selected.append(cand)
+                existing_ids.add(appid)
+                if len(selected) >= total_target:
+                    break
+
     final_neighbors: List[Dict[str, Any]] = []
-    seen_ids = set()
+    seen_final = set()
     for cand in selected:
         aid = cand['appid']
-        if aid in seen_ids:
+        if aid in seen_final:
             continue
-        seen_ids.add(aid)
+        seen_final.add(aid)
         final_neighbors.append(cand)
         if len(final_neighbors) >= total_target:
             break
 
-    # Drop helper fields before returning
     output_neighbors: List[Dict[str, Any]] = []
     for cand in final_neighbors:
         output_neighbors.append({
@@ -548,9 +814,15 @@ def select_competitor_neighbors(
         'average_in_similarity': avg_in_sim,
         'microsegmentation': micro_info,
         'allow_cross_effective': allow_cross,
+        'scanned': scanned,
+        'gathered_in': len(in_raw),
+        'gathered_cross': len(out_raw),
+        'fallback_used': fallback_used,
+        'faiss_used': embeddings.uses_faiss,
     }
 
     return output_neighbors, diagnostics
+
 
 
 __all__ = [

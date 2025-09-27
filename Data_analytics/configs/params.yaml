@@ -116,7 +116,10 @@ neighbor_strategy:
   k_out: 15
   min_similarity_in: 0.0
   min_similarity_out: 0.78
+  faiss_index_path: models/embeddings.faiss
+  faiss_ids_path: models/emb_ids.json
   max_out_ratio: 0.3
+  max_cross_clusters: 20
   rerank:
     alpha_cosine: 1.0
     beta_cluster_penalty: 0.15
