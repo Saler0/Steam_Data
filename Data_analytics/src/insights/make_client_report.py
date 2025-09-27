@@ -19,7 +19,7 @@ from typing import Dict, Any, List
 import mlflow
 from src.utils.config_utils import expand_env_in_obj
 from src.utils.mlflow_utils import log_mlflow_params, log_mlflow_metrics
-from pathlib import Path
+from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
 
 from src.utils.io import (
     read_parquet_any, read_csv_any, read_json_any,

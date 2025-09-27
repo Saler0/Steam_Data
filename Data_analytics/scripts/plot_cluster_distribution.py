@@ -95,15 +95,13 @@ def _enable_theme(name: Optional[str]) -> None:
     if not name:
         return
     try:
-        alt.themes.enable(name)
+        alt.theme.enable(name)
     except Exception:
         print(f"[WARN] Altair theme '{name}' is not available. Using default theme.")
 
 
 def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, width: int, height: int, title: str) -> alt.Chart:
     alt.data_transformers.disable_max_rows()
-
-    hover_selection = alt.selection(type="single", nearest=True, on="mouseover", fields=[metric], empty="none")
 
     base = alt.Chart(df, title=title).transform_bin(
         "metric_bin",
@@ -142,18 +140,23 @@ def _build_chart(df: pd.DataFrame, metric: str, max_bins: int, log_y: bool, widt
         tooltip=[alt.Tooltip(f"mean({metric}):Q", title="Global mean", format=",.1f")],
     )
 
-    percentile_text = alt.Chart(df).transform_quantile(
-        metric,
-        [0.25, 0.5, 0.75],
-    ).mark_rule(color="#2ca02c", strokeWidth=1.5).encode(
+    percentile_df = (
+        df[metric]
+        .quantile([0.25, 0.5, 0.75])
+        .rename(index={0.25: "25th", 0.5: "50th", 0.75: "75th"})
+        .reset_index()
+        .rename(columns={"index": "quantile", metric: "value"})
+    )
+
+    percentile_rules = alt.Chart(percentile_df).mark_rule(color="#2ca02c", strokeWidth=1.5).encode(
         x="value:Q",
         tooltip=[
             alt.Tooltip("value:Q", title="Percentile", format=",.1f"),
-            alt.Tooltip("percentile:Q", title="Quantile"),
+            alt.Tooltip("quantile:N", title="Quantile"),
         ],
     )
 
-    return (bars + rule + percentile_text).interactive(bind_x=False)
+    return (bars + rule + percentile_rules).interactive(bind_x=False)
 
 
 def main() -> None:

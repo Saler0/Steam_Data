@@ -41,5 +41,6 @@ jsonschema>=4.22.0  # Para validar JSON contra schemas (reportes)
 
 # --- VisualizaciÃ³n (Opcional) ---
 matplotlib>=3.8     # Ãštil para visualizaciones y debugging
+altair>=5.2         # Dashboards interactivos (e.g., cluster distribution)
 
 
