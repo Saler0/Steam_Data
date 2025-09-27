@@ -606,3 +606,11 @@ body {
         width: 100%;
     }
 }
+
+/* CSobra palabras */
+.sombra-palabra {
+    background: rgba(9, 167, 245, 0.5); /* Color celeste muy transparente */
+    border-radius: 8px;
+    padding: 0.2em 0.6em;
+    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.08);
+}
