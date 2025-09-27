@@ -113,5 +113,5 @@ def create_app() -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("FRONTEND_PORT", 5000))
+    port = int(os.environ.get("FRONTEND_PORT", 5100))
     app.run(debug=True, port=port)
