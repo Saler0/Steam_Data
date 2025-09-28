@@ -78,28 +78,31 @@ PROTOTYPE_GAMES: List[Dict[str, Any]] = [
 SAMPLE_GAMES: Dict[str, Dict[str, Any]] = {
     "vampire": {
         "name": "Crimson Tide",
-        "short_description": "Shooter roguelike de hordas con mejoras acumulativas cada minuto.",
+        "short_description": "Roguelike horde shooter with cumulative upgrades every minute.",
         "detailed_description": (
-            "Desata armas absurdas mientras sobrevives a oleadas crecientes, desbloquea sinergias "
-            "y recoge sangre para evolucionar habilidades en pleno combate.") ,
+            "Unleash absurd weapons as you survive escalating waves, unlock synergies, "
+            "and collect blood to evolve abilities mid-battle."
+        ),
         "genres": ["Action", "Roguelike", "Bullet Hell"],
         "categories": ["Single-player"],
     },
     "farm": {
         "name": "Sunrise Ranch",
-        "short_description": "Gestiona una granja costera y enamórate del pueblo vecino.",
+        "short_description": "Manage a seaside farm and fall in love with the neighbouring town.",
         "detailed_description": (
-            "Planta, pesca y cuida animales mientras restauras el pueblo y construyes relaciones "
-            "con personajes únicos en un ambiente acogedor."),
+            "Plant, fish, and care for animals while restoring the village and building relationships "
+            "with unique characters in a cozy atmosphere."
+        ),
         "genres": ["Simulation", "Farming", "Casual"],
         "categories": ["Single-player", "Relaxing"],
     },
     "deck": {
         "name": "Gridbreak Protocol",
-        "short_description": "Deckbuilder táctico ambientado en una distopía tecnológica.",
+        "short_description": "A tactical deckbuilder set in a high-tech dystopia.",
         "detailed_description": (
-            "Combina cartas hacking, drones y tácticas de sigilo para superar misiones "
-            "procedurales contra IA hostil."),
+            "Combine hacking cards, drones, and stealth tactics to complete procedural missions "
+            "against hostile AI networks."
+        ),
         "genres": ["Strategy", "Card Game", "Roguelike"],
         "categories": ["Single-player"],
     },
@@ -186,8 +189,34 @@ SAMPLE_GAMES: Dict[str, Dict[str, Any]] = {
             "Full controller support",
         ],
     },
+    "zombie": {
+        "name": "Outbreak Protocol",
+        "short_description": "Co-op survival shooter with relentless waves of mutants and visceral combat.",
+        "detailed_description": (
+            "In Outbreak Protocol, a catastrophic biohazard event has plunged humanity into chaos. "
+            "Form elite squads and hold the line against escalating waves of infected across ruined cities, "
+            "abandoned labs, and quarantined zones. "
+            "Each round intensifies the challenge with new mutant types, unique bosses, "
+            "and dynamic environmental conditions that reshape strategy. "
+            "Wield a diverse arsenal — from improvised weapons to advanced military gear — "
+            "and customize your loadout between waves. "
+            "Progression is cooperative: unlock specialized classes, passive perks, and team synergies "
+            "to survive longer. "
+            "Inspired by genre classics like Killing Floor 2, Left 4 Dead, and World War Z, "
+            "Outbreak Protocol delivers an intense, replayable experience focused on teamwork and tension."
+        ),
+        "genres": ["Action", "Shooter", "Co-op", "Survival"],
+        "categories": [
+            "Single-player",
+            "Online Co-op",
+            "Steam Achievements",
+            "Steam Cloud",
+            "Partial Controller Support",
+            "Stats",
+            "Co-op Campaign",
+        ],
+    },
 }
-
 
 def _load_config(path: Path) -> Dict[str, Any]:
     if not path.exists():
