@@ -25,6 +25,19 @@ import mlflow
 from src.utils.config_utils import expand_env_in_obj
 from src.utils.mlflow_utils import log_mlflow_params, log_mlflow_metrics
 from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
+from src.insights.text_templates import (
+    build_topic_slug,
+    describe_metadata,
+    describe_cluster_note,
+    describe_peak_reasons,
+    summarize_context,
+    generate_review_highlights,
+    describe_takeaways,
+    describe_pricing,
+    describe_topic_insight,
+    describe_key_signal,
+    summarize_global_relevance,
+)
 
 from src.utils.io import (
     read_parquet_any, read_csv_any, read_json_any,
@@ -171,10 +184,21 @@ def _load_cluster_topics_map(path: str) -> Dict[str, List[Dict[str, Any]]]:
             'name': item.get('name'),
             'keywords': item.get('keywords') or [],
             'repr_docs': _safe_int(item.get('repr_docs')),
+            'share': _safe_float(item.get('share')),
+            'recent_share': _safe_float(item.get('recent_share')),
+            'recent_share_delta': _safe_float(item.get('recent_share_delta')),
+            'avg_sentiment': _safe_float(item.get('avg_sentiment')),
+            'coherence': _safe_float(item.get('coherence')),
+            'takeaway': item.get('takeaway'),
+            'examples': item.get('examples') or [],
         }
-        topics_map[str(cid)].append(entry)
-    for key in topics_map:
-        topics_map[key].sort(key=lambda x: x.get('repr_docs') or 0, reverse=True)
+        clean_entry = {k: v for k, v in entry.items() if v not in (None, [], {})}
+        clean_entry['keywords'] = clean_entry.get('keywords', [])
+        if isinstance(clean_entry.get('examples'), list):
+            clean_entry['examples'] = [ex for ex in clean_entry['examples'] if ex not in (None, {}, [])]
+        topics_map[str(cid)].append(clean_entry)
+    for key, values in topics_map.items():
+        values.sort(key=lambda x: ((x.get('share') or 0.0), (x.get('repr_docs') or 0)), reverse=True)
     return topics_map
 
 
@@ -243,23 +267,15 @@ def _classify_saturation(cluster_size: Optional[int], diagnostics: Dict[str, Any
 
 
 def _compose_cluster_note(saturation: str, diagnostics: Dict[str, Any]) -> str:
-    parts: List[str] = []
-    if saturation == 'alto':
-        parts.append('El cluster muestra alta saturacion competitiva.')
-    elif saturation == 'medio':
-        parts.append('El cluster presenta competencia moderada.')
-    else:
-        parts.append('El cluster conserva espacio competitivo.')
     micro = diagnostics.get('microsegmentation') or {}
+    micro_desc = ''
     if micro.get('applied'):
         kept = micro.get('kept')
         original = micro.get('original')
         if kept and original:
-            parts.append(f"Microsegmento refinado ({kept}/{original} intra-cluster).")
+            micro_desc = f"Microsegmento refinado ({kept}/{original} intra-cluster)"
     silhouette = diagnostics.get('silhouette_proxy')
-    if silhouette is not None:
-        parts.append(f"Silhouette proxy={silhouette:.2f}.")
-    return ' '.join(parts)
+    return describe_cluster_note(saturation, micro_desc, silhouette)
 
 
 def _topic_payload_from_map(cid: Optional[int], topics_map: Dict[str, List[Dict[str, Any]]], limit: int = 5) -> List[Dict[str, Any]]:
@@ -267,14 +283,265 @@ def _topic_payload_from_map(cid: Optional[int], topics_map: Dict[str, List[Dict[
         return []
     items = topics_map.get(str(cid)) or []
     payload: List[Dict[str, Any]] = []
-    for item in items[:limit]:
-        payload.append({
+    for idx, item in enumerate(items[:limit]):
+        keywords = item.get('keywords') or []
+        entry = {
             'topic_id': item.get('topic_id'),
-            'name': item.get('name'),
-            'keywords': item.get('keywords') or [],
+            'name': item.get('name') or build_topic_slug(idx, keywords),
+            'keywords': keywords,
             'repr_docs': item.get('repr_docs'),
-        })
+            'share': item.get('share'),
+            'recent_share': item.get('recent_share'),
+            'recent_share_delta': item.get('recent_share_delta'),
+            'avg_sentiment': item.get('avg_sentiment'),
+            'coherence': item.get('coherence'),
+            'examples': item.get('examples') or [],
+            'takeaway': item.get('takeaway'),
+        }
+        entry['keywords'] = entry.get('keywords', [])
+        entry['examples'] = [ex for ex in entry.get('examples', []) if ex not in (None, {}, [])]
+        entry = {k: v for k, v in entry.items() if v not in (None, [], {})}
+        payload.append(entry)
     return payload
+
+
+
+
+
+
+def _maybe_parse_json_like(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+        if text and text[0] in '{[' and text[-1] in ']}' and len(text) >= 2:
+            try:
+                return json.loads(text)
+            except Exception:
+                return value
+    return value
+
+
+def _standardize_period(value: Any) -> Optional[str]:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    try:
+        ts = pd.to_datetime(value, errors='coerce')
+    except Exception:
+        text = str(value).strip()
+        return text or None
+    if pd.isna(ts):
+        text = str(value).strip()
+        return text or None
+    if isinstance(ts, pd.Timestamp):
+        return ts.strftime('%Y-%m-%d')
+    if isinstance(ts, datetime):
+        return ts.strftime('%Y-%m-%d')
+    return str(ts)
+
+
+def _sanitize_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    clean: Dict[str, Any] = {}
+    for key, value in record.items():
+        if value is None:
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            continue
+        value = _maybe_parse_json_like(value)
+        if isinstance(value, pd.Timestamp):
+            value = value.strftime('%Y-%m-%d')
+        elif isinstance(value, datetime):
+            value = value.isoformat()
+        clean[key] = value
+    return clean
+
+
+def _extract_social_snapshot(event_row: Dict[str, Any]) -> Dict[str, Any]:
+    social: Dict[str, Any] = {}
+    youtube: Dict[str, Any] = {}
+    twitch: Dict[str, Any] = {}
+    mapping = {
+        'z_views': ['youtube_z', 'youtube_z_views', 'youtube_zscore'],
+        'best_lag_d': ['youtube_best_lag_d', 'youtube_lag'],
+        'best_ccf': ['youtube_best_ccf'],
+    }
+    for out_key, candidates in mapping.items():
+        for cand in candidates:
+            if cand in event_row:
+                value = _safe_float(event_row.get(cand))
+                if value is not None:
+                    youtube[out_key] = value
+                    break
+    if 'best_lag_d' not in youtube and 'youtube_best_lag_d' in event_row:
+        alt = _safe_int(event_row.get('youtube_best_lag_d'))
+        if alt is not None:
+            youtube['best_lag_d'] = alt
+    creators = event_row.get('youtube_top_creators')
+    creators = _maybe_parse_json_like(creators)
+    if isinstance(creators, list) and creators:
+        youtube['top_creators'] = creators
+    if youtube:
+        social['youtube'] = youtube
+
+    mapping_tw = {
+        'z_concurrent': ['twitch_z', 'twitch_zscore'],
+        'best_lag_d': ['twitch_best_lag_d', 'twitch_lag'],
+        'best_ccf': ['twitch_best_ccf'],
+    }
+    for out_key, candidates in mapping_tw.items():
+        for cand in candidates:
+            if cand in event_row:
+                value = _safe_float(event_row.get(cand))
+                if value is not None:
+                    twitch[out_key] = value
+                    break
+    if twitch:
+        social['twitch'] = twitch
+    return social
+
+
+def _compose_event_context(event_row: Dict[str, Any]) -> Dict[str, Any]:
+    context: Dict[str, Any] = {}
+    steam: Dict[str, Any] = {}
+    external: Dict[str, Any] = {}
+    summary = event_row.get('context_summary') or event_row.get('summary')
+    for key, value in list(event_row.items()):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            continue
+        if key.startswith('steam_'):
+            steam[key.replace('steam_', '')] = value
+        elif key in {'press_mentions', 'reddit_threads', 'news_mentions', 'external_mentions'}:
+            external[key] = value
+    if steam:
+        context['steam'] = steam
+    if external:
+        context['external'] = external
+    if summary:
+        context['summary'] = summary
+    return context
+
+
+def _prepare_topic_entry(topic: Dict[str, Any]) -> Dict[str, Any]:
+    entry = {
+        'topic_id': topic.get('topic_id'),
+        'name': topic.get('name'),
+        'keywords': topic.get('keywords') or [],
+        'share': _safe_float(topic.get('share')),
+        'recent_share': _safe_float(topic.get('recent_share')),
+        'recent_share_delta': _safe_float(topic.get('recent_share_delta')),
+        'avg_sentiment': _safe_float(topic.get('avg_sentiment')),
+        'coherence': _safe_float(topic.get('coherence')),
+        'repr_docs': _safe_int(topic.get('repr_docs')),
+        'takeaway': topic.get('takeaway') or topic.get('summary'),
+        'examples': topic.get('examples') or [],
+    }
+    entry['keywords'] = entry.get('keywords', [])
+    entry['examples'] = [ex for ex in entry.get('examples', []) if ex not in (None, {}, [])]
+    return {k: v for k, v in entry.items() if v not in (None, [], {})}
+
+
+
+
+def _prepare_review_segments(raw: Any) -> Dict[str, Any]:
+    data = _maybe_parse_json_like(raw)
+    if isinstance(data, dict) and 'review_segments' in data and not data.get('median_hours'):
+        candidate = data.get('review_segments')
+        if isinstance(candidate, dict):
+            data = candidate
+    if not isinstance(data, dict):
+        return {}
+
+    result: Dict[str, Any] = {}
+    median_hours = _safe_float(data.get('median_hours'))
+    if median_hours is not None:
+        result['median_hours'] = median_hours
+
+    scope_payload: Dict[str, Any] = {}
+    scope = data.get('scope') or {}
+    if isinstance(scope, dict):
+        month = scope.get('month') or scope.get('period') or scope.get('date')
+        if month is not None:
+            scope_payload['month'] = str(month)
+        for key in ('reviews_total', 'pos', 'neg', 'neutral'):
+            value = scope.get(key)
+            if value is not None:
+                scoped_val = _safe_int(value)
+                if scoped_val is None:
+                    scoped_val = _safe_float(value)
+                if scoped_val is not None:
+                    scope_payload[key] = scoped_val
+        if scope_payload:
+            result['scope'] = scope_payload
+
+    experience_map = data.get('by_experience') or data.get('experience_segments') or {}
+    if isinstance(experience_map, dict):
+        prepared_segments: Dict[str, Dict[str, Any]] = {}
+        for label, payload in experience_map.items():
+            if not isinstance(payload, dict):
+                continue
+            segment: Dict[str, Any] = {}
+            count_val = payload.get('count')
+            if count_val is not None:
+                count_int = _safe_int(count_val)
+                if count_int is not None:
+                    segment['count'] = count_int
+            for key in ('share', 'pos', 'neg', 'abandon_rate_30d', 'gifted_share'):
+                value = payload.get(key)
+                if value is not None:
+                    numeric = _safe_float(value)
+                    if numeric is not None:
+                        segment[key] = numeric
+            phase = payload.get('phase')
+            if isinstance(phase, dict):
+                segment['phase'] = {k: bool(v) for k, v in phase.items() if v is not None}
+            bertopic_items = payload.get('bertopic') or []
+            prepared_topics: List[Dict[str, Any]] = []
+            if isinstance(bertopic_items, (list, tuple)):
+                for item in bertopic_items:
+                    if isinstance(item, dict):
+                        topic_entry = _prepare_topic_entry(item)
+                        if topic_entry:
+                            prepared_topics.append(topic_entry)
+            if prepared_topics:
+                segment['bertopic'] = prepared_topics
+            if segment:
+                prepared_segments[str(label)] = segment
+        if prepared_segments:
+            result['by_experience'] = prepared_segments
+            auto_highlights = generate_review_highlights(prepared_segments)
+            if auto_highlights:
+                result['highlights'] = auto_highlights
+
+    highlights = data.get('highlights')
+    if isinstance(highlights, (list, tuple)):
+        cleaned = [str(item).strip() for item in highlights if str(item).strip()]
+        if cleaned:
+            existing_list = result.get('highlights', [])
+            existing_set = set(existing_list)
+            combined = existing_list + [h for h in cleaned if h not in existing_set]
+            result['highlights'] = combined
+
+    return result if result else {}
+
+def _split_topics_by_sentiment(topics: List[Dict[str, Any]], period: Optional[str]) -> Dict[str, List[Dict[str, Any]]]:
+    positive: List[Dict[str, Any]] = []
+    negative: List[Dict[str, Any]] = []
+    for topic in topics:
+        topic_period = _standardize_period(topic.get('event_year_month') or topic.get('year_month') or topic.get('date'))
+        if period and topic_period and topic_period != period:
+            continue
+        polarity = str(topic.get('relevance_polarity') or '').lower()
+        sentiment = _safe_float(topic.get('avg_sentiment'))
+        entry = _prepare_topic_entry(topic)
+        if polarity == 'negative' or (polarity == '' and sentiment is not None and sentiment < -0.1):
+            negative.append(entry)
+        else:
+            positive.append(entry)
+    buckets: Dict[str, List[Dict[str, Any]]] = {}
+    if positive:
+        buckets['positive'] = positive
+    if negative:
+        buckets['negative'] = negative
+    return buckets
+
 
 
 def _compute_cluster_context(cluster_id: Optional[int], diagnostics: Dict[str, Any], cluster_stats: pd.DataFrame,
@@ -381,45 +648,52 @@ def _extract_key_peaks(events: List[Dict[str, Any]], topics: List[Dict[str, Any]
         if zscore is None:
             continue
         date_label = evt.get('year_month') or evt.get('date') or evt.get('timestamp')
+        context_dict = evt.get('context') or {}
+        social = evt.get('social_daily_micro') or {}
+        why = describe_peak_reasons(context_dict, social)
+        context_summary = summarize_context(context_dict, social)
+        context_payload = dict(context_dict) if isinstance(context_dict, dict) else {}
+        if context_summary:
+            context_payload['summary'] = context_summary
         peak = {
             'date_or_month': date_label,
             'zscore': zscore,
-            'why': evt.get('label') or evt.get('reason') or evt.get('event_label'),
+            'why': why,
             'topics': evt.get('topics') or [],
         }
+        review_segments = evt.get('review_segments')
+        if review_segments:
+            peak['review_segments'] = review_segments
+        if social:
+            peak['social_daily_micro'] = social
+        if context_payload:
+            peak['context'] = context_payload
         peaks.append(peak)
     peaks.sort(key=lambda item: item.get('zscore') or 0.0, reverse=True)
     if explanations:
         for peak in peaks:
             same_period = [exp for exp in explanations if (exp.get('year_month') or exp.get('date')) == peak.get('date_or_month')]
             if same_period:
-                peak['context'] = same_period[0]
+                ctx = dict(same_period[0])
+                existing = peak.get('context') or {}
+                merged = {**existing, **ctx}
+                if 'summary' not in merged and existing.get('summary'):
+                    merged['summary'] = existing['summary']
+                peak['context'] = merged
     return peaks[:5]
 
 
-def _merge_takeaways(peaks: List[Dict[str, Any]], topics: List[Dict[str, Any]], explanations: List[Dict[str, Any]]) -> List[str]:
-    notes: List[str] = []
-    for peak in peaks:
-        why = peak.get('why')
-        if why:
-            notes.append(str(why))
-    for topic in topics[:5]:
-        takeaway = topic.get('takeaway') or topic.get('summary')
-        if takeaway:
-            notes.append(str(takeaway))
-    for exp in explanations[:5]:
-        summary = exp.get('summary') or exp.get('explanation')
-        if summary:
-            notes.append(str(summary))
-    dedup: List[str] = []
-    seen: set[str] = set()
-    for note in notes:
-        cleaned = note.strip()
-        if not cleaned or cleaned.lower() in seen:
-            continue
-        dedup.append(cleaned)
-        seen.add(cleaned.lower())
-    return dedup[:10]
+
+
+
+def _merge_takeaways(peaks: List[Dict[str, Any]], granger: Dict[str, Any]) -> List[str]:
+    if not peaks:
+        return []
+    primary = peaks[0]
+    return describe_takeaways(primary.get('date_or_month'), primary.get('zscore'), primary.get('why'), granger)
+
+
+
 
 
 def _build_story(sections: Dict[str, Any]) -> Dict[str, Any]:
@@ -427,11 +701,12 @@ def _build_story(sections: Dict[str, Any]) -> Dict[str, Any]:
     topics = sections.get('topics') or []
     explanations = sections.get('explanations') or []
     peaks = _extract_key_peaks(events, topics, explanations)
+    granger_summary = _summarize_granger(sections.get('ccf_granger') or [])
     story = {
         'eras': _derive_eras(events),
         'key_peaks': peaks,
-        'granger': _summarize_granger(sections.get('ccf_granger') or []),
-        'takeaways': _merge_takeaways(peaks, topics, explanations),
+        'granger': granger_summary,
+        'takeaways': _merge_takeaways(peaks, granger_summary),
     }
     return story
 
@@ -457,12 +732,16 @@ def _aggregate_real_competitors_topics(real_competitors: List[Dict[str, Any]]) -
                 'recent_share_values': [],
                 'recent_delta_values': [],
                 'sentiment_values': [],
+                'coherence_values': [],
+                'takeaways_raw': [],
                 'top_competitors': [],
             })
             share = _safe_float(topic.get('share'))
             recent_share = _safe_float(topic.get('recent_share'))
             recent_delta = _safe_float(topic.get('recent_share_delta'))
             sentiment = _safe_float(topic.get('avg_sentiment'))
+            coherence = _safe_float(topic.get('coherence'))
+            takeaway = topic.get('takeaway') or topic.get('summary')
             if share is not None:
                 existing['share_values'].append(share)
             if recent_share is not None:
@@ -471,6 +750,10 @@ def _aggregate_real_competitors_topics(real_competitors: List[Dict[str, Any]]) -
                 existing['recent_delta_values'].append(recent_delta)
             if sentiment is not None:
                 existing['sentiment_values'].append(sentiment)
+            if coherence is not None:
+                existing['coherence_values'].append(coherence)
+            if takeaway:
+                existing['takeaways_raw'].append(str(takeaway))
             if weight:
                 existing['top_competitors'].append({
                     'appid': comp.get('appid'),
@@ -484,9 +767,25 @@ def _aggregate_real_competitors_topics(real_competitors: List[Dict[str, Any]]) -
         entry['recent_share'] = _mean_or_none(entry.pop('recent_share_values'))
         entry['recent_share_delta'] = _mean_or_none(entry.pop('recent_delta_values'))
         entry['avg_sentiment'] = _mean_or_none(entry.pop('sentiment_values'))
+        entry['coherence'] = _mean_or_none(entry.pop('coherence_values'))
+        raw_takeaways = entry.pop('takeaways_raw')
+        dedup_takeaways: List[str] = []
+        seen: set[str] = set()
+        for note in raw_takeaways:
+            cleaned = note.strip()
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup_takeaways.append(cleaned)
+            if len(dedup_takeaways) >= 5:
+                break
+        if dedup_takeaways:
+            entry['takeaways'] = dedup_takeaways
         top_comp.sort(key=lambda item: item['weight'], reverse=True)
         entry['top_competitors'] = top_comp[:5]
-        entry['takeaways'] = entry.get('takeaways', [])
         result.append(entry)
     result.sort(key=lambda item: item.get('recent_share_delta') or 0.0, reverse=True)
     return result
@@ -502,36 +801,57 @@ def _classify_topic_insights(topics: List[Dict[str, Any]]) -> Dict[str, List[Dic
         tid = topic.get('topic_id')
         if tid is None:
             continue
+        reason = describe_topic_insight(topic)
         delta = topic.get('recent_share_delta') or 0.0
         sentiment = topic.get('avg_sentiment') or 0.0
         share = topic.get('share') or 0.0
         if delta is not None and delta > 0.05 and sentiment > -0.2:
-            insights['trending_topics'].append({'topic_id': tid, 'reason': 'recent_share_delta > 0.05 y avg_sentiment > -0.2'})
+            insights['trending_topics'].append({'topic_id': tid, 'reason': reason})
         if delta is not None and delta < -0.05:
-            insights['declining_topics'].append({'topic_id': tid, 'reason': 'recent_share_delta < -0.05'})
+            insights['declining_topics'].append({'topic_id': tid, 'reason': reason})
         if sentiment is not None and sentiment < -0.3 and share and share > 0.1:
-            insights['risk_topics'].append({'topic_id': tid, 'reason': 'sentiment muy negativo y share alto en competidores'})
+            insights['risk_topics'].append({'topic_id': tid, 'reason': reason})
         if share is not None and share < 0.05 and delta and delta > 0.03:
-            insights['opportunity_topics'].append({'topic_id': tid, 'reason': 'crece en competidores pero casi ausente en el cliente'})
+            insights['opportunity_topics'].append({'topic_id': tid, 'reason': reason})
     return insights
 
 
 def _pricing_position(client_price: Optional[float], competitor_prices: List[float], threshold: float) -> Dict[str, Any]:
     avg_price = round(float(sum(competitor_prices) / len(competitor_prices)), 2) if competitor_prices else None
     position = 'desconocido'
+    delta_pct: Optional[float] = None
     if client_price is not None and avg_price:
-        if client_price <= avg_price * (1 - threshold):
-            position = 'cheap'
-        elif client_price >= avg_price * (1 + threshold):
-            position = 'expensive'
-        else:
-            position = 'aligned'
-    return {
+        try:
+            delta_pct = (float(client_price) - float(avg_price)) / float(avg_price) if avg_price else None
+        except ZeroDivisionError:
+            delta_pct = None
+        if delta_pct is not None:
+            if abs(delta_pct) <= threshold:
+                position = 'aligned'
+            elif delta_pct < 0:
+                position = 'cheap'
+            else:
+                position = 'expensive'
+    description: Optional[str] = None
+    if delta_pct is not None:
+        pct_display = abs(delta_pct) * 100
+        emphasis_cut = threshold * 100 * 1.75
+        if position == 'aligned':
+            description = 'Precio alineado al promedio de los competidores reales'
+        elif position == 'cheap':
+            description = 'Claramente por debajo del promedio de los competidores reales' if pct_display > emphasis_cut else 'Ligeramente por debajo del promedio de los competidores reales'
+        elif position == 'expensive':
+            description = 'Claramente por encima del promedio de los competidores reales' if pct_display > emphasis_cut else 'Ligeramente por encima del promedio de los competidores reales'
+    result = {
         'client_price': client_price,
         'avg_competitors_price': avg_price,
         'position': position,
         'threshold': threshold,
     }
+    if delta_pct is not None:
+        result['delta_pct'] = round(delta_pct, 4)
+    result['description'] = description or describe_pricing(delta_pct)
+    return result
 
 
 def _build_real_competitors_summary(real_competitors: List[Dict[str, Any]], client_price: Optional[float], threshold: float) -> Dict[str, Any]:
@@ -548,9 +868,10 @@ def _build_real_competitors_summary(real_competitors: List[Dict[str, Any]], clie
         price = comp.get('price')
         if price is not None:
             competitor_prices.append(float(price))
-        takeaways = comp.get('story', {}).get('takeaways') or []
-        if takeaways:
-            key_signals.append(takeaways[0])
+        story = comp.get('story') or {}
+        peaks_story = story.get('key_peaks') or []
+        if peaks_story:
+            key_signals.append(describe_key_signal(peaks_story[0]))
         if cat == 'today':
             metric = comp.get('metrics', {}).get('zpeak30') or comp.get('similarity') or 0.0
             top_today.append((float(metric), comp))
@@ -574,7 +895,8 @@ def _build_real_competitors_summary(real_competitors: List[Dict[str, Any]], clie
             'recent': lifecycle_counts.get('recent', 0),
             'historical': lifecycle_counts.get('historical', 0),
         },
-        'pricing_position': pricing,
+        'pricing_position': pricing.get('description') or pricing.get('position'),
+        'pricing_details': pricing,
         'key_signals': key_signals,
         'top_today_preview': top_today_preview,
     }
@@ -582,40 +904,94 @@ def _build_real_competitors_summary(real_competitors: List[Dict[str, Any]], clie
 
 def _build_peak_analysis(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
     events = sections.get('events') or []
+    topics = sections.get('topics') or []
     explanations = sections.get('explanations') or []
-    peaks = []
+    ccf_monthly = sections.get('ccf_granger_monthly') or {}
+    peaks: List[Dict[str, Any]] = []
     for evt in events:
         zscore = _safe_float(evt.get('zscore') or evt.get('z') or evt.get('zvalue'))
         if zscore is None:
             continue
-        year_month = evt.get('year_month') or evt.get('date')
-        context = {}
+        period = _standardize_period(evt.get('year_month') or evt.get('date') or evt.get('date_or_month'))
+        window_before = _safe_int(evt.get('window_before_months') or evt.get('window_before') or evt.get('window_left'))
+        window_after = _safe_int(evt.get('window_after_months') or evt.get('window_after') or evt.get('window_right'))
+        window = {
+            'before': window_before if window_before is not None else 2,
+            'after': window_after if window_after is not None else 2,
+        }
+        context_dict = evt.get('context') or {}
+        social = evt.get('social_daily_micro') or _extract_social_snapshot(evt)
+        why = describe_peak_reasons(context_dict, social)
+        context_summary = summarize_context(context_dict, social)
+        context_payload = dict(context_dict) if isinstance(context_dict, dict) else {}
+        if context_summary:
+            context_payload['summary'] = context_summary
+        explanation_match = None
         for exp in explanations:
-            exp_key = exp.get('year_month') or exp.get('date')
-            if exp_key == year_month:
-                context = exp
+            exp_key = _standardize_period(exp.get('year_month') or exp.get('date'))
+            if period and exp_key == period:
+                explanation_match = exp
                 break
-        peaks.append({
-            'year_month': year_month,
+        if explanation_match:
+            exp_clean = _sanitize_record(explanation_match)
+            context_payload.update(exp_clean)
+            if context_summary and 'summary' not in context_payload:
+                context_payload['summary'] = context_summary
+        topic_buckets = _split_topics_by_sentiment(topics, period)
+        bertopic = {k: v for k, v in topic_buckets.items() if v}
+        review_segments = evt.get('review_segments')
+        peak_entry = {
+            'year_month': period,
             'zscore': zscore,
-            'window_months': {'before': 1, 'after': 1},
-            'context': context,
-            'overall_takeaways': [evt.get('label') or evt.get('reason')] if evt.get('label') or evt.get('reason') else [],
-        })
+            'window_months': window,
+            'context': context_payload,
+            'social_daily_micro': social,
+            'why': why,
+        }
+        if bertopic:
+            peak_entry['bertopic'] = bertopic
+        if review_segments:
+            peak_entry['review_segments'] = review_segments
+        if ccf_monthly:
+            peak_entry['ccf_granger_monthly'] = ccf_monthly
+        granger_source = {}
+        if isinstance(ccf_monthly, dict):
+            best = ccf_monthly.get('players_vs_pos_rate') or {}
+            granger_source = {
+                'granger_xy_sig_fdr': bool(best.get('granger_xy_sig_fdr') or best.get('granger_xy_sig')),
+                'best_lag': best.get('best_lag_m') or best.get('best_lag'),
+                'best_ccf': best.get('best_ccf'),
+            }
+        takeaways = describe_takeaways(period, zscore, why, granger_source)
+        if takeaways:
+            peak_entry['overall_takeaways'] = takeaways
+        peaks.append(peak_entry)
     peaks.sort(key=lambda item: item.get('zscore') or 0.0, reverse=True)
     return peaks[:5]
+
+
+
 
 
 def _build_competitors_peaks(real_competitors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     collected: List[Dict[str, Any]] = []
     for comp in real_competitors:
+        appid = comp.get('appid')
         for peak in comp.get('story', {}).get('key_peaks') or []:
-            collected.append({
-                'appid': comp.get('appid'),
-                'date_or_month': peak.get('date_or_month'),
-                'zscore': peak.get('zscore'),
-                'why': peak.get('why'),
-            })
+            date_label = peak.get('date_or_month') or peak.get('year_month') or peak.get('date')
+            entry = {
+                'appid': appid,
+                'date_or_month': date_label,
+                'zscore': _safe_float(peak.get('zscore') or peak.get('z')),
+                'why': peak.get('why') or peak.get('label') or peak.get('reason'),
+            }
+            refs: Dict[str, Any] = {}
+            if appid and date_label:
+                refs['report'] = f"outputs/reports/{appid}.json#peak:{date_label}"
+            if refs:
+                entry['refs'] = refs
+            entry = {k: v for k, v in entry.items() if v not in (None, '', {})}
+            collected.append(entry)
     collected.sort(key=lambda item: item.get('zscore') or 0.0, reverse=True)
     return collected[:20]
 
@@ -750,44 +1126,119 @@ def _assign_cluster(vec_q: np.ndarray, medoids_path: str, clusters_df: pd.DataFr
             return best_cid
         except Exception:
             pass
-    # Alternativa: usar el clÃºster del vecino mÃ¡s cercano (se resuelve en la llamada)
+    # Alternativa: usar el clÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºster del vecino mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s cercano (se resuelve en la llamada)
     return None
 
 
 def _collect_sections_for_appid(aid: str, ccf: pd.DataFrame, events: pd.DataFrame,
-                                topics: pd.DataFrame, expl: pd.DataFrame) -> Dict[str, Any]:
+                                topics: pd.DataFrame, expl: pd.DataFrame,
+                                review_segments: pd.DataFrame | None = None) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
+    review_df = review_segments if review_segments is not None else pd.DataFrame()
+    review_map: Dict[str, Dict[str, Any]] = {}
+    if not review_df.empty and 'appid' in review_df.columns:
+        subset = review_df[review_df['appid'].astype(str) == aid]
+        for _, row in subset.iterrows():
+            rec = _sanitize_record(row.to_dict())
+            period = _standardize_period(rec.get('year_month') or rec.get('date') or rec.get('date_or_month') or rec.get('period'))
+            raw_payload = rec.get('review_segments') or rec.get('segments') or rec
+            prepared = _prepare_review_segments(raw_payload)
+            if prepared:
+                key = period or str(rec.get('date') or rec.get('id') or len(review_map))
+                review_map[key] = prepared
+
     if not ccf.empty:
         sub = ccf[ccf['appid'].astype(str) == aid]
         if not sub.empty:
             keep = [c for c in ['pair_name', 'best_lag', 'best_ccf', 'best_pval', 'best_significant_fdr',
                                 'lead_or_lag', 'granger_xy_pmin', 'granger_yx_pmin', 'granger_xy_sig', 'granger_yx_sig']
                     if c in sub.columns]
-            out['ccf_granger'] = sub[keep].to_dict(orient='records')
+            if keep:
+                out['ccf_granger'] = sub[keep].to_dict(orient='records')
+            pair_summary: Dict[str, Dict[str, Any]] = {}
+            for row in sub.to_dict(orient='records'):
+                pair = str(row.get('pair_name') or row.get('pair') or '').strip()
+                if not pair:
+                    continue
+                entry = {
+                    'best_lag_m': _safe_int(row.get('best_lag_m') or row.get('best_lag') or row.get('lag')),
+                    'best_ccf': _safe_float(row.get('best_ccf')),
+                    'pval': _safe_float(row.get('best_pval') or row.get('pvalue')),
+                    'granger_xy_sig_fdr': bool(row.get('best_significant_fdr') or row.get('granger_xy_sig') or row.get('granger_xy_sig_fdr')),
+                }
+                lead = row.get('lead_or_lag')
+                if lead not in (None, ''):
+                    entry['lead_or_lag'] = lead
+                entry = {k: v for k, v in entry.items() if v not in (None, '', {})}
+                if entry:
+                    pair_summary[pair] = entry
+            if pair_summary:
+                out['ccf_granger_monthly'] = pair_summary
 
     if not events.empty:
         sub = events[events['appid'].astype(str) == aid].copy()
-        if not sub.empty and 'year_month' in sub.columns:
-            sub['year_month'] = pd.to_datetime(sub['year_month']).dt.strftime('%Y-%m-%d')
-            out['events'] = sub.to_dict(orient='records')
+        if not sub.empty:
+            records: List[Dict[str, Any]] = []
+            for _, row in sub.iterrows():
+                rec = _sanitize_record(row.to_dict())
+                if 'year_month' in rec:
+                    rec['year_month'] = _standardize_period(rec['year_month'])
+                if 'date' in rec:
+                    rec['date'] = _standardize_period(rec['date'])
+                social = _extract_social_snapshot(rec)
+                if social:
+                    rec['social_daily_micro'] = social
+                if not rec.get('context'):
+                    context = _compose_event_context(rec)
+                    if context:
+                        rec['context'] = context
+                review_payload = rec.get('review_segments')
+                prepared_review = _prepare_review_segments(review_payload) if review_payload else {}
+                if (not prepared_review) and review_map:
+                    key = _standardize_period(rec.get('year_month') or rec.get('date') or rec.get('date_or_month'))
+                    prepared_review = review_map.get(key) or {}
+                if prepared_review:
+                    rec['review_segments'] = prepared_review
+                else:
+                    rec.pop('review_segments', None)
+                records.append(rec)
+            out['events'] = records
 
     if not topics.empty:
         sub = topics[topics['appid'].astype(str) == aid].copy()
         if not sub.empty:
-            if 'event_year_month' in sub.columns:
-                sub['event_year_month'] = pd.to_datetime(sub['event_year_month']).dt.strftime('%Y-%m-%d')
-            # Agregar alertas por tÃ³picos negativos si existen los campos de relevancia
-            if 'relevance_polarity' in sub.columns:
-                neg = sub[sub['relevance_polarity'] == 'negative'].copy()
-                if not neg.empty:
-                    cols_keep = [c for c in ['event_year_month', 'relevance_polarity', 'players_zscore'] if c in neg.columns]
-                    out['alerts'] = neg[cols_keep].rename(columns={'event_year_month': 'year_month'}).to_dict(orient='records')
-            # Resumen de relevancia para el competidor
-            try:
-                pol_counts = sub['relevance_polarity'].str.lower().value_counts(dropna=True).to_dict() if 'relevance_polarity' in sub.columns else {}
-                lbl_col = 'relevance_label' if 'relevance_label' in sub.columns else ('relevance_label_final' if 'relevance_label_final' in sub.columns else None)
-                lbl_counts = sub[lbl_col].str.lower().value_counts(dropna=True).to_dict() if lbl_col else {}
-                total_rows = int(len(sub))
+            sanitized: List[Dict[str, Any]] = []
+            alerts: List[Dict[str, Any]] = []
+            for _, row in sub.iterrows():
+                rec = _sanitize_record(row.to_dict())
+                if 'event_year_month' in rec:
+                    rec['event_year_month'] = _standardize_period(rec['event_year_month'])
+                if 'avg_sentiment' in rec:
+                    rec['avg_sentiment'] = _safe_float(rec.get('avg_sentiment'))
+                sanitized.append(rec)
+                if str(rec.get('relevance_polarity') or '').lower() == 'negative':
+                    alert = {
+                        'year_month': rec.get('event_year_month'),
+                        'relevance_polarity': rec.get('relevance_polarity'),
+                    }
+                    zval = rec.get('players_zscore')
+                    if zval is not None:
+                        alert['players_zscore'] = _safe_float(zval)
+                    alert = {k: v for k, v in alert.items() if v not in (None, '', {})}
+                    if alert.get('year_month'):
+                        alerts.append(alert)
+            if sanitized:
+                out['topics'] = sanitized
+                pol_counts: Dict[str, int] = {}
+                lbl_counts: Dict[str, int] = {}
+                for rec in sanitized:
+                    pol = str(rec.get('relevance_polarity') or '').lower()
+                    if pol:
+                        pol_counts[pol] = pol_counts.get(pol, 0) + 1
+                    lbl = str(rec.get('relevance_label') or rec.get('relevance_label_final') or '').lower()
+                    if lbl:
+                        lbl_counts[lbl] = lbl_counts.get(lbl, 0) + 1
+                total_rows = len(sanitized)
                 negative_ratio = (pol_counts.get('negative', 0) / total_rows) if total_rows else 0.0
                 out['relevance_summary'] = {
                     'polarity_counts': pol_counts,
@@ -795,15 +1246,20 @@ def _collect_sections_for_appid(aid: str, ccf: pd.DataFrame, events: pd.DataFram
                     'negative_ratio': negative_ratio,
                     'total_topic_rows': total_rows,
                 }
-            except Exception:
-                pass
-            out['topics'] = sub.to_dict(orient='records')
+                if alerts:
+                    out['alerts'] = alerts
 
     if not expl.empty:
         sub = expl[expl['appid'].astype(str) == aid].copy()
-        if not sub.empty and 'year_month' in sub.columns:
-            sub['year_month'] = pd.to_datetime(sub['year_month']).dt.strftime('%Y-%m-%d')
-            out['explanations'] = sub.sort_values('year_month').to_dict(orient='records')
+        if not sub.empty:
+            sanitized_expl: List[Dict[str, Any]] = []
+            for _, row in sub.iterrows():
+                rec = _sanitize_record(row.to_dict())
+                if 'year_month' in rec:
+                    rec['year_month'] = _standardize_period(rec['year_month'])
+                sanitized_expl.append(rec)
+            sanitized_expl.sort(key=lambda item: item.get('year_month') or '')
+            out['explanations'] = sanitized_expl
     return out
 
 
@@ -818,7 +1274,7 @@ def _price_rule(client_price: float | None, cluster_prices: List[float], cfg_par
     except Exception:
         return "no_disponible"
     if p < m * (1.0 - bajo):
-        return "Juego econÃ³mico frente al segmento"
+        return "Juego econÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³mico frente al segmento"
     if p < m * (1.0 + alto):
         return "Precio alineado al segmento"
     return "Precio por encima del segmento"
@@ -834,6 +1290,7 @@ def main() -> None:
     ap.add_argument('--events', default='outputs/events/events.parquet')
     ap.add_argument('--topics', default='outputs/events/topics_scored.parquet')
     ap.add_argument('--explanations', default='outputs/events/explanations.parquet')
+    ap.add_argument('--review_segments', default='outputs/events/review_segments.parquet', help='Parquet/JSON con segmentos de reseÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±as por pico.')
     ap.add_argument('--rules', default='data/with_rules/with_rules.parquet')
     ap.add_argument('--rules_dir', default='data/with_rules/')
     ap.add_argument('--emb_config', default='configs/embeddings.yaml')
@@ -857,6 +1314,7 @@ def main() -> None:
     events_df = _load_any_df(args.events) if path_exists(args.events) else pd.DataFrame()
     topics_df = _load_any_df(args.topics) if path_exists(args.topics) else pd.DataFrame()
     expl_df = _load_any_df(args.explanations) if path_exists(args.explanations) else pd.DataFrame()
+    review_segments_df = _load_any_df(args.review_segments) if path_exists(args.review_segments) else pd.DataFrame()
     rules_df = _load_any_df(args.rules) if path_exists(args.rules) else pd.DataFrame()
 
     cluster_stats_df = _load_cluster_stats_df(args.cluster_stats)
@@ -1028,7 +1486,7 @@ def main() -> None:
             'tags': comp_tags,
             'categories': comp_categories,
         }
-        sections = _collect_sections_for_appid(appid, ccf_df, events_df, topics_df, expl_df)
+        sections = _collect_sections_for_appid(appid, ccf_df, events_df, topics_df, expl_df, review_segments_df)
         rule_row: Dict[str, Any] = {}
         if not rules_df.empty and 'appid' in rules_df.columns:
             rsub = rules_df[rules_df['appid'] == appid]
@@ -1163,9 +1621,10 @@ def main() -> None:
         }
 
     global_rel_summary = _global_relevance_summary(competitors)
+    global_rel_summary["notes"] = summarize_global_relevance(global_rel_summary)
     real_competitors_topics = _aggregate_real_competitors_topics(real_competitors)
     topic_insights = _classify_topic_insights(real_competitors_topics)
-    client_sections = _collect_sections_for_appid(client_id, ccf_df, events_df, topics_df, expl_df)
+    client_sections = _collect_sections_for_appid(client_id, ccf_df, events_df, topics_df, expl_df, review_segments_df)
     peak_analysis = _build_peak_analysis(client_sections)
     competitors_peaks = _build_competitors_peaks(real_competitors)
     diagnostics['neighbors_total'] = len(neighbors)

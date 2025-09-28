@@ -148,3 +148,51 @@ neighbor_strategy:
         - arena
         - shooter
         - battle
+windows:
+  time_granularity: monthly
+  roll_len_players: 6
+  roll_len_reviews: 6
+  peak_window_months: 2
+  min_peak_separation_months: 2
+peaks:
+  z_threshold: 2.0
+  method: zscore
+correlation:
+  lags_months: [1, 2]
+  prewhitening: true
+  fdr: true
+real_competitors:
+  k_in: 25
+  k_out: 15
+  min_similarity_in: 0.82
+  min_similarity_out: 0.80
+  max_out_of_cluster_ratio: 0.30
+  filters:
+    min_shared_tags: 2
+    monetization_compatible: true
+    mode_match: [pvp, multiplayer]
+  rerank:
+    alpha_cosine: 1.0
+    beta_cluster_penalty: 0.15
+    gamma_tag_overlap: 0.10
+    delta_monetization: 0.05
+  window:
+    start: "2025-01-01"
+    end: "2025-09-24"
+    today_last_days: 30
+    zpeak_threshold: 1.8
+    min_points: 90
+bertopic:
+  scope_cluster: "microsegmento del cluster_id=42"
+  scope_competitors: "reviews de competidores reales (today+recent)"
+  window:
+    start: "2025-01-01"
+    end: "2025-09-24"
+  min_docs_per_topic: 200
+  min_topic_size: 50
+  language: "auto/en/es"
+  sentiment_model: "distilbert-sentiment-multilingual"
+  normalization: [spelling_fix, lemmatize, no_lowercase]
+social:
+  analysis_mode: peak_micro_daily
+  daily_window_days: 14
