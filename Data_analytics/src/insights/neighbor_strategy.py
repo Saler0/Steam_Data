@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import math
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -93,6 +94,212 @@ def _vector_from_value(value: Any) -> Optional[np.ndarray]:
     if arr.size == 0:
         return None
     return _ensure_unit_vector(arr)
+
+
+NAME_STOPWORDS: Set[str] = {
+    'a', 'an', 'the', 'and', 'or', 'for', 'of', 'in', 'on', 'at', 'to', 'with', 'from', 'by',
+    'vs', 'vs.', 'edition', 'edicion', 'game', 'collection', 'pack', 'bundle', 'redux',
+    'la', 'el', 'los', 'las', 'lo', 'una', 'uno', 'unos', 'unas', 'un', 'y', 'en', 'con',
+    'para', 'por', 'del', 'de', 'al', 'remastered', 'definitive', 'ultimate'
+}
+
+DEFAULT_NAME_PENALTY_CFG: Dict[str, Any] = {
+    'w_unigram': 1.0,
+    'w_ngram': 1.5,
+    'w_prefix': 1.0,
+    'ngram_sizes': (2, 3),
+    'min_prefix_length': 6,
+    'generic_whitelist': (
+        'zombie', 'zombies', 'survival', 'survivor', 'survivors', 'horde', 'fps', 'coop',
+        'co-op', 'online', 'protocol', 'arena', 'shooter', 'battle'
+    ),
+}
+
+
+def _light_stem(token: str) -> str:
+    if len(token) <= 3:
+        return token
+    if token.endswith('ies') and len(token) > 4:
+        return token[:-3] + 'y'
+    if token.endswith('ing') and len(token) > 5:
+        return token[:-3]
+    if token.endswith('ed') and len(token) > 4:
+        return token[:-2]
+    if token.endswith('es') and len(token) > 3:
+        return token[:-2]
+    if token.endswith('s') and len(token) > 3:
+        return token[:-1]
+    return token
+
+
+def _normalize_name_text(text: str) -> str:
+    cleaned = text.replace('co-op', 'coop').replace('co op', 'coop')
+    cleaned = re.sub(r"\s+", ' ', cleaned)
+    return cleaned.strip()
+
+
+def _prepare_name_penalty_cfg(user_cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    cfg = {
+        'w_unigram': float(DEFAULT_NAME_PENALTY_CFG['w_unigram']),
+        'w_ngram': float(DEFAULT_NAME_PENALTY_CFG['w_ngram']),
+        'w_prefix': float(DEFAULT_NAME_PENALTY_CFG['w_prefix']),
+        'min_prefix_length': int(DEFAULT_NAME_PENALTY_CFG['min_prefix_length']),
+        'ngram_sizes': tuple(DEFAULT_NAME_PENALTY_CFG['ngram_sizes']),
+    }
+    raw_whitelist: List[str] = list(DEFAULT_NAME_PENALTY_CFG['generic_whitelist'])
+    if user_cfg:
+        if 'w_unigram' in user_cfg:
+            cfg['w_unigram'] = float(user_cfg['w_unigram'])
+        if 'w_ngram' in user_cfg:
+            cfg['w_ngram'] = float(user_cfg['w_ngram'])
+        if 'w_prefix' in user_cfg:
+            cfg['w_prefix'] = float(user_cfg['w_prefix'])
+        if 'min_prefix_length' in user_cfg:
+            cfg['min_prefix_length'] = int(user_cfg['min_prefix_length'])
+        if 'ngram_sizes' in user_cfg and user_cfg['ngram_sizes']:
+            values = []
+            for item in user_cfg['ngram_sizes']:
+                try:
+                    num = int(item)
+                except Exception:
+                    continue
+                if num > 1:
+                    values.append(num)
+            if values:
+                cfg['ngram_sizes'] = tuple(sorted(set(values)))
+        if 'generic_whitelist' in user_cfg and user_cfg['generic_whitelist']:
+            raw_whitelist.extend(str(item) for item in user_cfg['generic_whitelist'])
+    if not cfg['ngram_sizes']:
+        cfg['ngram_sizes'] = (2, 3)
+    whitelist: Set[str] = set()
+    for term in raw_whitelist:
+        normalized = _normalize_string(term)
+        if not normalized:
+            continue
+        normalized = _normalize_name_text(normalized)
+        token = re.sub(r'[^a-z0-9]+', '', normalized)
+        token = _light_stem(token)
+        if token:
+            whitelist.add(token)
+    cfg['generic_whitelist'] = whitelist
+    return cfg
+
+
+def _build_name_signature(name: Optional[str], cfg: Dict[str, Any]) -> Dict[str, Any]:
+    raw = '' if name is None else str(name)
+    normalized_base = _normalize_string(raw)
+    if not normalized_base:
+        return {
+            'raw': raw,
+            'tokens': (),
+            'token_set': set(),
+            'ngram_map': {},
+            'prefix_plain': '',
+            'leading_fragment': '',
+        }
+    normalized_base = _normalize_name_text(normalized_base)
+    tokens: List[str] = []
+    whitelist: Set[str] = cfg.get('generic_whitelist', set())
+    for token in re.findall(r'[a-z0-9]+', normalized_base):
+        if not token:
+            continue
+        stemmed = _light_stem(token)
+        if len(stemmed) <= 1:
+            continue
+        if stemmed in NAME_STOPWORDS or stemmed in whitelist:
+            continue
+        tokens.append(stemmed)
+    token_set = set(tokens)
+    ngram_map: Dict[int, Set[str]] = {}
+    for size in cfg.get('ngram_sizes', (2, 3)):
+        try:
+            n = int(size)
+        except Exception:
+            continue
+        if n <= 1 or len(tokens) < n:
+            continue
+        grams = {' '.join(tokens[idx: idx + n]) for idx in range(len(tokens) - n + 1)}
+        if grams:
+            ngram_map[n] = grams
+    prefix_plain = re.sub(r'[^a-z0-9]+', '', normalized_base)
+    fragment_source = re.split(r'[:\-]', normalized_base, maxsplit=1)[0]
+    fragment_tokens = []
+    for token in re.findall(r'[a-z0-9]+', fragment_source):
+        stemmed = _light_stem(token)
+        if stemmed in NAME_STOPWORDS or stemmed in whitelist:
+            continue
+        fragment_tokens.append(stemmed)
+    leading_fragment = ''.join(fragment_tokens)
+    return {
+        'raw': raw,
+        'tokens': tuple(tokens),
+        'token_set': token_set,
+        'ngram_map': ngram_map,
+        'prefix_plain': prefix_plain,
+        'leading_fragment': leading_fragment,
+    }
+
+
+def _longest_common_prefix(a: str, b: str) -> str:
+    max_len = min(len(a), len(b))
+    idx = 0
+    while idx < max_len and a[idx] == b[idx]:
+        idx += 1
+    return a[:idx]
+
+
+def _has_prefix_match(query_sig: Dict[str, Any], candidate_sig: Dict[str, Any], min_prefix_length: int) -> bool:
+    if min_prefix_length <= 0:
+        min_prefix_length = 1
+    q_plain = query_sig.get('prefix_plain', '')
+    c_plain = candidate_sig.get('prefix_plain', '')
+    if q_plain and c_plain:
+        shared = _longest_common_prefix(q_plain, c_plain)
+        if len(shared) >= min_prefix_length:
+            return True
+    q_fragment = query_sig.get('leading_fragment', '')
+    c_fragment = candidate_sig.get('leading_fragment', '')
+    if q_fragment and c_fragment and q_fragment == c_fragment and len(q_fragment) >= max(3, min_prefix_length // 2):
+        return True
+    return False
+
+
+def _compute_name_penalty(query_sig: Dict[str, Any], candidate_sig: Dict[str, Any], cfg: Dict[str, Any]) -> float:
+    if not query_sig:
+        return 0.0
+    query_tokens: Set[str] = query_sig.get('token_set', set())
+    candidate_tokens: Set[str] = candidate_sig.get('token_set', set())
+    if query_tokens:
+        overlap_unigram = len(query_tokens & candidate_tokens) / float(len(query_tokens))
+    else:
+        overlap_unigram = 0.0
+    ngram_overlap = 0.0
+    total_query_ngrams = 0
+    query_map = query_sig.get('ngram_map', {}) or {}
+    candidate_map = candidate_sig.get('ngram_map', {}) or {}
+    for size in cfg.get('ngram_sizes', (2, 3)):
+        try:
+            n = int(size)
+        except Exception:
+            continue
+        q_set = query_map.get(n)
+        if not q_set:
+            continue
+        total_query_ngrams += len(q_set)
+        c_set = candidate_map.get(n)
+        if c_set:
+            ngram_overlap += len(q_set & c_set)
+    if total_query_ngrams > 0:
+        overlap_ngram = ngram_overlap / float(total_query_ngrams)
+    else:
+        overlap_ngram = 0.0
+    prefix_match = 1.0 if _has_prefix_match(query_sig, candidate_sig, int(cfg.get('min_prefix_length', 6))) else 0.0
+    penalty = (
+        float(cfg.get('w_unigram', 1.0)) * overlap_unigram
+        + float(cfg.get('w_ngram', 1.0)) * overlap_ngram
+        + float(cfg.get('w_prefix', 1.0)) * prefix_match
+    )
+    return float(penalty)
 
 
 
@@ -334,6 +541,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         'gamma_tag_overlap': 0.10,
         'delta_monetization': 0.05,
         'epsilon_mode_match': 0.05,
+        'zeta_name_penalty': 0.20,
+        'name_penalty': DEFAULT_NAME_PENALTY_CFG,
     },
     'microsegmentation': {
         'enabled': True,
@@ -351,7 +560,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 def _merge_configs(user_cfg: Dict[str, Any]) -> Dict[str, Any]:
     cfg = {**DEFAULT_CONFIG}
     for key in ['business_filters', 'rerank', 'microsegmentation', 'dilution_checks']:
-        cfg[key] = {**DEFAULT_CONFIG[key], **user_cfg.get(key, {})} if user_cfg.get(key) else DEFAULT_CONFIG[key].copy()
+        default_section = DEFAULT_CONFIG[key]
+        override_section = user_cfg.get(key) if isinstance(user_cfg.get(key), dict) else None
+        merged = {**default_section}
+        if override_section:
+            merged.update(override_section)
+        if key == 'rerank':
+            name_override = None
+            if override_section and isinstance(override_section.get('name_penalty'), dict):
+                name_override = override_section['name_penalty']
+            merged['name_penalty'] = _prepare_name_penalty_cfg(name_override)
+        cfg[key] = merged
     for key, value in user_cfg.items():
         if key not in cfg:
             cfg[key] = value
@@ -530,6 +749,12 @@ def select_competitor_neighbors(
         name=query_metadata.get('name'),
     )
 
+    rerank_cfg = cfg.get('rerank', {})
+    name_penalty_cfg = rerank_cfg.get('name_penalty', {})
+    zeta_name_penalty = float(rerank_cfg.get('zeta_name_penalty', 0.0))
+    query_name_signature = _build_name_signature(query_view.name, name_penalty_cfg) if zeta_name_penalty > 0.0 else {}
+    use_name_penalty = zeta_name_penalty > 0.0 and isinstance(query_name_signature, dict)
+
     total_embeddings = len(embeddings.ids)
     if total_embeddings == 0:
         return [], {
@@ -597,12 +822,14 @@ def select_competitor_neighbors(
             candidate_cluster = cluster_map.get(aid)
             candidate_meta = metadata_accessor.get(aid)
             vector = embeddings.vector_for(aid)
+            name_signature = _build_name_signature(candidate_meta.name, name_penalty_cfg) if use_name_penalty else None
             entry = {
                 'appid': aid,
                 'similarity': float(sim),
                 'cluster_id': candidate_cluster,
                 'vector': vector,
                 'meta': candidate_meta,
+                'name_signature': name_signature,
             }
 
             same_cluster = (
@@ -693,12 +920,12 @@ def select_competitor_neighbors(
     max_out_ratio = float(cfg.get('max_out_ratio', 0.3))
     max_cross_allowed = max(0, int(round(total_target * max_out_ratio))) if allow_cross else 0
 
-    rerank_cfg = cfg.get('rerank', {})
     alpha = float(rerank_cfg.get('alpha_cosine', 1.0))
     beta = float(rerank_cfg.get('beta_cluster_penalty', 0.15))
     gamma = float(rerank_cfg.get('gamma_tag_overlap', 0.1))
     delta = float(rerank_cfg.get('delta_monetization', 0.05))
     epsilon = float(rerank_cfg.get('epsilon_mode_match', 0.05))
+    zeta = float(rerank_cfg.get('zeta_name_penalty', zeta_name_penalty))
 
     def compute_score(entry: Dict[str, Any]) -> float:
         similarity = entry['similarity']
@@ -708,12 +935,20 @@ def select_competitor_neighbors(
         tag_overlap = len(set(candidate_meta.tags) & set(query_view.tags))
         monetization_bonus = 1.0 if candidate_meta.is_free == query_view.is_free else 0.0
         mode_overlap = len(set(candidate_meta.modes) & set(query_view.modes))
+        name_penalty_value = 0.0
+        if use_name_penalty and zeta > 0.0:
+            candidate_signature = entry.get('name_signature')
+            if candidate_signature is None:
+                candidate_signature = _build_name_signature(candidate_meta.name, name_penalty_cfg)
+                entry['name_signature'] = candidate_signature
+            name_penalty_value = _compute_name_penalty(query_name_signature, candidate_signature, name_penalty_cfg)
         return (
             alpha * similarity
             - beta * cluster_penalty
             + gamma * tag_overlap
             + delta * monetization_bonus
             + epsilon * mode_overlap
+            - zeta * name_penalty_value
         )
 
     for cand in in_candidates:

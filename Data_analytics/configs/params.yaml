@@ -126,3 +126,25 @@ neighbor_strategy:
     gamma_tag_overlap: 0.10
     delta_monetization: 0.05
     epsilon_mode_match: 0.05
+    zeta_name_penalty: 0.20
+    name_penalty:
+      w_unigram: 1.0
+      w_ngram: 1.5
+      w_prefix: 1.0
+      ngram_sizes: [2, 3]
+      min_prefix_length: 6
+      generic_whitelist:
+        - zombie
+        - zombies
+        - survival
+        - survivor
+        - survivors
+        - horde
+        - fps
+        - coop
+        - co-op
+        - online
+        - protocol
+        - arena
+        - shooter
+        - battle
