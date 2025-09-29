@@ -1,56 +1,32 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any, Dict, Tuple
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.exceptions import NotFound
 
-
-db = SQLAlchemy()
-
-
-class Game(db.Model):
-    __tablename__ = "games"
-
-    id = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.String(100), nullable=False)
-    categoria = db.Column(db.String(50), nullable=False)
-    descripcion = db.Column(db.Text, nullable=False)
-    precio = db.Column(db.Float, nullable=False)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "nombre": self.nombre,
-            "categoria": self.categoria,
-            "descripcion": self.descripcion,
-            "precio": self.precio,
-        }
+from db.mongodb import MongoDBClient
+from pymongo.errors import PyMongoError
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    database_url = os.environ.get("DATABASE_URL", "sqlite:///mi_db.db")
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=database_url,
-        SQLALCHEMY_TRACK_MODIFICATIONS=False,
-    )
+    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
+    mongo_db_name = os.environ.get("MONGO_DB", "exploitation_zone")
+    mongo_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_name)
+    app.config["MONGO_CLIENT"] = mongo_client
 
-    db.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-    register_routes(app)
-
-    with app.app_context():
-        db.create_all()
+    register_routes(app, mongo_client)
 
     return app
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
     @app.errorhandler(NotFound)
     def handle_not_found(error: NotFound):
         return jsonify({"message": error.description or "Recurso no encontrado"}), 404
@@ -59,10 +35,13 @@ def register_routes(app: Flask) -> None:
     def health() -> Tuple[Dict[str, str], int]:
         return {"status": "ok"}, 200
 
-    @app.get("/api/games")
-    def list_games():
-        games = Game.query.order_by(Game.id).all()
-        return jsonify({"games": [game.to_dict() for game in games]})
+    @app.get("/api/mongo-health")
+    def mongo_health() -> Tuple[Dict[str, str], int]:
+        try:
+            mongo_client.ping()
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}, 503
+        return {"status": "ok"}, 200
 
     @app.post("/api/games")
     def create_game():
@@ -71,42 +50,37 @@ def register_routes(app: Flask) -> None:
         if errors:
             return jsonify({"message": "Datos invalidos", "errors": errors}), 400
 
-        game = Game(
-            nombre=payload["nombre"].strip(),
-            categoria=payload["categoria"].strip(),
-            descripcion=payload["descripcion"].strip(),
-            precio=float(payload["precio"]),
-        )
-        db.session.add(game)
-        db.session.commit()
-        return jsonify(game.to_dict()), 201
+        document = {
+            "nombre": payload["nombre"].strip(),
+            "categoria": payload["categoria"].strip(),
+            "descripcion": payload["descripcion"].strip(),
+            "precio": float(payload["precio"]),
+            "created_at": datetime.utcnow(),
+        }
 
-    @app.get("/api/games/<int:game_id>")
-    def get_game(game_id: int):
-        game = Game.query.get_or_404(game_id, description="Juego no encontrado")
-        return jsonify(game.to_dict())
+        try:
+            collection = mongo_client.get_collection("juegos_clientes")
+            insert_result = collection.insert_one(document)
+        except PyMongoError as exc:
+            return (
+                jsonify(
+                    {
+                        "message": "No se pudo guardar el juego en MongoDB",
+                        "error": str(exc),
+                    }
+                ),
+                502,
+            )
 
-    @app.put("/api/games/<int:game_id>")
-    def update_game(game_id: int):
-        payload = request.get_json(silent=True) or {}
-        errors = validate_game_payload(payload)
-        if errors:
-            return jsonify({"message": "Datos invalidos", "errors": errors}), 400
-
-        game = Game.query.get_or_404(game_id, description="Juego no encontrado")
-        game.nombre = payload["nombre"].strip()
-        game.categoria = payload["categoria"].strip()
-        game.descripcion = payload["descripcion"].strip()
-        game.precio = float(payload["precio"])
-        db.session.commit()
-        return jsonify(game.to_dict())
-
-    @app.delete("/api/games/<int:game_id>")
-    def delete_game(game_id: int):
-        game = Game.query.get_or_404(game_id, description="Juego no encontrado")
-        db.session.delete(game)
-        db.session.commit()
-        return "", 204
+        response_payload = {
+            "mongo_id": str(insert_result.inserted_id),
+            "nombre": document["nombre"],
+            "categoria": document["categoria"],
+            "descripcion": document["descripcion"],
+            "precio": document["precio"],
+            "created_at": document["created_at"].isoformat() + "Z",
+        }
+        return jsonify(response_payload), 201
 
 
 def validate_game_payload(payload: Dict[str, Any]) -> Dict[str, str]:

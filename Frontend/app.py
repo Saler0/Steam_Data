@@ -1,10 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import requests
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, url_for
 
 
 def create_app() -> Flask:
@@ -21,18 +21,7 @@ def create_app() -> Flask:
 
     @app.route("/")
     def home():
-        juegos: List[Dict[str, Any]] = []
-        try:
-            response = requests.get(backend_url("/api/games"), timeout=5)
-            response.raise_for_status()
-            payload = response.json()
-            if isinstance(payload, dict):
-                juegos = payload.get("games", [])
-        except requests.HTTPError:
-            flash("El backend devolvio un error al obtener los juegos.", "error")
-        except (requests.RequestException, ValueError):
-            flash("No se pudo cargar la lista de juegos en este momento.", "error")
-        return render_template("index.html", juegos=juegos)
+        return render_template("index.html")
 
     @app.route("/about")
     def about():
@@ -74,29 +63,9 @@ def create_app() -> Flask:
                 return redirect(url_for("agregar_juego"))
 
             flash("Juego agregado correctamente.", "success")
-            return redirect(url_for("home"))
+            return redirect(url_for("agregar_juego"))
 
         return render_template("user.html")
-
-    @app.route("/juego/<int:juego_id>")
-    def juego(juego_id: int):
-        try:
-            response = requests.get(backend_url(f"/api/games/{juego_id}"), timeout=5)
-        except requests.RequestException:
-            abort(502, description="No fue posible contactar el backend.")
-
-        if response.status_code == 404:
-            abort(404)
-
-        if response.status_code >= 400:
-            abort(response.status_code)
-
-        try:
-            juego_data = response.json()
-        except ValueError:
-            abort(502, description="Respuesta invalida del backend.")
-
-        return render_template("juego.html", juego=juego_data)
 
     @app.errorhandler(404)
     def handle_not_found(_error):
@@ -113,5 +82,5 @@ def create_app() -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("FRONTEND_PORT", 5000))
+    port = int(os.environ.get("FRONTEND_PORT", 5100))
     app.run(debug=True, port=port)

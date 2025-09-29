@@ -143,30 +143,6 @@
     </div>
 </section>
 
-<section id="catalogo" class="games-section">
-    <div class="games-section-header">
-        <h2>Catalogo de juegos</h2>
-        <a class="btn-secondary" href="{{ url_for('agregar_juego') }}">Agregar nuevo juego</a>
-    </div>
-    {% if juegos %}
-    <div class="games-grid">
-        {% for juego in juegos %}
-        <article class="game-card">
-            <header>
-                <h3>{{ juego.nombre }}</h3>
-                <span class="game-category">{{ juego.categoria }}</span>
-            </header>
-            <p class="game-description">{{ juego.descripcion }}</p>
-            <p class="game-price">${{ "%.2f"|format(juego.precio) }}</p>
-            <a class="btn-primary" href="{{ url_for('juego', juego_id=juego.id) }}">Ver detalle</a>
-        </article>
-        {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty-state">Todavia no hay juegos registrados. Agrega el primero para comenzar.</p>
-    {% endif %}
-</section>
-
 <section id="contacto" class="contact">
     <h2>Contactanos</h2>
     <form>
