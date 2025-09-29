@@ -1,0 +1,15 @@
+﻿# Configuración para prepare_reviews_with_segments.py
+reviews_source: data/raw/reviews/reviews.csv
+review_id_column: review_id
+appid_column: appid
+text_column: review
+date_column: review_date
+recommended_column: recommended
+playtime_column: playtime_at_review
+playtime_30d_column: playtime_since_review_30d
+abandon_column: abandon_after_30d
+gifted_column: gifted
+early_access_column: early_access
+post_launch_column: post_launch
+median_playtime_column: median_playtime_app
+bertopic_language: multilingualertopic_min_topic_size: 20

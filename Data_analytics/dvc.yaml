@@ -107,6 +107,16 @@ stages:
       - outputs/events/events.parquet
 
   topics:
+  reviews_with_segments:
+    cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --allow-empty
+    deps:
+      - src/pipelines/review_segments/prepare_reviews_with_segments.py
+      - configs/review_segments.yaml
+    outs:
+      - data/warehouse/reviews_with_segments.parquet
+      - outputs/events/reviews_topics.parquet
+
+  topics:
     cmd: python src/insights/topic_motives.py --config configs/events.yaml
     deps:
       - src/insights/topic_motives.py
@@ -114,6 +124,16 @@ stages:
       - outputs/events/events.parquet
     outs:
       - outputs/events/topics.parquet
+
+  review_segments:
+    cmd: python src/insights/build_review_segments.py --events outputs/events/events.parquet --reviews data/warehouse/reviews_with_segments.parquet --topics outputs/events/reviews_topics.parquet --output outputs/events/review_segments.parquet
+    deps:
+      - src/insights/build_review_segments.py
+      - outputs/events/events.parquet
+      - data/warehouse/reviews_with_segments.parquet
+      - outputs/events/reviews_topics.parquet
+    outs:
+      - outputs/events/review_segments.parquet
 
   news_classifier:
     cmd: python src/insights/news_classifier.py --config configs/events.yaml
@@ -143,6 +163,7 @@ stages:
       - outputs/events/news_classified.parquet
     outs:
       - outputs/events/explanations.parquet
+      - outputs/events/review_segments.parquet
 
    # --- Rama Paralela 2: AplicaciÃ³n y EvaluaciÃ³n de Reglas de DecisiÃ³n ---
   # Esta rama se puede ejecutar en paralelo con las otras dos ramas.

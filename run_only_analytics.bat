@@ -31,15 +31,12 @@ if errorlevel 1 (
 )
 
 rem ===== Control de etapas DVC =====
-set "DVC_TARGETS=embeddings clustering cluster_topics_profile cluster_topics_map"
+set "DVC_TARGETS=embeddings clustering cluster_topics_profile cluster_topics_map review_segments"
 set "DVC_FLAGS="
 set "SKIP_EMB=0"
 set "RUN_TOPICS_ONLY=0"
 set "RUN_POC=0"
 set "POC_ARGS="
-if not defined REVIEW_SEGMENTS_REVIEWS set "REVIEW_SEGMENTS_REVIEWS=data/warehouse/reviews_with_segments.parquet"
-if not defined REVIEW_SEGMENTS_TOPICS set "REVIEW_SEGMENTS_TOPICS=outputs/events/reviews_topics.parquet"
-if not defined REVIEW_SEGMENTS_OUTPUT set "REVIEW_SEGMENTS_OUTPUT=outputs/events/review_segments.parquet"
 
 
 for %%A in (%*) do (
@@ -87,13 +84,6 @@ if "!RUN_TOPICS_ONLY!"=="1" (
     if errorlevel 1 goto :dvc_failed
 )
 
-
-echo.
-echo ============================
-echo Generando segmentos de resenas por pico...
-echo ============================
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "if [ -f ""%REVIEW_SEGMENTS_REVIEWS%"" ] && [ -f "outputs/events/events.parquet" ]; then TOPICS_ARG=""; if [ -f ""%REVIEW_SEGMENTS_TOPICS%"" ]; then TOPICS_ARG="--topics %REVIEW_SEGMENTS_TOPICS%"; fi; python src/insights/build_review_segments.py --events outputs/events/events.parquet --reviews %REVIEW_SEGMENTS_REVIEWS% $TOPICS_ARG --output %REVIEW_SEGMENTS_OUTPUT%; else echo '[WARN] review_segments omitidos: faltan datos (se esperaba %REVIEW_SEGMENTS_REVIEWS% y outputs/events/events.parquet).'; fi"
 
 goto :dvc_success
 

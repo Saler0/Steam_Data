@@ -119,7 +119,7 @@ def generate_review_highlights(by_experience: Dict[str, Dict[str, Any]]) -> List
                 "expert": "jugadores expertos",
                 "veteran": "veteranos",
             }
-            highlights.append(f"{labels.get(key, key)} concentran {int(round(pct * 100))}% de las reseñas del pico.")
+            highlights.append(f"{labels.get(key, key)} concentran {int(round(pct * 100))}% de las resenas del pico.")
     return highlights
 
 
@@ -141,22 +141,22 @@ def describe_takeaways(date_label: Optional[str], zscore: Optional[float], why: 
         lag = granger.get("best_lag")
         best_ccf = granger.get("best_ccf")
         if best_ccf is not None:
-            takeaways.append(f"Las reseñas anteceden a los jugadores (lag={lag}, ccf={best_ccf:.2f}).")
+            takeaways.append(f"Las resenas anteceden a los jugadores (lag={lag}, ccf={best_ccf:.2f}).")
         else:
-            takeaways.append("Las reseñas anteceden a los jugadores (Granger significativa).")
+            takeaways.append("Las resenas anteceden a los jugadores (Granger significativa).")
     else:
-        takeaways.append("No hay evidencia robusta de causalidad reseñas?jugadores.")
+        takeaways.append("No hay evidencia robusta de causalidad resenas?jugadores.")
     return takeaways
 
 
 def describe_pricing(delta_pct: Optional[float]) -> str:
     if delta_pct is None:
-        return "En línea con el promedio del segmento"
+        return "En linea con el promedio del segmento"
     if delta_pct <= -0.1:
         return "Ligeramente por debajo del promedio de los competidores reales"
     if delta_pct >= 0.1:
         return "Por encima del promedio de los competidores reales"
-    return "En línea con el promedio del segmento"
+    return "En linea con el promedio del segmento"
 
 
 def describe_topic_trend(delta: Optional[float], sentiment: Optional[float]) -> str:
@@ -202,16 +202,16 @@ def summarize_global_relevance(stats: Dict[str, Any]) -> List[str]:
     negative_ratio = stats.get("negative_ratio")
     if negative_ratio is not None:
         if negative_ratio >= 0.5:
-            notes.append("Alta proporción de tópicos negativos en competidores.")
+            notes.append("Alta proporcion de topicos negativos en competidores.")
         elif negative_ratio >= 0.2:
-            notes.append("Presencia moderada de tópicos negativos en competidores.")
+            notes.append("Presencia moderada de topicos negativos en competidores.")
     if stats.get("competitors_with_negative"):
-        notes.append(f"{stats['competitors_with_negative']} competidores con señales negativas recientes.")
+        notes.append(f"{stats['competitors_with_negative']} competidores con senales negativas recientes.")
     if not notes:
-        notes.append("Sin alertas relevantes en tópicos globales.")
+        notes.append("Sin alertas relevantes en topicos globales.")
     return notes
 
 
 def describe_topic_insight(topic: Dict[str, Any]) -> str:
     return describe_topic_reason(topic)
-
+
