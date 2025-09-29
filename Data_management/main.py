@@ -124,24 +124,24 @@ def main():
         pipelineI.run()
         logging.info("✅ INGESTA ➜ LANDING ")
 
-        # ===== LANDING ZONE --> TRUSTED ZONE =====
-        logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")
-        pipelineLT = PipelineLandingtoTrusted(mongo_uri,mongo_db_trusted)
-        pipelineLT.run()
-        logging.info("✅ LANDING ➜ TRUSTED ")
+        # # ===== LANDING ZONE --> TRUSTED ZONE =====
+        # logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")
+        # pipelineLT = PipelineLandingtoTrusted(mongo_uri,mongo_db_trusted)
+        # pipelineLT.run()
+        # logging.info("✅ LANDING ➜ TRUSTED ")
 
-        # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
-        logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
+        # # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
+        # logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
-        # Creamos un cliente PARA CADA ZONA:
-        trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
-        exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
+        # # Creamos un cliente PARA CADA ZONA:
+        # trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
+        # exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
         
-        pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
-        pipelineTE.run()
-        logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
+        # pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
+        # pipelineTE.run()
+        # logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
         
-        logging.info("✅ PIPELINE APP COMPLETO ✅")
+        # logging.info("✅ PIPELINE APP COMPLETO ✅")
         
     except Exception:
         logging.exception("💥 Pipeline abortado por excepción no capturada")
