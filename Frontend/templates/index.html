@@ -14,7 +14,7 @@
 </section>
 
 <section class="features">
-    <h2>Todo lo que buscas ...</h2>
+    <h2>Lo que encontraras</h2>
     <div class="features-grid">
         <div class="feature-card">
             <img src="{{ url_for('static', filename='img/feature1.png') }}" alt="Feature 1">
@@ -36,21 +36,61 @@
 
 
 <!-- Título fuera del banner, igual que en Features -->
-<!-- Título fuera del banner, igual que en Features -->
-<h2 class="section-title section-title-facil">Práctico y útil ...</h2>
+<h2 class="section-title section-title-facil">Práctico y eficiente </h2>
 <section id="Inpulsojuego" class="Inpulsojuego-banner">
     <div class="Inpulsojuego-content">
         <div class="Inpulsojuego-left">
-            <h2>Impulsa tu juego al siguiente nivel</h2>
-            <h3><span class="sombra-palabra">Dashboard interactivo</span></h3>
-            <p>Explora el segmento de videojuegos que más te interesa y obten una vision clara que te permita alcanzar el éxito comercial.</p>
-            <a href="#" class="btn-secondary">Unete Gratis</a>
+            <h2><span class="sombra-palabra">Dashboard interactivo</span></h2>
+            <h3><span>Impulsa tu juego al siguiente nivel</span></h3>
+            <p class="texto-sombra">Explora el segmento de videojuegos que más te interesa y obten una vision clara que te permita alcanzar el éxito comercial.</p>
+            <a href="#" class="btn-primary">Unete Gratis</a>
         </div>
         <div class="Inpulsojuego-right">
             <img src="{{ url_for('static', filename='img/dashboard.png') }}" alt="Impulso Juego">
         </div>
     </div>
 </section>
+
+<!-- Como funciona -->
+
+<section id="flujo-proceso" class="flujo-proceso">
+    <h2>¿Cómo funciona?</h2>
+    <div class="flujo-container">
+        <!-- Paso 1 -->
+        <div class="flujo-nodo">
+            <div class="flujo-numero">1</div>
+            <div class="flujo-contenido">
+                <h3>Ingresas las caracteristicas</h3>
+                <p class="flujo-ejemplo">Ej :<span>Juego multijugador de lucha ... </span></p>
+            </div>
+        </div>
+        <!-- Paso 2 -->
+        <div class="flujo-nodo">
+            <div class="flujo-numero">2</div>
+            <div class="flujo-contenido">
+                <h3>Analizamos su similaridad</h3>
+                <div class="flujo-cargando">
+                    <span class="loader"></span>
+                    <p class="flujo-ejemplo"></spanclass>Comparando con +200k videojuegos...</span></p>
+                </div>
+            </div>
+        </div>
+        <!-- Paso 3 -->
+        <div class="flujo-nodo">
+            <div class="flujo-numero">3</div>
+            <div class="flujo-contenido">
+                <h3>Generamos insights</h3>
+                <div class="flujo-cargando">
+                    <span class="loader"></span>        
+                    <p class="flujo-ejemplo"></spanclass>Exportando metricas y gráficos ...</span></p>
+                </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Membresias -->
 
 <section id="membresias" class="memberships">
     <h2>Tipos de Membresia</h2>
@@ -135,42 +175,6 @@
         <textarea placeholder="Tu mensaje"></textarea>
         <button type="submit" class="btn-primary">Enviar</button>
     </form>
-</section>
-
-<section id="flujo-proceso" class="flujo-proceso">
-    <h2>¿Cómo funciona?</h2>
-    <div class="flujo-container">
-        <!-- Paso 1 -->
-        <div class="flujo-nodo">
-            <div class="flujo-numero">1</div>
-            <div class="flujo-contenido">
-                <h3>Ingresas los parametros de tu videojuego</h3>
-                <p class="flujo-ejemplo">Ejemplo: <span>Juego multijugador de guerra a 20 EUR </span></p>
-            </div>
-        </div>
-        <!-- Paso 2 -->
-        <div class="flujo-nodo">
-            <div class="flujo-numero">2</div>
-            <div class="flujo-contenido">
-                <h3>Analizamos su similaridad</h3>
-                <div class="flujo-cargando">
-                    <span class="loader"></span>
-                    <span>Comparando con +200k videojuegos...</span>
-                </div>
-            </div>
-        </div>
-        <!-- Paso 3 -->
-        <div class="flujo-nodo">
-            <div class="flujo-numero">3</div>
-            <div class="flujo-contenido">
-                <h3>Generamos insights</h3>
-                <div class="flujo-cargando">
-                    <span class="loader"></span>        
-                    <span>Exportando KPI's, metricas y gráficos ...</span>
-                </div>
-            </div>
-        </div>
-    </div>
 </section>
 
 {% endblock %}
