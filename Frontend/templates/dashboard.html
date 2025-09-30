@@ -1,0 +1,39 @@
+<!-- <!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard | GameBoosters</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <h2>Dashboard de Power BI</h2>
+  <div class="pb-frame">
+    <iframe
+      title="GameBoosters Dashboard"
+      src="https://app.powerbi.com/view?r=eyJrIjoiYjIxNTliYWYtZjhmYi00OGZkLTk5ZjgtY2U5ODVkYWI5YWFiIiwidCI6ImYyOGI2MmUzLTI3NjEtNGFkZS05NTMyLTlkZWMwYWMyOGNkYyIsImMiOjl9"
+      frameborder="0"
+      allowFullScreen
+      loading="lazy">
+    </iframe>
+  </div>
+</body>
+</html> -->
+
+
+{% extends "base.html" %}
+
+{% block content %}
+<section class="dashboard-section">
+  <h2>Dashboard de Power BI</h2>
+  <div class="pb-frame">
+    <iframe
+      title="GameBoosters Dashboard"
+      src="https://app.powerbi.com/view?r=eyJrIjoiYjIxNTliYWYtZjhmYi00OGZkLTk5ZjgtY2U5ODVkYWI5YWFiIiwidCI6ImYyOGI2MmUzLTI3NjEtNGFkZS05NTMyLTlkZWMwYWMyOGNkYyIsImMiOjl9"
+      frameborder="0"
+      allowFullScreen
+      loading="lazy">
+    </iframe>
+  </div>
+</section>
+{% endblock %}
+

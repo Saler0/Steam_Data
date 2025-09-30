@@ -779,3 +779,31 @@ body {
     
 
 }
+
+/* Contenedor del dashboard */
+.dashboard-section {
+  max-width: 1200px;     /* Ancho máximo centrado */
+  margin: 2rem auto;     /* Centrar en la página con márgenes arriba/abajo */
+  padding: 2rem;
+  background: #1e1e2f;   /* Fondo opcional (oscuro) */
+  border-radius: 12px;   /* Bordes redondeados */
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3); /* Sombra suave */
+  text-align: center;
+}
+
+/* Marco del iframe */
+.pb-frame {
+  position: relative;
+  width: 100%;
+  height: 70vh;          /* 70% de la altura de la ventana */
+  overflow: hidden;
+  border-radius: 10px;   /* Bordes redondeados del frame */
+  border: 2px solid #444; /* Borde visible */
+}
+
+/* Ajuste del iframe */
+.pb-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: none;          /* Quitar borde nativo */
+}

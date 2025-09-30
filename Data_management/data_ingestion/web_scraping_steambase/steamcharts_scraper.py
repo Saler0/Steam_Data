@@ -143,15 +143,15 @@ def main(appids):
 
     is_first_day = datetime.now().day == 1
 
-    if data_exists and not is_first_day:
-        logging.info("El scraping se omite. La data histórica ya existe en PostgreSQL y no es el primer día del mes.")
-        return
+    # if data_exists and not is_first_day:
+    #     logging.info("El scraping se omite. La data histórica ya existe en PostgreSQL y no es el primer día del mes.")
+    #     return
     
-    if data_exists and is_first_day:
-        logging.info("Iniciando scraping mensual de actualización (los datos ya existen en PostgreSQL).")
+    # if data_exists and is_first_day:
+    #     logging.info("Iniciando scraping mensual de actualización (los datos ya existen en PostgreSQL).")
     
-    if not data_exists:
-        logging.info("No se encontró data histórica en PostgreSQL. Iniciando scraping completo por primera vez.")
+    # if not data_exists:
+    #     logging.info("No se encontró data histórica en PostgreSQL. Iniciando scraping completo por primera vez.")
 
 
     if not appids:
