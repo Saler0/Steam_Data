@@ -39,7 +39,7 @@ class PipelineIngest:
         # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
         self.modo='MVP'
         if self.modo == 'MVP': # se capturara todas las reviews de un grupo selecto de APPIDs
-            self.appids_to_process = [730, 570, 1086940, 271590,413150] # CS2, Dota 2, Baldur's Gate 3, GTA V, Stardew Valley
+            self.appids_to_process =  [246940, 312960, 2211840, 951040, 3187610, 1089690, 3716650, 3448340, 3754370, 3835840] # CS2, Dota 2, Baldur's Gate 3, GTA V, Stardew Valley
         else: # Modo Realista
             self.appids_to_process = None
             

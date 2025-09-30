@@ -76,6 +76,10 @@ def create_app() -> Flask:
         mensaje = getattr(error, "description", None) or "Error al contactar el backend."
         return render_template("error.html", titulo="502", mensaje=mensaje), 502
 
+    @app.route("/dashboard")
+    def dashboard():
+        return render_template("dashboard.html")
+
     return app
 
 
