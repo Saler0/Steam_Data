@@ -628,7 +628,7 @@ def main() -> None:
     if args.spark_partition_column:
         spark_cfg["partition_column"] = args.spark_partition_column
 
-    use_spark = args.use_spark or bool(spark_cfg.get("enabled"))
+    use_spark = bool(spark_cfg.get("enabled"))
 
     if use_spark:
         reviews_df = _prepare_reviews_spark(reviews_source, mongo_cfg, cfg, spark_cfg)
