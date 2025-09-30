@@ -1,5 +1,5 @@
-# Configuracion para prepare_reviews_with_segments.py
-reviews_source: null  # Dejar null para leer desde Mongo por defecto
+# Configuration for prepare_reviews_with_segments.py
+reviews_source: null  # Keep null to load from Mongo by default
 review_id_column: review_id
 appid_column: appid
 text_column: review
@@ -22,3 +22,10 @@ mongo:
   query: {}
   projection: {}
   limit: null
+
+spark:
+  enabled: false  # Activate with --use-spark or set to true when Spark is available
+  partitions: ${SPARK_REVIEWS_PARTITIONS:-200}
+  partition_column: appid
+  config:
+    spark.sql.shuffle.partitions: ${SPARK_SQL_SHUFFLE_PARTITIONS:-200}
