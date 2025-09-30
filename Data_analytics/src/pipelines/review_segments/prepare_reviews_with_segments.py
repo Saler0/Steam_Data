@@ -12,10 +12,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from src.utils.config_utils import expand_env_in_obj
-
 if os.path.exists(os.path.join(os.path.dirname(__file__), "..")):
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from src.utils.config_utils import expand_env_in_obj
 
 try:
     from pipelines.decision_rules.reglas_decision import experiencia_jugador
@@ -657,3 +657,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
