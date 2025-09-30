@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 """Prepare per-review dataset with experience labels and optional BERTopic topics (pandas only)."""
 from __future__ import annotations
 
@@ -218,19 +218,18 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     if df.empty:
         return df
 
-    id_col = cfg.get("review_id_column")
-    if not id_col or id_col not in df.columns:
-        id_col = _ensure_column(df, ["review_id", "recommendationid", "id", "reviewid"])
-    if not id_col:
-        df["review_id"] = np.arange(len(df))
-        id_col = "review_id"
-    df["review_id"] = df[id_col].astype(str)
+    review_id_candidates = [cfg.get("review_id_column"), "review_id", "recommendationid", "id", "reviewid"]
+    review_id_col = next((col for col in review_id_candidates if col and col in df.columns), None)
+    if review_id_col:
+        df["review_id"] = df[review_id_col].astype(str)
+    else:
+        df["review_id"] = np.arange(len(df)).astype(str)
 
-    appid_col = cfg.get("appid_column")
-    if not appid_col or appid_col not in df.columns:
-        appid_col = _ensure_column(df, ["appid", "app_id", "appId"])
+    appid_candidates = [cfg.get("appid_column"), "appid"]
+    appid_col = next((col for col in appid_candidates if col and col in df.columns), None)
     if not appid_col:
         raise SystemExit("Could not find appid column in reviews dataset.")
+
     def _to_appid_string(val: Any) -> str:
         coerced = _coerce_mongo_number(val)
         if coerced is not None and not np.isnan(coerced):
@@ -242,92 +241,167 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     df["appid"] = df[appid_col].apply(_to_appid_string)
 
-    text_col = cfg.get("text_column")
-    if not text_col or text_col not in df.columns:
-        text_col = _ensure_column(df, ["review_clean", "review", "review_text", "body", "content"])
+    text_candidates = [cfg.get("text_column"), "review_clean", "review", "review_text", "body", "content"]
+    text_col = next((col for col in text_candidates if col and col in df.columns), None)
     if text_col:
         df["review_text"] = df[text_col].fillna("").astype(str)
     else:
         df["review_text"] = ""
 
-    date_col = cfg.get("date_column")
-    if not date_col or date_col not in df.columns:
-        date_col = _ensure_column(df, ["review_date", "timestamp_created_date", "timestamp_created", "timestamp_updated_date", "date"])
+    date_candidates = [cfg.get("date_column"), "review_date", "timestamp_created_date", "timestamp_created", "timestamp_updated_date", "date"]
+    date_col = next((col for col in date_candidates if col and col in df.columns), None)
     if not date_col:
         raise SystemExit("Could not find date column in reviews dataset.")
     df["review_date"] = pd.to_datetime(df[date_col], errors="coerce", utc=True)
     df = df.dropna(subset=["review_date"])
 
-    recommended_col = cfg.get("recommended_column")
-    if not recommended_col or recommended_col not in df.columns:
-        recommended_col = _ensure_column(df, ["recommended", "voted_up", "is_positive"])
-    if recommended_col and recommended_col in df.columns:
+    recommended_candidates = [cfg.get("recommended_column"), "recommended", "voted_up", "is_positive"]
+    recommended_col = next((col for col in recommended_candidates if col and col in df.columns), None)
+    if recommended_col:
         df["recommended"] = df[recommended_col].apply(_safe_bool)
-    elif "voted_up" in df.columns:
-        df["recommended"] = df["voted_up"].apply(_safe_bool)
     else:
         df["recommended"] = None
 
-    playtime_col = cfg.get("playtime_column")
-    if not playtime_col or playtime_col not in df.columns:
-        playtime_col = _ensure_column(df, ["playtime_at_review", "author_playtime_at_review", "author_playtime_forever"])
+    playtime_candidates = [cfg.get("playtime_column"), "playtime_at_review", "author_playtime_at_review", "author_playtime_forever"]
+    playtime_col = next((col for col in playtime_candidates if col and col in df.columns), None)
     if playtime_col:
         df["playtime_at_review"] = df[playtime_col].apply(_safe_float)
     else:
         df["playtime_at_review"] = None
 
-    playtime_30d_col = cfg.get("playtime_30d_column")
-    if not playtime_30d_col or playtime_30d_col not in df.columns:
-        playtime_30d_col = _ensure_column(df, ["playtime_since_review_30d", "author_playtime_last_two_weeks"])
+    playtime_30d_candidates = [cfg.get("playtime_30d_column"), "playtime_since_review_30d", "author_playtime_last_two_weeks"]
+    playtime_30d_col = next((col for col in playtime_30d_candidates if col and col in df.columns), None)
     if playtime_30d_col:
         df["playtime_since_review_30d"] = df[playtime_30d_col].apply(_safe_float)
     else:
         df["playtime_since_review_30d"] = None
 
-    abandon_cols = []
+    heuristic_cfg = cfg.get("abandon_heuristic", {}) or {}
+    general_col_name = heuristic_cfg.get("general_column") or cfg.get("abandon_column") or "abandon_after_30d"
+    review_col_name = heuristic_cfg.get("review_column") or "abandon_after_review"
+    post_review_threshold = float(heuristic_cfg.get("post_review_minutes_threshold", 10.0))
+    last_two_weeks_threshold = float(heuristic_cfg.get("last_two_weeks_threshold", post_review_threshold))
+
+    abandon_candidates = []
     configured_abandon = cfg.get("abandon_column")
     if configured_abandon:
-        abandon_cols.append(configured_abandon)
-    abandon_cols.extend(["abandon_after_30d", "flag_abandon"])
-    abandon_col = next((col for col in abandon_cols if col in df.columns), None)
+        abandon_candidates.append(configured_abandon)
+    abandon_candidates.extend(["abandon_after_30d", "flag_abandon"])
+    abandon_col = next((col for col in abandon_candidates if col and col in df.columns), None)
 
-    abandon_cfg = cfg.get("abandon_heuristic", {}) or {}
-    threshold_minutes = float(abandon_cfg.get("post_review_minutes_threshold", 10.0))
-    last_two_weeks_threshold = float(abandon_cfg.get("last_two_weeks_threshold", threshold_minutes))
+    author_forever = df.get("author_playtime_forever")
+    author_forever = author_forever.apply(_safe_float) if author_forever is not None else None
+    playtime_at_review_series = df.get("playtime_at_review")
+    post_review_playtime = None
+    if author_forever is not None and playtime_at_review_series is not None:
+        post_review_playtime = (author_forever.fillna(0) - playtime_at_review_series.fillna(0)).clip(lower=0)
+    last_two_weeks_series = None
+    if "author_playtime_last_two_weeks" in df.columns:
+        last_two_weeks_series = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
+        if post_review_playtime is None:
+            post_review_playtime = last_two_weeks_series
 
     if abandon_col:
-        df["abandon_after_30d"] = df[abandon_col].apply(_safe_bool)
-        df["post_review_playtime"] = df.get("post_review_playtime")
+        general_series = df[abandon_col].apply(_safe_bool)
+        df[general_col_name] = general_series
+        if general_col_name != "abandon_after_30d":
+            df["abandon_after_30d"] = df[general_col_name]
+        if post_review_playtime is None:
+            df["post_review_playtime"] = None
+            review_series = general_series
+        else:
+            df["post_review_playtime"] = post_review_playtime
+            review_series = (post_review_playtime <= post_review_threshold).astype(bool)
+        df[review_col_name] = review_series
     else:
-        post_review_playtime = None
-        if "author_playtime_forever" in df.columns and df["playtime_at_review"].notna().any():
-            post_review_playtime = (
-                df["author_playtime_forever"].fillna(0) - df["playtime_at_review"].fillna(0)
-            ).clip(lower=0)
-        elif "author_playtime_last_two_weeks" in df.columns:
-            post_review_playtime = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
+        df["post_review_playtime"] = post_review_playtime
+        if last_two_weeks_series is not None:
+            general_series = (last_two_weeks_series <= last_two_weeks_threshold).astype(bool)
+        elif post_review_playtime is not None:
+            general_series = (post_review_playtime <= last_two_weeks_threshold).astype(bool)
+        else:
+            general_series = pd.Series([None] * len(df))
+
+        if general_series is not None:
+            df[general_col_name] = general_series
+            if general_col_name != "abandon_after_30d":
+                df["abandon_after_30d"] = df[general_col_name]
+        else:
+            df[general_col_name] = None
+            if general_col_name != "abandon_after_30d":
+                df["abandon_after_30d"] = None
 
         if post_review_playtime is not None:
-            df["post_review_playtime"] = post_review_playtime
-            abandon_flag = post_review_playtime <= threshold_minutes
-            if "author_playtime_last_two_weeks" in df.columns:
-                last_two_weeks = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
-                abandon_flag = abandon_flag | (last_two_weeks <= last_two_weeks_threshold)
-            df["abandon_after_30d"] = abandon_flag.astype(bool)
+            review_series = (post_review_playtime <= post_review_threshold).astype(bool)
+            df[review_col_name] = review_series
         else:
-            df["post_review_playtime"] = None
-            df["abandon_after_30d"] = None
-    gifted_col = cfg.get("gifted_column") or _ensure_column(df, ["gifted", "steam_purchase", "received_for_free"])
-    df["gifted"] = df[gifted_col].apply(_safe_bool) if gifted_col else None
+            review_series = df[general_col_name]
+            df[review_col_name] = review_series
 
-    ea_col = cfg.get("early_access_column") or _ensure_column(df, ["early_access", "written_during_early_access"])
-    df["early_access", "written_during_early_access"] = df[ea_col].apply(_safe_bool) if ea_col else None
+    general_series = df[general_col_name] if general_col_name in df.columns else None
+    review_series = df[review_col_name] if review_col_name in df.columns else None
 
-    post_col = cfg.get("post_launch_column") or None
-    if post_col and post_col in df.columns:
-        df["post_launch"] = df[post_col].apply(_safe_bool)
+    activity_cfg = heuristic_cfg.get("activity_segments", {}) or cfg.get("activity_segments", {}) or {}
+    inactive_minutes = float(activity_cfg.get("inactive_hours", 0.0)) * 60.0
+    low_minutes = float(activity_cfg.get("low_hours", 2.0)) * 60.0
+    occasional_minutes = float(activity_cfg.get("occasional_hours", 10.0)) * 60.0
+    frequent_minutes = float(activity_cfg.get("frequent_hours", 30.0)) * 60.0
+
+    base_minutes = last_two_weeks_series if last_two_weeks_series is not None else post_review_playtime
+    if base_minutes is not None:
+        minutes = base_minutes.fillna(0)
+        activity_segment = np.full(len(df), "muy_activo", dtype=object)
+        mask = minutes <= inactive_minutes
+        activity_segment[mask] = "inactivo"
+        mask = (minutes > inactive_minutes) & (minutes <= low_minutes)
+        activity_segment[mask] = "poco_activo"
+        mask = (minutes > low_minutes) & (minutes <= occasional_minutes)
+        activity_segment[mask] = "activo_ocasional"
+        mask = (minutes > occasional_minutes) & (minutes <= frequent_minutes)
+        activity_segment[mask] = "activo_frecuente"
     else:
-        df["post_launch"] = None
+        activity_segment = np.full(len(df), "desconocido", dtype=object)
+    df["activity_segment"] = activity_segment
+
+    recommended_bool = df["recommended"].fillna(False).astype(bool) if "recommended" in df.columns else pd.Series(False, index=df.index)
+    abandon_reason = np.full(len(df), None, dtype=object)
+    if review_series is not None:
+        review_bool = pd.Series(review_series).fillna(False).astype(bool)
+        positive_mask = review_bool & recommended_bool
+        negative_mask = review_bool & ~recommended_bool
+        abandon_reason[positive_mask.values] = "abandono_ajeno_al_juego"
+        abandon_reason[negative_mask.values] = "abandono_por_resena"
+    if general_series is not None:
+        general_bool = pd.Series(general_series).fillna(False).astype(bool)
+        mask_general = general_bool & pd.isna(abandon_reason)
+        abandon_reason[mask_general.values] = "abandono_por_inactividad"
+    mask_unknown = pd.isna(abandon_reason)
+    if mask_unknown.any():
+        abandon_reason[mask_unknown] = np.where(
+            activity_segment[mask_unknown] == "desconocido",
+            None,
+            "actividad_" + activity_segment[mask_unknown]
+        )
+    df["abandon_reason"] = abandon_reason
+
+    gifted_candidates = [cfg.get("gifted_column"), "received_for_free", "gifted"]
+    gifted_col = next((col for col in gifted_candidates if col and col in df.columns), None)
+    if gifted_col:
+        df["gifted"] = df[gifted_col].apply(_safe_bool)
+    else:
+        df["gifted"] = None
+    df["purchase_type"] = df["gifted"].apply(lambda x: "regalado" if x else ("comprado" if x is False else None))
+
+    ea_candidates = [cfg.get("early_access_column"), "written_during_early_access", "early_access"]
+    ea_col = next((col for col in ea_candidates if col and col in df.columns), None)
+    if ea_col:
+        df["early_access"] = df[ea_col].apply(_safe_bool)
+    else:
+        df["early_access"] = None
+    df["review_phase"] = df["early_access"].apply(lambda x: "early_access" if x else ("post_lanzamiento" if x is False else None))
+
+    if "review_phase" in df.columns and "post_launch" not in df.columns:
+        df["post_launch"] = df["review_phase"].apply(lambda x: True if x == "post_lanzamiento" else (False if x == "early_access" else None))
 
     median_col = cfg.get("median_playtime_column") or "median_playtime_app"
     if median_col in df.columns:
@@ -356,35 +430,50 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     df["experience_key"] = df["experience_label"].apply(_experience_key)
     return df
-
-
 def _write_output(df: pd.DataFrame, path: str) -> None:
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    columns = [
-        "appid", "review_id", "review_date", "review_text", "recommended",
-        "playtime_at_review", "playtime_since_review_30d", "abandon_after_30d",
-        "gifted", "early_access", "post_launch", "median_playtime_app",
-        "experience_label", "experience_key"
+    base_columns = [
+        "appid",
+        "review_id",
+        "review_date",
+        "review_text",
+        "recommended",
+        "playtime_at_review",
+        "playtime_since_review_30d",
+        "post_review_playtime",
+        "abandon_after_30d",
+        "abandon_general",
+        "abandon_after_review",
+        "abandon_reason",
+        "activity_segment",
+        "gifted",
+        "purchase_type",
+        "early_access",
+        "review_phase",
+        "post_launch",
+        "median_playtime_app",
+        "experience_label",
+        "experience_key"
     ]
+    existing_columns = [col for col in base_columns if col in df.columns]
     if df.empty:
         if out_path.suffix.lower() == ".json":
             out_path.write_text("[]", encoding="utf-8")
         elif out_path.suffix.lower() == ".csv":
-            pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+            pd.DataFrame(columns=existing_columns).to_csv(out_path, index=False)
         else:
-            pd.DataFrame(columns=columns).to_parquet(out_path, index=False)
+            pd.DataFrame(columns=existing_columns).to_parquet(out_path, index=False)
         print(f"[WARN] Empty review dataset written to {out_path}")
         return
+    subset = df.loc[:, existing_columns]
     if out_path.suffix.lower() == ".json":
-        df.to_json(out_path, orient="records", date_format="iso")
+        subset.to_json(out_path, orient="records", date_format="iso")
     elif out_path.suffix.lower() == ".csv":
-        df.to_csv(out_path, index=False)
+        subset.to_csv(out_path, index=False)
     else:
-        df.to_parquet(out_path, index=False)
+        subset.to_parquet(out_path, index=False)
     print(f"[OK] Reviews with segments -> {out_path}")
-
-
 def _fallback_topics(df: pd.DataFrame, topics_out: str) -> None:
     Path(topics_out).parent.mkdir(parents=True, exist_ok=True)
     columns = ["review_id", "topic_id", "topic_name", "share", "avg_sentiment", "snippet"]
@@ -432,8 +521,24 @@ def _run_bertopic(df: pd.DataFrame, cfg: Dict[str, Any], topics_out: str) -> Non
     language = cfg.get("bertopic_language", "multilingual")
     min_topic_size = cfg.get("bertopic_min_topic_size", 20)
     topic_model = BERTopic(language=language, min_topic_size=min_topic_size, verbose=False)
-    texts = df["review_text"].tolist()
-    topics, probs = topic_model.fit_transform(texts)
+    documents = df["review_text"].tolist()
+
+    votes_series = pd.to_numeric(df.get("votes_up"), errors="coerce") if "votes_up" in df.columns else None
+    weight_cap = int(cfg.get("bertopic_weight_cap", 10))
+    if votes_series is not None:
+        weights = votes_series.fillna(0).clip(lower=0)
+        weights = weights.astype(int).clip(0, weight_cap) + 1
+        weighted_docs: List[str] = []
+        for text, repeat in zip(documents, weights):
+            weighted_docs.extend([text] * int(max(1, repeat)))
+        if len(weighted_docs) > len(documents):
+            topic_model.fit(weighted_docs)
+            topics, probs = topic_model.transform(documents)
+        else:
+            topics, probs = topic_model.fit_transform(documents)
+    else:
+        topics, probs = topic_model.fit_transform(documents)
+
     info = topic_model.get_topic_info().set_index("Topic")["Name"].to_dict()
     records: List[Dict[str, Any]] = []
     for idx, review_id in enumerate(df["review_id"]):
@@ -457,8 +562,6 @@ def _run_bertopic(df: pd.DataFrame, cfg: Dict[str, Any], topics_out: str) -> Non
         })
     pd.DataFrame(records).to_parquet(topics_out, index=False)
     print(f"[OK] Topics by review -> {topics_out}")
-
-
 def load_config(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
@@ -537,6 +640,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
 
 
 
