@@ -59,7 +59,7 @@ class ApiSteam:
         cursor = start_cursor or "*"
         last_cursor = cursor  # inicializar antes del try
         try:
-            time.sleep(0.8)
+            time.sleep(2)
             page = 1
             all_reviews = []
 
@@ -381,11 +381,11 @@ class ApiSteam:
 
         # 5) Extraer nombres nuevos procesados de appids (que no estaban en la base de datos) y devolverlos al pipeline
         game_names = []
-        with open(games_ndjson_path, encoding="utf-8") as fg:
-            for line in fg:
-                det = json.loads(line).get("details") or {}
-                if det.get("name"):
-                    game_names.append(det["name"])
+        # with open(games_ndjson_path, encoding="utf-8") as fg:
+        #     for line in fg:
+        #         det = json.loads(line).get("details") or {}
+        #         if det.get("name"):
+        #             game_names.append(det["name"])
 
         # logging.info("🎮 Nombres de juegos procesados:")
         # for n in game_names:
