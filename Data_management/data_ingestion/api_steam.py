@@ -146,23 +146,23 @@ class ApiSteam:
 
        # — guardar appids nuevos en el ndjson games_ndjson_path:
 
-        # # 0) cargo los appids que ya estaban en este NDJSON (si existe)
-        # processed = set()
-        # if os.path.exists(games_ndjson_path):
-        #     with open(games_ndjson_path, "r", encoding="utf-8") as fg:
-        #         for line in fg:
-        #             try:
-        #                 rec = json.loads(line)
-        #                 processed.add(rec.get("appid"))
-        #             except json.JSONDecodeError:
-        #                 continue
+        # # # 0) cargo los appids que ya estaban en este NDJSON (si existe)
+        # # processed = set()
+        # # if os.path.exists(games_ndjson_path):
+        # #     with open(games_ndjson_path, "r", encoding="utf-8") as fg:
+        # #         for line in fg:
+        # #             try:
+        # #                 rec = json.loads(line)
+        # #                 processed.add(rec.get("appid"))
+        # #             except json.JSONDecodeError:
+        # #                 continue
 
-        # # 1) abro en modo append y sólo añado los que falten
-        # with open(games_ndjson_path, "a", encoding="utf-8") as fg:
-        #     for appid in appids_nuevos:
-        #         if appid in processed:
-        #             logging.info(f"≡ Saltando {appid}: ya está en {games_ndjson_path}")
-        #             continue
+        # # # 1) abro en modo append y sólo añado los que falten
+        # # with open(games_ndjson_path, "a", encoding="utf-8") as fg:
+        # #     for appid in appids_nuevos:
+        # #         if appid in processed:
+        # #             logging.info(f"≡ Saltando {appid}: ya está en {games_ndjson_path}")
+        # #             continue
 
         #         logging.info(f"📦 Fetch details {appid}")
         #         details, err = self.get_game_details(appid)

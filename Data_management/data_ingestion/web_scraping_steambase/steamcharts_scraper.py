@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Este script recopila datos históricos de jugadores de juegos de Steam desde
 Steamcharts.com. Recibe una lista de appids, extrae los datos de jugadores 
@@ -39,8 +38,8 @@ logging.basicConfig(
 # CONFIGURACIÓN DEL SCRIPT
 # ==============================================================================
 
-REQUEST_TIMEOUT = 15
-SLEEP_INTERVAL = 5.0
+REQUEST_TIMEOUT = 10
+SLEEP_INTERVAL = 2.0
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -113,6 +112,58 @@ def scrape_steamcharts(session, appid):
         logging.warning(f"[WARNING] No se encontró una tabla válida en Steamcharts para appid {appid}. Puede que no tenga datos. Error: {e}")
         return None
 
+def get_game_details(appid, session):
+    """
+    Obtiene detalles de un juego desde la API de Steam usando la sesión proporcionada.
+    """
+    url = f"https://store.steampowered.com/api/appdetails?appids={appid}&cc=us&l=english"
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    try:
+        # Usamos la sesión que ya tiene reintentos para la API de Steam también.
+        res = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        res.raise_for_status()
+        raw = res.json()
+        section = raw.get(str(appid), {})
+        if not section.get("success", False):
+            logging.warning(f"La API de Steam no devolvió 'success' para el appid {appid}.")
+            return None
+        return section.get("data")
+    except requests.RequestException as e:
+        logging.error(f"Error al contactar la API de Steam para appid {appid}: {e}")
+        return None
+
+def is_game_unreleased(appid, session):
+    """
+    Verifica si un juego aún no ha sido lanzado o no tiene datos de jugadores.
+    Devuelve True si se debe omitir el scraping, False en caso contrario.
+    """
+    details = get_game_details(appid, session)
+    
+    if not details:
+        logging.warning(f"No se pudieron obtener detalles de Steam para {appid}. Se omitirá por precaución.")
+        return True
+
+    # 1. Es un video, dlc, etc.? Steamcharts es para juegos.
+    game_type = details.get("type")
+    if game_type not in ["game", "demo"]: # A veces las demos tienen jugadores
+        logging.info(f"El appid {appid} es de tipo '{game_type}', no un juego. Se omitirá.")
+        return True
+
+    # 2. Verificamos la fecha de lanzamiento
+    release_date_info = details.get("release_date", {})
+    
+    if release_date_info.get("coming_soon", False):
+        logging.info(f"El juego {appid} está marcado como 'coming soon'. Se omitirá.")
+        return True
+
+    release_date_str = release_date_info.get("date", "").lower()
+    if not release_date_str or any(keyword in release_date_str for keyword in ["coming soon", "tba", "to be announced"]):
+        logging.info(f"El juego {appid} tiene una fecha de lanzamiento no definida ('{release_date_str}'). Se omitirá.")
+        return True
+    
+    logging.info(f"El juego {appid} parece estar lanzado. Se procederá con el scraping.")
+    return False
+
 # ==============================================================================
 # FUNCIÓN PRINCIPAL
 # ==============================================================================
@@ -167,6 +218,10 @@ def main(appids):
     for i, appid in enumerate(appids):
         logging.info(f"[{i+1}/{total_appids}] Procesando appid: {appid}")
         
+        if is_game_unreleased(appid, session):
+            time.sleep(1)  # Pausa para no saturar la API de Steam
+            continue
+
         game_df = scrape_steamcharts(session, appid)
         
         if game_df is not None and not game_df.empty:
