@@ -41,6 +41,41 @@ except Exception:  # pragma: no cover
     MongoClient = None  # type: ignore
 
 
+
+def _coerce_mongo_number(value: Any) -> Optional[float]:
+    if isinstance(value, dict):
+        if "$numberLong" in value:
+            try:
+                return float(value["$numberLong"])
+            except Exception:
+                return None
+        if "$numberInt" in value:
+            try:
+                return float(value["$numberInt"])
+            except Exception:
+                return None
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+def _coerce_mongo_date(value: Any) -> Optional[pd.Timestamp]:
+    if value is None:
+        return None
+    if isinstance(value, dict) and "$date" in value:
+        value = value["$date"]
+    try:
+        return pd.to_datetime(value, errors="coerce", utc=True)
+    except Exception:
+        return None
+
+def _coerce_bool_series(series: pd.Series) -> pd.Series:
+    return series.apply(_safe_bool)
+
 def _ensure_column(df: pd.DataFrame, columns: Sequence[str]) -> Optional[str]:
     for name in columns:
         if name in df.columns:
@@ -132,6 +167,37 @@ def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if "_id" in df.columns:
         df = df.drop(columns=["_id"])
+
+    numeric_candidates = [
+        "timestamp_created",
+        "timestamp_updated",
+        "votes_up",
+        "votes_funny",
+        "comment_count",
+        "weighted_vote_score"
+    ]
+    for col in numeric_candidates:
+        if col in df.columns:
+            df[col] = df[col].apply(_coerce_mongo_number)
+
+    date_candidates = [
+        "timestamp_created_date",
+        "timestamp_updated_date"
+    ]
+    for col in date_candidates:
+        if col in df.columns:
+            df[col] = df[col].apply(_coerce_mongo_date)
+
+    bool_candidates = [
+        "steam_purchase",
+        "received_for_free",
+        "written_during_early_access",
+        "voted_up"
+    ]
+    for col in bool_candidates:
+        if col in df.columns:
+            df[col] = df[col].apply(_safe_bool)
+
     return df
 
 
@@ -140,24 +206,32 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     if df.empty:
         return df
 
-    id_col = cfg.get("review_id_column") or _ensure_column(df, ["review_id", "id", "reviewid"])
+    id_col = cfg.get("review_id_column")
+    if not id_col or id_col not in df.columns:
+        id_col = _ensure_column(df, ["review_id", "recommendationid", "id", "reviewid"])
     if not id_col:
         df["review_id"] = np.arange(len(df))
         id_col = "review_id"
     df["review_id"] = df[id_col].astype(str)
 
-    appid_col = cfg.get("appid_column") or _ensure_column(df, ["appid", "app_id", "appId"])
+    appid_col = cfg.get("appid_column")
+    if not appid_col or appid_col not in df.columns:
+        appid_col = _ensure_column(df, ["appid", "app_id", "appId"])
     if not appid_col:
         raise SystemExit("Could not find appid column in reviews dataset.")
     df["appid"] = df[appid_col].astype(str)
 
-    text_col = cfg.get("text_column") or _ensure_column(df, ["review", "review_text", "body", "content"])
+    text_col = cfg.get("text_column")
+    if not text_col or text_col not in df.columns:
+        text_col = _ensure_column(df, ["review_clean", "review", "review_text", "body", "content"])
     if text_col:
         df["review_text"] = df[text_col].fillna("").astype(str)
     else:
         df["review_text"] = ""
 
-    date_col = cfg.get("date_column") or _ensure_column(df, ["review_date", "timestamp_created", "date"])
+    date_col = cfg.get("date_column")
+    if not date_col or date_col not in df.columns:
+        date_col = _ensure_column(df, ["review_date", "timestamp_created_date", "timestamp_created", "timestamp_updated_date", "date"])
     if not date_col:
         raise SystemExit("Could not find date column in reviews dataset.")
     df["review_date"] = pd.to_datetime(df[date_col], errors="coerce", utc=True)
@@ -184,8 +258,8 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     gifted_col = cfg.get("gifted_column") or _ensure_column(df, ["gifted", "steam_purchase", "received_for_free"])
     df["gifted"] = df[gifted_col].apply(_safe_bool) if gifted_col else None
 
-    ea_col = cfg.get("early_access_column") or _ensure_column(df, ["early_access"])
-    df["early_access"] = df[ea_col].apply(_safe_bool) if ea_col else None
+    ea_col = cfg.get("early_access_column") or _ensure_column(df, ["early_access", "written_during_early_access"])
+    df["early_access", "written_during_early_access"] = df[ea_col].apply(_safe_bool) if ea_col else None
 
     post_col = cfg.get("post_launch_column") or None
     if post_col and post_col in df.columns:
@@ -401,6 +475,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
