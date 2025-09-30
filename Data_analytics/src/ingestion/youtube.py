@@ -25,7 +25,7 @@ def _normalize_months(months: Optional[Iterable]) -> list[pd.Timestamp]:
         if ts.tzinfo is None:
             ts = ts.tz_localize("UTC")
         out.append(ts.to_period("M").to_timestamp(tz="UTC"))
-    return sorted(set(out))
+    return sorted(set(out))gi
 
 
 def _load_cache(path: Path) -> pd.DataFrame:
