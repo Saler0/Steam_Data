@@ -38,18 +38,8 @@ if errorlevel 1 (
 
 echo.
 echo ============================
-echo 3) Levantando MLflow y Analytics...
-echo ============================
-
-rem Con MLflow:
-docker compose up -d mlflow analytics
-
-
-echo.
-echo ============================
 echo Ver logs de app + analytics (Ctrl+C para salir)...
 echo ============================
-docker compose logs -f app analytics
+docker compose logs -f app
 
-endlocal
 pause
