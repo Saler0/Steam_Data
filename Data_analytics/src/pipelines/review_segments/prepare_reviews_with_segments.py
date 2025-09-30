@@ -281,15 +281,42 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         playtime_30d_col = _ensure_column(df, ["playtime_since_review_30d", "author_playtime_last_two_weeks"])
     if playtime_30d_col:
         df["playtime_since_review_30d"] = df[playtime_30d_col].apply(_safe_float)
-        abandon_col = cfg.get("abandon_column") or _ensure_column(df, ["abandon_after_30d", "flag_abandon"])
-        if abandon_col:
-            df["abandon_after_30d"] = df[abandon_col].apply(_safe_bool)
-        else:
-            df["abandon_after_30d"] = df["playtime_since_review_30d"].apply(lambda x: x is not None and x <= 0.1)
     else:
         df["playtime_since_review_30d"] = None
-        df["abandon_after_30d"] = None
 
+    abandon_cols = []
+    configured_abandon = cfg.get("abandon_column")
+    if configured_abandon:
+        abandon_cols.append(configured_abandon)
+    abandon_cols.extend(["abandon_after_30d", "flag_abandon"])
+    abandon_col = next((col for col in abandon_cols if col in df.columns), None)
+
+    abandon_cfg = cfg.get("abandon_heuristic", {}) or {}
+    threshold_minutes = float(abandon_cfg.get("post_review_minutes_threshold", 10.0))
+    last_two_weeks_threshold = float(abandon_cfg.get("last_two_weeks_threshold", threshold_minutes))
+
+    if abandon_col:
+        df["abandon_after_30d"] = df[abandon_col].apply(_safe_bool)
+        df["post_review_playtime"] = df.get("post_review_playtime")
+    else:
+        post_review_playtime = None
+        if "author_playtime_forever" in df.columns and df["playtime_at_review"].notna().any():
+            post_review_playtime = (
+                df["author_playtime_forever"].fillna(0) - df["playtime_at_review"].fillna(0)
+            ).clip(lower=0)
+        elif "author_playtime_last_two_weeks" in df.columns:
+            post_review_playtime = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
+
+        if post_review_playtime is not None:
+            df["post_review_playtime"] = post_review_playtime
+            abandon_flag = post_review_playtime <= threshold_minutes
+            if "author_playtime_last_two_weeks" in df.columns:
+                last_two_weeks = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
+                abandon_flag = abandon_flag | (last_two_weeks <= last_two_weeks_threshold)
+            df["abandon_after_30d"] = abandon_flag.astype(bool)
+        else:
+            df["post_review_playtime"] = None
+            df["abandon_after_30d"] = None
     gifted_col = cfg.get("gifted_column") or _ensure_column(df, ["gifted", "steam_purchase", "received_for_free"])
     df["gifted"] = df[gifted_col].apply(_safe_bool) if gifted_col else None
 
@@ -510,6 +537,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
