@@ -238,7 +238,12 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     df = df.dropna(subset=["review_date"])
 
     recommended_col = cfg.get("recommended_column") or _ensure_column(df, ["recommended", "voted_up", "is_positive"])
-        if recommended_col and recommended_col in df.columns:\n        df["recommended"] = df[recommended_col].apply(_safe_bool)\n    elif "voted_up" in df.columns:\n        df["recommended"] = df["voted_up"].apply(_safe_bool)\n    else:\n        df["recommended"] = None
+    if recommended_col and recommended_col in df.columns:
+        df["recommended"] = df[recommended_col].apply(_safe_bool)
+    elif "voted_up" in df.columns:
+        df["recommended"] = df["voted_up"].apply(_safe_bool)
+    else:
+        df["recommended"] = None
 
     playtime_col = cfg.get("playtime_column") or _ensure_column(df, ["playtime_at_review", "author_playtime_at_review", "author_playtime_forever"])
     df["playtime_at_review"] = df[playtime_col].apply(_safe_float) if playtime_col else None
@@ -475,6 +480,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
