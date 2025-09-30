@@ -253,7 +253,7 @@ echo ============================
 echo Generando reviews y topicos desde MongoDB...
 echo ============================
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --run-bertopic --mongo-uri ${MONGO_URI:-mongodb://mongo:27017} --mongo-db ${MONGO_DB_REVIEWS:-steam} --mongo-collection ${MONGO_COLL_REVIEWS:-reviews}"
+  exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --run-bertopic"
 if errorlevel 1 goto :reviews_mongo_failed
 goto :reviews_mongo_success
 
@@ -274,6 +274,7 @@ echo ===============================================
 pause
 endlocal
 exit /b 0
+
 
 
 
