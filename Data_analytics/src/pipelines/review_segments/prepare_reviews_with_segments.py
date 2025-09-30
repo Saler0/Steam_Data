@@ -12,8 +12,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-if os.path.exists(os.path.join(os.path.dirname(__file__), "..")):
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+THIS_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = THIS_DIR.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from src.utils.config_utils import expand_env_in_obj
 
