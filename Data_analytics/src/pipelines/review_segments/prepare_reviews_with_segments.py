@@ -72,7 +72,24 @@ def _safe_bool(value: Any) -> Optional[bool]:
     return None
 
 
-\ndef _load_any_df(path_str: Optional[str]) -> pd.DataFrame:\n    if not path_str:\n        return pd.DataFrame()\n    path = Path(path_str)\n    if not path.exists():\n        return pd.DataFrame()\n    suffix = path.suffix.lower()\n    if suffix in {'.parquet', '.pq'}:\n        return pd.read_parquet(path)\n    if suffix == '.csv':\n        return pd.read_csv(path)\n    if suffix == '.json':\n        return pd.read_json(path)\n    return pd.read_parquet(path)\ndef _parse_json_arg(value: Optional[str]) -> Optional[Dict[str, Any]]:
+
+
+def _load_any_df(path_str: Optional[str]) -> pd.DataFrame:
+    if not path_str:
+        return pd.DataFrame()
+    path = Path(path_str)
+    if not path.exists():
+        return pd.DataFrame()
+    suffix = path.suffix.lower()
+    if suffix in {'.parquet', '.pq'}:
+        return pd.read_parquet(path)
+    if suffix == '.csv':
+        return pd.read_csv(path)
+    if suffix == '.json':
+        return pd.read_json(path)
+    return pd.read_parquet(path)
+
+def _parse_json_arg(value: Optional[str]) -> Optional[Dict[str, Any]]:
     if value is None:
         return None
     if isinstance(value, dict):
@@ -384,4 +401,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
