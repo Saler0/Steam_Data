@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 THIS_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = THIS_DIR.parent.parent
+PROJECT_ROOT = THIS_DIR.parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
@@ -659,4 +659,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
