@@ -261,7 +261,7 @@ def _prepare_reviews_spark(
     spark_cfg: Dict[str, Any]
 ) -> pd.DataFrame:
     if not SPARK_AVAILABLE:
-        raise SystemExit("Spark is not available in this environment; remove --use-spark or install pyspark.")
+        raise SystemExit("Spark is not available in this environment; remove  or install pyspark.")
 
     builder = SparkSession.builder.appName("prepare_reviews_with_segments")
     extra_conf: Dict[str, Any] = spark_cfg.get("config", {}) if spark_cfg else {}
@@ -597,7 +597,7 @@ def main() -> None:
     parser.add_argument("--mongo-query", help="MongoDB match query (JSON string).")
     parser.add_argument("--mongo-projection", help="MongoDB projection (JSON string).")
     parser.add_argument("--mongo-limit", type=int, help="Limit number of documents pulled from MongoDB.")
-    parser.add_argument("--use-spark", action="store_true", help="Use Spark to load and preprocess reviews before pandas.")
+    parser.add_argument("", action="store_true", help="Use Spark to load and preprocess reviews before pandas.")
     parser.add_argument("--spark-partitions", type=int, help="Number of Spark partitions when repartitioning by appid.")
     parser.add_argument("--spark-partition-column", default="appid", help="Column used to repartition in Spark mode.")
     args = parser.parse_args()
@@ -659,5 +659,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 

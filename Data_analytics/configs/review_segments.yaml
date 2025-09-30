@@ -24,7 +24,7 @@ mongo:
   limit: null
 
 spark:
-  enabled: false  # Activate with --use-spark or set to true when Spark is available
+  enabled: false
   partitions: ${SPARK_REVIEWS_PARTITIONS:-200}
   partition_column: appid
   config:
