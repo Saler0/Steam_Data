@@ -14,13 +14,13 @@ post_launch_column: null
 median_playtime_column: null
 
 mongo:
-  uri: ${MONGO_URI:-mongodb://mongo:27017}
-  database: ${MONGO_DB_REVIEWS:-steam}
-  collection: ${MONGO_COLL_REVIEWS:-reviews}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
   query: {}
   projection: {}
   limit: null
-
+  
 abandon_heuristic:
   general_column: abandon_general
   review_column: abandon_after_review
