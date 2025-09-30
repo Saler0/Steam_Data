@@ -36,26 +36,52 @@ set "DVC_FLAGS="
 set "SKIP_EMB=0"
 set "RUN_TOPICS_ONLY=0"
 set "RUN_POC=0"
+set "RUN_PREAGG_ONLY=0"
+set "RUN_PREAGG_BEFORE=0"
+set "CUSTOM_MODE=0"
+set "CUSTOM_STAGES="
+set "APPID_LIST="
 set "POC_ARGS="
 
 
 for %%A in (%*) do (
-    if /I "%%A"=="skip-embeddings" set "SKIP_EMB=1"
-    if /I "%%A"=="topics-only" set "RUN_TOPICS_ONLY=1"
-    if /I "%%A"=="single-game-poc" set "RUN_POC=1"
+    set "ARG=%%~A"
+    if /I "!ARG!"=="skip-embeddings" set "SKIP_EMB=1"
+    if /I "!ARG!"=="topics-only" set "RUN_TOPICS_ONLY=1"
+    if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
+    if /I "!ARG!"=="preagg-only" (
+        set "RUN_PREAGG_ONLY=1"
+        set "CUSTOM_MODE=1"
+        set "CUSTOM_STAGES=!CUSTOM_STAGES! preagg_reviews preagg_players"
+    )
+    if /I "!ARG!"=="with-preagg" set "RUN_PREAGG_BEFORE=1"
+    if /I "!ARG:~0,6!"=="stage=" (
+        set "CUSTOM_MODE=1"
+        set "CUSTOM_STAGES=!CUSTOM_STAGES! !ARG:~6!"
+    )
+    if /I "!ARG:~0,7!"=="appids=" (
+        set "APPID_LIST=!ARG:~7!"
+        set "APPID_LIST=!APPID_LIST:"=!"
+    )
 )
 
 if "!RUN_POC!"=="1" goto :run_poc
 
-if "!RUN_TOPICS_ONLY!"=="1" (
-    set "DVC_TARGETS=cluster_topics_profile cluster_topics_map"
-    set "DVC_FLAGS=--single-item"
-    echo [INFO] Ejecutando solo los stages de topicos; se reutilizaran artefactos previos de clustering.
-) else (
-    if "!SKIP_EMB!"=="1" (
-        set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
+if defined APPID_LIST (
+    set "APPID_LIST=!APPID_LIST:,= !"
+)
+
+if "!CUSTOM_MODE!"=="0" (
+    if "!RUN_TOPICS_ONLY!"=="1" (
+        set "DVC_TARGETS=cluster_topics_profile cluster_topics_map"
         set "DVC_FLAGS=--single-item"
-        echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+        echo [INFO] Ejecutando solo los stages de topicos; se reutilizaran artefactos previos de clustering.
+    ) else (
+        if "!SKIP_EMB!"=="1" (
+            set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
+            set "DVC_FLAGS=--single-item"
+            echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+        )
     )
 )
 
@@ -73,6 +99,51 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
 
 rem Ejecuta el pipeline segun la configuracion seleccionada
+if "!RUN_PREAGG_BEFORE!"=="1" (
+    echo [INFO] Ejecutando preagg_reviews antes del pipeline principal...
+    call :RunSingleStage preagg_reviews
+    if errorlevel 1 goto :dvc_failed
+    echo [INFO] Ejecutando preagg_players antes del pipeline principal...
+    call :RunSingleStage preagg_players
+    if errorlevel 1 goto :dvc_failed
+)
+
+if "!CUSTOM_MODE!"=="1" (
+    for %%S in (!CUSTOM_STAGES!) do (
+        set "CURRENT_STAGE=%%~S"
+        if not "!CURRENT_STAGE!"=="" (
+            if /I "!CURRENT_STAGE!"=="report" (
+                if defined APPID_LIST (
+                    for %%I in (!APPID_LIST!) do (
+                        call :RunStageWithAppid report %%I
+                        if errorlevel 1 goto :dvc_failed
+                    )
+                ) else (
+                    echo [INFO] Ejecutando stage report dentro de steam_analytics...
+                    call :RunSingleStage report
+                    if errorlevel 1 goto :dvc_failed
+                )
+            ) else if /I "!CURRENT_STAGE!"=="editor_view" (
+                if defined APPID_LIST (
+                    for %%I in (!APPID_LIST!) do (
+                        call :RunStageWithAppid editor_view %%I
+                        if errorlevel 1 goto :dvc_failed
+                    )
+                ) else (
+                    echo [INFO] Ejecutando stage editor_view dentro de steam_analytics...
+                    call :RunSingleStage editor_view
+                    if errorlevel 1 goto :dvc_failed
+                )
+            ) else (
+                echo [INFO] Ejecutando stage !CURRENT_STAGE! dentro de steam_analytics...
+                call :RunSingleStage !CURRENT_STAGE!
+                if errorlevel 1 goto :dvc_failed
+            )
+        )
+    )
+    goto :dvc_success
+)
+
 if "!RUN_TOPICS_ONLY!"=="1" (
     call :RunSingleStage cluster_topics_profile
     if errorlevel 1 goto :dvc_failed
@@ -96,6 +167,8 @@ set "POC_ARGS=%*"
 set "POC_ARGS=!POC_ARGS:single-game-poc=!"
 set "POC_ARGS=!POC_ARGS:skip-embeddings=!"
 set "POC_ARGS=!POC_ARGS:topics-only=!"
+set "POC_ARGS=!POC_ARGS:preagg-only=!"
+set "POC_ARGS=!POC_ARGS:with-preagg=!"
 set "POC_ARGS=!POC_ARGS:  = !"
 for /f "tokens=* delims= " %%P in ("!POC_ARGS!") do set "POC_ARGS=%%P"
 echo [INFO] Lanzando scripts/poc_assign_single_game.py !POC_ARGS!
@@ -151,6 +224,20 @@ echo ===============================================
 pause
 endlocal
 exit /b 0
+
+:RunStageWithAppid
+set "TARGET_STAGE=%~1"
+set "TARGET_APPID=%~2"
+if "%~1"=="" goto :RunStageWithAppid_Error
+if "%~2"=="" goto :RunStageWithAppid_Error
+echo [INFO] Ejecutando %~1 (report.appid=%~2) dentro de steam_analytics...
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro --single-item --set-param report.appid=%~2 %~1
+exit /b %errorlevel%
+
+:RunStageWithAppid_Error
+echo [ERROR] Faltan argumentos para RunStageWithAppid.
+exit /b 1
 
 :RunSingleStage
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
