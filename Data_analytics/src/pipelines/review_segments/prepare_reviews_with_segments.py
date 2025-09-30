@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Prepare per-review dataset with experience labels and optional BERTopic topics."""
+"""Prepare per-review dataset with experience labels and optional BERTopic topics (pandas only)."""
 from __future__ import annotations
 
 import argparse
@@ -39,67 +39,6 @@ try:
     from pymongo import MongoClient
 except Exception:  # pragma: no cover
     MongoClient = None  # type: ignore
-
-try:
-    from pyspark.sql import SparkSession, functions as F, types as T
-    SPARK_AVAILABLE = True
-except Exception:  # pragma: no cover
-    SparkSession = None  # type: ignore
-    F = None  # type: ignore
-    T = None  # type: ignore
-    SPARK_AVAILABLE = False
-
-
-def _load_any_df(path_str: Optional[str]) -> pd.DataFrame:
-    if not path_str:
-        return pd.DataFrame()
-    path = Path(path_str)
-    if not path.exists():
-        return pd.DataFrame()
-    suffix = path.suffix.lower()
-    if suffix in {".parquet", ".pq"}:
-        return pd.read_parquet(path)
-    if suffix == ".csv":
-        return pd.read_csv(path)
-    if suffix == ".json":
-        return pd.read_json(path)
-    return pd.read_parquet(path)
-
-
-def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
-    if MongoClient is None:
-        raise SystemExit("pymongo is not available; install it to pull reviews from MongoDB.")
-    uri = cfg.get("uri")
-    database = cfg.get("database") or cfg.get("db")
-    collection = cfg.get("collection")
-    if not uri or not database or not collection:
-        raise SystemExit("Mongo configuration requires uri, database and collection.")
-    query = cfg.get("query") or {}
-    projection = cfg.get("projection")
-    limit = cfg.get("limit")
-    try:
-        limit = int(limit) if limit is not None else None
-    except Exception:
-        limit = None
-
-    client = MongoClient(uri)
-    try:
-        coll = client[database][collection]
-        cursor = coll.find(query, projection)
-        if limit:
-            cursor = cursor.limit(limit)
-        rows = list(cursor)
-        if not rows:
-            return pd.DataFrame()
-        df = pd.DataFrame(rows)
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
-    if "_id" in df.columns:
-        df = df.drop(columns=["_id"])
-    return df
 
 
 def _ensure_column(df: pd.DataFrame, columns: Sequence[str]) -> Optional[str]:
@@ -141,23 +80,42 @@ def _parse_json_arg(value: Optional[str]) -> Optional[Dict[str, Any]]:
     try:
         return json.loads(value)
     except Exception as exc:
-        raise SystemExit(f"Could not parse JSON value: {value} -> {exc}")
+        raise SystemExit(f"Could not decode JSON: {value} -> {exc}")
 
 
-def _experience_key(label: Any) -> Optional[str]:
-    mapping = {
-        "nuevo": "new",
-        "new": "new",
-        "intermedio": "intermediate",
-        "intermediate": "intermediate",
-        "experto": "expert",
-        "expert": "expert",
-        "veterano": "veteran",
-        "veteran": "veteran",
-    }
-    if not label:
-        return None
-    return mapping.get(str(label).strip().lower())
+def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
+    if MongoClient is None:
+        raise SystemExit("pymongo is required to pull reviews from MongoDB.")
+    uri = cfg.get("uri")
+    database = cfg.get("database") or cfg.get("db")
+    collection = cfg.get("collection")
+    if not uri or not database or not collection:
+        raise SystemExit("Mongo configuration requires uri, database and collection.")
+    query = cfg.get("query") or {}
+    projection = cfg.get("projection")
+    limit = cfg.get("limit")
+    try:
+        limit = int(limit) if limit is not None else None
+    except Exception:
+        limit = None
+
+    client = MongoClient(uri)
+    try:
+        cursor = client[database][collection].find(query, projection)
+        if limit:
+            cursor = cursor.limit(limit)
+        rows = list(cursor)
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    if "_id" in df.columns:
+        df = df.drop(columns=["_id"])
+    return df
 
 
 def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
@@ -232,238 +190,19 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     else:
         df["experience_label"] = None
 
+    def _experience_key(label: Any) -> Optional[str]:
+        mapping = {
+            "nuevo": "new",
+            "intermedio": "intermediate",
+            "experto": "expert",
+            "veterano": "veteran",
+        }
+        if not label:
+            return None
+        return mapping.get(str(label).strip().lower())
+
     df["experience_key"] = df["experience_label"].apply(_experience_key)
     return df
-
-
-def _spark_bool_expression(col_name: str) -> Any:
-    lower = F.lower(F.col(col_name).cast("string"))
-    return F.when(F.col(col_name).isNull(), F.lit(None).cast("boolean")) \
-        .when(F.col(col_name).cast("boolean").isNotNull(), F.col(col_name).cast("boolean")) \
-        .when(lower.isin("true", "t", "1", "yes", "y"), F.lit(True)) \
-        .when(lower.isin("false", "f", "0", "no", "n"), F.lit(False)) \
-        .otherwise(F.lit(None).cast("boolean"))
-
-
-def _pick_column(columns: Sequence[str], preferred: Optional[str], fallbacks: Sequence[str]) -> Optional[str]:
-    if preferred and preferred in columns:
-        return preferred
-    for name in fallbacks:
-        if name in columns:
-            return name
-    return None
-
-
-def _prepare_reviews_spark(
-    source_path: Optional[str],
-    mongo_cfg: Dict[str, Any],
-    cfg: Dict[str, Any],
-    spark_cfg: Dict[str, Any]
-) -> pd.DataFrame:
-    if not SPARK_AVAILABLE:
-        raise SystemExit("Spark is not available in this environment; remove  or install pyspark.")
-
-    builder = SparkSession.builder.appName("prepare_reviews_with_segments")
-    extra_conf: Dict[str, Any] = spark_cfg.get("config", {}) if spark_cfg else {}
-    for key, value in extra_conf.items():
-        builder = builder.config(str(key), str(value))
-    spark = builder.getOrCreate()
-    try:
-        if source_path and Path(source_path).exists():
-            suffix = Path(source_path).suffix.lower()
-            if suffix in {".parquet", ".pq"}:
-                sdf = spark.read.parquet(source_path)
-            elif suffix == ".csv":
-                sdf = spark.read.option("header", True).csv(source_path)
-            elif suffix == ".json":
-                sdf = spark.read.json(source_path)
-            else:
-                sdf = spark.read.parquet(source_path)
-        else:
-            uri = mongo_cfg.get("uri")
-            database = mongo_cfg.get("database") or mongo_cfg.get("db")
-            collection = mongo_cfg.get("collection")
-            if not uri or not database or not collection:
-                raise SystemExit("Mongo configuration for Spark requires uri, database and collection.")
-            reader = (
-                spark.read.format("mongodb")
-                .option("uri", uri)
-                .option("database", database)
-                .option("collection", collection)
-            )
-            projection = mongo_cfg.get("projection")
-            if projection:
-                reader = reader.option("projection", json.dumps(projection))
-            pipeline = mongo_cfg.get("pipeline")
-            query = mongo_cfg.get("query")
-            if pipeline:
-                reader = reader.option("pipeline", json.dumps(pipeline))
-            elif query:
-                reader = reader.option("pipeline", json.dumps([{ "$match": query }]))
-            sdf = reader.load()
-            limit = mongo_cfg.get("limit")
-            if limit:
-                sdf = sdf.limit(int(limit))
-
-        columns = sdf.columns
-        pick = lambda key, fallbacks: _pick_column(columns, cfg.get(key), fallbacks)
-
-        review_id_col = pick("review_id_column", ["review_id", "id", "reviewid"])
-        if review_id_col:
-            sdf = sdf.withColumn("review_id", F.col(review_id_col).cast("string"))
-        else:
-            sdf = sdf.withColumn("review_id", F.monotonically_increasing_id().cast("string"))
-
-        appid_col = pick("appid_column", ["appid", "app_id", "appId"])
-        if not appid_col:
-            raise SystemExit("Could not find appid column in Spark DataFrame.")
-        sdf = sdf.withColumn("appid", F.col(appid_col).cast("string"))
-
-        text_col = pick("text_column", ["review", "review_text", "body", "content"])
-        if text_col:
-            sdf = sdf.withColumn("review_text", F.col(text_col).cast("string"))
-        else:
-            sdf = sdf.withColumn("review_text", F.lit("").cast("string"))
-
-        date_col = pick("date_column", ["review_date", "timestamp_created", "date"])
-        if not date_col:
-            raise SystemExit("Could not find date column in Spark DataFrame.")
-        sdf = sdf.withColumn("_date_string", F.col(date_col).cast("string"))
-        sdf = sdf.withColumn("_date_double", F.col(date_col).cast("double"))
-        sdf = sdf.withColumn(
-            "review_date",
-            F.coalesce(
-                F.col(date_col).cast("timestamp"),
-                F.to_timestamp(F.col("_date_string")),
-                F.to_timestamp(F.from_unixtime(F.col("_date_double")))
-            )
-        ).drop("_date_string", "_date_double")
-        sdf = sdf.filter(F.col("review_date").isNotNull())
-
-        recommended_col = pick("recommended_column", ["recommended", "voted_up", "is_positive"])
-        if recommended_col:
-            sdf = sdf.withColumn("recommended", _spark_bool_expression(recommended_col))
-        else:
-            sdf = sdf.withColumn("recommended", F.lit(None).cast("boolean"))
-
-        playtime_col = pick("playtime_column", ["playtime_at_review", "author_playtime_at_review", "author_playtime_forever"])
-        if playtime_col:
-            sdf = sdf.withColumn("playtime_at_review", F.col(playtime_col).cast("double"))
-        else:
-            sdf = sdf.withColumn("playtime_at_review", F.lit(None).cast("double"))
-
-        playtime_30d_col = pick("playtime_30d_column", ["playtime_since_review_30d", "author_playtime_last_two_weeks"])
-        if playtime_30d_col:
-            sdf = sdf.withColumn("playtime_since_review_30d", F.col(playtime_30d_col).cast("double"))
-            abandon_col = pick("abandon_column", ["abandon_after_30d", "flag_abandon"])
-            if abandon_col:
-                sdf = sdf.withColumn("abandon_after_30d", _spark_bool_expression(abandon_col))
-            else:
-                sdf = sdf.withColumn(
-                    "abandon_after_30d",
-                    F.when(F.col("playtime_since_review_30d").isNull(), F.lit(None).cast("boolean"))
-                     .when(F.col("playtime_since_review_30d") <= F.lit(0.1), F.lit(True))
-                     .otherwise(F.lit(False))
-                )
-        else:
-            sdf = sdf.withColumn("playtime_since_review_30d", F.lit(None).cast("double"))
-            sdf = sdf.withColumn("abandon_after_30d", F.lit(None).cast("boolean"))
-
-        gifted_col = pick("gifted_column", ["gifted", "steam_purchase", "received_for_free"])
-        if gifted_col:
-            sdf = sdf.withColumn("gifted", _spark_bool_expression(gifted_col))
-        else:
-            sdf = sdf.withColumn("gifted", F.lit(None).cast("boolean"))
-
-        ea_col = pick("early_access_column", ["early_access"])
-        if ea_col:
-            sdf = sdf.withColumn("early_access", _spark_bool_expression(ea_col))
-        else:
-            sdf = sdf.withColumn("early_access", F.lit(None).cast("boolean"))
-
-        post_col = pick("post_launch_column", ["post_launch"])
-        if post_col:
-            sdf = sdf.withColumn("post_launch", _spark_bool_expression(post_col))
-        else:
-            sdf = sdf.withColumn("post_launch", F.lit(None).cast("boolean"))
-
-        median_col = cfg.get("median_playtime_column") or "median_playtime_app"
-        if median_col in columns:
-            sdf = sdf.withColumn("median_playtime_app", F.col(median_col).cast("double"))
-        else:
-            median_df = (
-                sdf.groupBy("appid")
-                .agg(F.expr("percentile_approx(playtime_at_review, 0.5, 100)").alias("median_playtime_app"))
-            )
-            sdf = sdf.join(median_df, on="appid", how="left")
-
-        if experiencia_jugador is not None:
-            experiencia_udf = F.udf(
-                lambda play, median: experiencia_jugador(play, median),
-                T.StringType()
-            )
-            sdf = sdf.withColumn("experience_label", experiencia_udf(F.col("playtime_at_review"), F.col("median_playtime_app")))
-        else:
-            sdf = sdf.withColumn("experience_label", F.lit(None).cast("string"))
-
-        sdf = sdf.withColumn(
-            "experience_key",
-            F.when(F.col("experience_label").isNull(), F.lit(None).cast("string"))
-             .otherwise(
-                 F.when(F.lower(F.col("experience_label")) == "nuevo", F.lit("new"))
-                  .when(F.lower(F.col("experience_label")) == "intermedio", F.lit("intermediate"))
-                  .when(F.lower(F.col("experience_label")) == "experto", F.lit("expert"))
-                  .when(F.lower(F.col("experience_label")) == "veterano", F.lit("veteran"))
-                  .otherwise(F.lower(F.col("experience_label")))
-             )
-        )
-
-        partitions = spark_cfg.get("partitions") or spark_cfg.get("num_partitions")
-        partition_column = spark_cfg.get("partition_column", "appid")
-        if partitions:
-            try:
-                partitions = int(partitions)
-                if partition_column in sdf.columns:
-                    sdf = sdf.repartition(partitions, F.col(partition_column))
-                else:
-                    sdf = sdf.repartition(partitions)
-            except Exception:
-                pass
-
-        target_columns = [
-            "appid",
-            "review_id",
-            "review_date",
-            "review_text",
-            "recommended",
-            "playtime_at_review",
-            "playtime_since_review_30d",
-            "abandon_after_30d",
-            "gifted",
-            "early_access",
-            "post_launch",
-            "median_playtime_app",
-            "experience_label",
-            "experience_key",
-        ]
-        for col in target_columns:
-            if col not in sdf.columns:
-                if col in {"review_text", "experience_label", "experience_key"}:
-                    sdf = sdf.withColumn(col, F.lit(None).cast("string"))
-                elif col == "review_date":
-                    sdf = sdf.withColumn(col, F.lit(None).cast("timestamp"))
-                elif col in {"recommended", "abandon_after_30d", "gifted", "early_access", "post_launch"}:
-                    sdf = sdf.withColumn(col, F.lit(None).cast("boolean"))
-                else:
-                    sdf = sdf.withColumn(col, F.lit(None).cast("double"))
-
-        pdf = sdf.select(*target_columns).toPandas()
-        return pdf
-    finally:
-        try:
-            spark.stop()
-        except Exception:
-            pass
 
 
 def _write_output(df: pd.DataFrame, path: str) -> None:
@@ -597,8 +336,6 @@ def main() -> None:
     parser.add_argument("--mongo-query", help="MongoDB match query (JSON string).")
     parser.add_argument("--mongo-projection", help="MongoDB projection (JSON string).")
     parser.add_argument("--mongo-limit", type=int, help="Limit number of documents pulled from MongoDB.")
-    parser.add_argument("--spark-partitions", type=int, help="Number of Spark partitions when repartitioning by appid.")
-    parser.add_argument("--spark-partition-column", default="appid", help="Column used to repartition in Spark mode.")
     args = parser.parse_args()
 
     cfg = load_config(args.config) or {}
@@ -622,32 +359,21 @@ def main() -> None:
     if isinstance(mongo_cfg.get("projection"), str):
         mongo_cfg["projection"] = _parse_json_arg(mongo_cfg.get("projection"))
 
-    spark_cfg: Dict[str, Any] = dict(cfg.get("spark") or {})
-    if args.spark_partitions is not None:
-        spark_cfg["partitions"] = args.spark_partitions
-    if args.spark_partition_column:
-        spark_cfg["partition_column"] = args.spark_partition_column
-
-    use_spark = bool(spark_cfg.get("enabled"))
-
-    if use_spark:
-        reviews_df = _prepare_reviews_spark(reviews_source, mongo_cfg, cfg, spark_cfg)
-    else:
-        reviews_df = _load_any_df(reviews_source)
-        if reviews_df.empty and mongo_cfg.get("uri"):
-            print("[INFO] Loading reviews from MongoDB (pandas mode)...")
-            reviews_df = _load_reviews_from_mongo(mongo_cfg)
-            if reviews_df.empty:
-                print("[WARN] MongoDB did not return reviews; dataset is empty.")
+    reviews_df = _load_any_df(reviews_source)
+    if reviews_df.empty and mongo_cfg.get("uri"):
+        print("[INFO] Loading reviews from MongoDB (pandas mode)...")
+        reviews_df = _load_reviews_from_mongo(mongo_cfg)
         if reviews_df.empty:
-            if args.allow_empty:
-                print("[WARN] No reviews found in configured sources; writing empty dataset.")
-                _write_output(pd.DataFrame(), args.output)
-                _fallback_topics(pd.DataFrame(), args.topics_output)
-                return
-            raise SystemExit("No reviews found in file or Mongo sources; use --allow-empty to continue.")
-        reviews_df = _prepare_reviews(reviews_df, cfg)
+            print("[WARN] MongoDB did not return reviews; dataset is empty.")
+    if reviews_df.empty:
+        if args.allow_empty:
+            print("[WARN] No reviews found in configured sources; writing empty dataset.")
+            _write_output(pd.DataFrame(), args.output)
+            _fallback_topics(pd.DataFrame(), args.topics_output)
+            return
+        raise SystemExit("No reviews found in file or Mongo sources; use --allow-empty to continue.")
 
+    reviews_df = _prepare_reviews(reviews_df, cfg)
     _write_output(reviews_df, args.output)
 
     if args.run_bertopic:
@@ -658,6 +384,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
