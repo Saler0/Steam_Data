@@ -41,6 +41,7 @@ set "RUN_PREAGG_BEFORE=0"
 set "CUSTOM_MODE=0"
 set "CUSTOM_STAGES="
 set "APPID_LIST="
+set "RUN_REVIEWS_MONGO=0"
 set "POC_ARGS="
 
 
@@ -49,6 +50,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="skip-embeddings" set "SKIP_EMB=1"
     if /I "!ARG!"=="topics-only" set "RUN_TOPICS_ONLY=1"
     if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
+    if /I "!ARG!"=="reviews-mongo" set "RUN_REVIEWS_MONGO=1"
     if /I "!ARG!"=="preagg-only" (
         set "RUN_PREAGG_ONLY=1"
         set "CUSTOM_MODE=1"
@@ -66,6 +68,8 @@ for %%A in (%*) do (
 )
 
 if "!RUN_POC!"=="1" goto :run_poc
+
+if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -243,3 +247,30 @@ exit /b 1
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item %1
 exit /b %errorlevel%
+:run_reviews_mongo
+echo.
+echo ============================
+echo Generando reviews y topicos desde MongoDB...
+echo ============================
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --run-bertopic --mongo-uri \${MONGO_URI:-mongodb://mongo:27017} --mongo-db \${MONGO_DB_REVIEWS:-steam} --mongo-collection \${MONGO_COLL_REVIEWS:-reviews}"
+if errorlevel 1 goto :reviews_mongo_failed
+goto :reviews_mongo_success
+
+:reviews_mongo_failed
+echo.
+echo ERROR: No se pudieron generar las reviews desde MongoDB.
+pause
+endlocal
+exit /b 1
+
+:reviews_mongo_success
+echo.
+echo ===============================================
+echo Reviews segmentadas y topicos generados desde MongoDB.
+echo Revisar: data/warehouse/reviews_with_segments.parquet
+echo          outputs/events/reviews_topics.parquet
+echo ===============================================
+pause
+endlocal
+exit /b 0

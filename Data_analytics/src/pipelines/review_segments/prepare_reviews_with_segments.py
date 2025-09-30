@@ -12,6 +12,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from src.utils.config_utils import expand_env_in_obj
+
 if os.path.exists(os.path.join(os.path.dirname(__file__), '..')):
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -31,6 +33,11 @@ try:
 except ImportError:  # pragma: no cover
     CountVectorizer = None  # type: ignore
 
+try:
+    from pymongo import MongoClient
+except Exception:  # pragma: no cover
+    MongoClient = None  # type: ignore
+
 
 def _load_any_df(path_str: Optional[str]) -> pd.DataFrame:
     if not path_str:
@@ -46,6 +53,43 @@ def _load_any_df(path_str: Optional[str]) -> pd.DataFrame:
     if suffix == '.json':
         return pd.read_json(path)
     return pd.read_parquet(path)
+
+
+def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
+    if MongoClient is None:
+        raise SystemExit('pymongo no est? disponible; instala pymongo para leer rese?as desde MongoDB.')
+    uri = cfg.get('uri')
+    database = cfg.get('database') or cfg.get('db')
+    collection = cfg.get('collection')
+    if not uri or not database or not collection:
+        raise SystemExit('Para leer rese?as desde MongoDB se requieren uri, database y collection.')
+    query = cfg.get('query') or {}
+    projection = cfg.get('projection')
+    limit = cfg.get('limit')
+    try:
+        limit = int(limit) if limit is not None else None
+    except Exception:
+        limit = None
+
+    client = MongoClient(uri)
+    try:
+        coll = client[database][collection]
+        cursor = coll.find(query, projection)
+        if limit:
+            cursor = cursor.limit(limit)
+        rows = list(cursor)
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+    if '_id' in df.columns:
+        df = df.drop(columns=['_id'])
+    return df
 
 
 def _ensure_column(df: pd.DataFrame, columns: Sequence[str]) -> Optional[str]:
@@ -79,6 +123,17 @@ def _safe_bool(value: Any) -> Optional[bool]:
     return None
 
 
+def _parse_json_arg(value: Optional[str]) -> Optional[Dict[str, Any]]:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    try:
+        return json.loads(value)
+    except Exception as exc:
+        raise SystemExit(f'No se pudo interpretar JSON: {value} -> {exc}')
+
+
 def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     df = df.copy()
     if df.empty:
@@ -92,7 +147,7 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     appid_col = cfg.get('appid_column') or _ensure_column(df, ['appid', 'app_id', 'appId'])
     if not appid_col:
-        raise SystemExit('No se encontro columna appid en el dataset de resenas.')
+        raise SystemExit('No se encontro columna appid en el dataset de reviews.')
     df['appid'] = df[appid_col].astype(str)
 
     text_col = cfg.get('text_column') or _ensure_column(df, ['review', 'review_text', 'body', 'content'])
@@ -103,7 +158,7 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     date_col = cfg.get('date_column') or _ensure_column(df, ['review_date', 'timestamp_created', 'date'])
     if not date_col:
-        raise SystemExit('No se encontro columna de fecha en el dataset de resenas.')
+        raise SystemExit('No se encontro columna de fecha en el dataset de reviews.')
     df['review_date'] = pd.to_datetime(df[date_col], errors='coerce', utc=True)
     df = df.dropna(subset=['review_date'])
 
@@ -190,7 +245,7 @@ def _write_output(df: pd.DataFrame, path: str) -> None:
         df.to_csv(out_path, index=False)
     else:
         df.to_parquet(out_path, index=False)
-    print(f"[OK] Resenas enriquecidas -> {out_path}")
+    print(f"[OK] reviews enriquecidas -> {out_path}")
 
 
 def _fallback_topics(df: pd.DataFrame, topics_out: str) -> None:
@@ -264,7 +319,7 @@ def _run_bertopic(df: pd.DataFrame, cfg: Dict[str, Any], topics_out: str) -> Non
             'snippet': df.iloc[idx]['review_text'][:160],
         })
     pd.DataFrame(records).to_parquet(topics_out, index=False)
-    print(f"[OK] Topics por resena -> {topics_out}")
+    print(f"[OK] Topics por review -> {topics_out}")
 
 
 def load_config(path: Optional[str]) -> Dict[str, Any]:
@@ -275,34 +330,67 @@ def load_config(path: Optional[str]) -> Dict[str, Any]:
         return {}
     try:
         if cfg_path.suffix.lower() == '.json':
-            return json.loads(cfg_path.read_text())
+            return expand_env_in_obj(json.loads(cfg_path.read_text()))
         import yaml  # type: ignore
-        return yaml.safe_load(cfg_path.read_text())
+        return expand_env_in_obj(yaml.safe_load(cfg_path.read_text()))
     except Exception as exc:
         print(f"[WARN] No se pudo leer config {cfg_path}: {exc}")
         return {}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Prepara resenas con segmentos y topicos por resena')
-    parser.add_argument('--reviews-source', default=None, help='Ruta al dataset de resenas (csv/parquet/json).')
-    parser.add_argument('--output', default='data/warehouse/reviews_with_segments.parquet', help='Salida parquet/JSON con resenas enriquecidas.')
-    parser.add_argument('--topics-output', default='outputs/events/reviews_topics.parquet', help='Salida parquet con topicos por resena.')
+    parser = argparse.ArgumentParser(description='Prepara reviews con segmentos y topicos por review')
+    parser.add_argument('--reviews-source', default=None, help='Ruta al dataset de reviews (csv/parquet/json).')
+    parser.add_argument('--output', default='data/warehouse/reviews_with_segments.parquet', help='Salida parquet/JSON con reviews enriquecidas.')
+    parser.add_argument('--topics-output', default='outputs/events/reviews_topics.parquet', help='Salida parquet con topicos por review.')
     parser.add_argument('--config', default='configs/review_segments.yaml', help='YAML/JSON con configuracion de columnas.')
     parser.add_argument('--run-bertopic', action='store_true', help='Ejecuta BERTopic si esta disponible.')
-    parser.add_argument('--allow-empty', action='store_true', help='Genera datasets vacios si no se encuentran resenas.')
+    parser.add_argument('--allow-empty', action='store_true', help='Genera datasets vacios si no se encuentran reviews.')
+    parser.add_argument('--mongo-uri', help='URI de MongoDB para cargar rese?as.')
+    parser.add_argument('--mongo-db', help='Base de datos de MongoDB.')
+    parser.add_argument('--mongo-collection', help='Coleccion de MongoDB con rese?as.')
+    parser.add_argument('--mongo-query', help='Filtro JSON para MongoDB.')
+    parser.add_argument('--mongo-projection', help='Proyeccion JSON para MongoDB.')
+    parser.add_argument('--mongo-limit', type=int, help='Limite de documentos al leer de MongoDB.')
     args = parser.parse_args()
 
     cfg = load_config(args.config) or {}
     reviews_source = args.reviews_source or cfg.get('reviews_source')
-    reviews_df = _load_any_df(reviews_source)
+
+    mongo_cfg = dict(cfg.get('mongo') or {})
+    if args.mongo_uri:
+        mongo_cfg['uri'] = args.mongo_uri
+    if args.mongo_db:
+        mongo_cfg['database'] = args.mongo_db
+    if args.mongo_collection:
+        mongo_cfg['collection'] = args.mongo_collection
+    if args.mongo_query:
+        mongo_cfg['query'] = _parse_json_arg(args.mongo_query)
+    if args.mongo_projection:
+        mongo_cfg['projection'] = _parse_json_arg(args.mongo_projection)
+    if args.mongo_limit is not None:
+        mongo_cfg['limit'] = args.mongo_limit
+
+    if isinstance(mongo_cfg.get('query'), str):
+        mongo_cfg['query'] = _parse_json_arg(mongo_cfg['query'])
+    if isinstance(mongo_cfg.get('projection'), str):
+        mongo_cfg['projection'] = _parse_json_arg(mongo_cfg['projection'])
+
+    reviews_df = _load_any_df(reviews_source) if reviews_source else pd.DataFrame()
+
+    if reviews_df.empty and mongo_cfg.get('uri'):
+        print('[INFO] Cargando rese?as desde MongoDB...')
+        reviews_df = _load_reviews_from_mongo(mongo_cfg)
+        if reviews_df.empty:
+            print('[WARN] MongoDB no devolvio rese?as; dataset vacio.')
+
     if reviews_df.empty:
         if args.allow_empty:
-            print(f"[WARN] No se encontraron resenas en {reviews_source}; generando dataset vacio.")
+            print('[WARN] No se encontraron rese?as en las fuentes configuradas; generando dataset vacio.')
             _write_output(pd.DataFrame(), args.output)
             _fallback_topics(pd.DataFrame(), args.topics_output)
             return
-        raise SystemExit(f"No se encontraron resenas en {reviews_source}; especifica --allow-empty para continuar.")
+        raise SystemExit('No se encontraron rese?as en la ruta o Mongo configurados; especifica --allow-empty para continuar.')
 
     prepared = _prepare_reviews(reviews_df, cfg)
     _write_output(prepared, args.output)
@@ -315,3 +403,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
