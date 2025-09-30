@@ -168,33 +168,45 @@ def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
     if "_id" in df.columns:
         df = df.drop(columns=["_id"])
 
-    numeric_candidates = [
+    if "author" in df.columns:
+        author_df = pd.json_normalize(df["author"]).add_prefix("author_")
+        df = df.drop(columns=["author"]).join(author_df)
+
+    convert_numeric = [
         "timestamp_created",
         "timestamp_updated",
         "votes_up",
         "votes_funny",
         "comment_count",
-        "weighted_vote_score"
+        "weighted_vote_score",
+        "appid",
+        "author_playtime_at_review",
+        "author_playtime_forever",
+        "author_playtime_last_two_weeks",
+        "author_num_games_owned",
+        "author_num_reviews"
     ]
-    for col in numeric_candidates:
+    for col in convert_numeric:
         if col in df.columns:
             df[col] = df[col].apply(_coerce_mongo_number)
 
-    date_candidates = [
+    convert_dates = [
         "timestamp_created_date",
-        "timestamp_updated_date"
+        "timestamp_updated_date",
+        "updated_at"
     ]
-    for col in date_candidates:
+    for col in convert_dates:
         if col in df.columns:
             df[col] = df[col].apply(_coerce_mongo_date)
 
-    bool_candidates = [
+    convert_bool = [
         "steam_purchase",
         "received_for_free",
         "written_during_early_access",
-        "voted_up"
+        "voted_up",
+        "primarily_steam_deck"
     ]
-    for col in bool_candidates:
+    for col in convert_bool:
         if col in df.columns:
             df[col] = df[col].apply(_safe_bool)
 
@@ -219,7 +231,16 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         appid_col = _ensure_column(df, ["appid", "app_id", "appId"])
     if not appid_col:
         raise SystemExit("Could not find appid column in reviews dataset.")
-    df["appid"] = df[appid_col].astype(str)
+    def _to_appid_string(val: Any) -> str:
+        coerced = _coerce_mongo_number(val)
+        if coerced is not None and not np.isnan(coerced):
+            try:
+                return str(int(coerced))
+            except Exception:
+                return str(coerced)
+        return str(val)
+
+    df["appid"] = df[appid_col].apply(_to_appid_string)
 
     text_col = cfg.get("text_column")
     if not text_col or text_col not in df.columns:
@@ -237,7 +258,9 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     df["review_date"] = pd.to_datetime(df[date_col], errors="coerce", utc=True)
     df = df.dropna(subset=["review_date"])
 
-    recommended_col = cfg.get("recommended_column") or _ensure_column(df, ["recommended", "voted_up", "is_positive"])
+    recommended_col = cfg.get("recommended_column")
+    if not recommended_col or recommended_col not in df.columns:
+        recommended_col = _ensure_column(df, ["recommended", "voted_up", "is_positive"])
     if recommended_col and recommended_col in df.columns:
         df["recommended"] = df[recommended_col].apply(_safe_bool)
     elif "voted_up" in df.columns:
@@ -245,10 +268,17 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     else:
         df["recommended"] = None
 
-    playtime_col = cfg.get("playtime_column") or _ensure_column(df, ["playtime_at_review", "author_playtime_at_review", "author_playtime_forever"])
-    df["playtime_at_review"] = df[playtime_col].apply(_safe_float) if playtime_col else None
+    playtime_col = cfg.get("playtime_column")
+    if not playtime_col or playtime_col not in df.columns:
+        playtime_col = _ensure_column(df, ["playtime_at_review", "author_playtime_at_review", "author_playtime_forever"])
+    if playtime_col:
+        df["playtime_at_review"] = df[playtime_col].apply(_safe_float)
+    else:
+        df["playtime_at_review"] = None
 
-    playtime_30d_col = cfg.get("playtime_30d_column") or _ensure_column(df, ["playtime_since_review_30d", "author_playtime_last_two_weeks"])
+    playtime_30d_col = cfg.get("playtime_30d_column")
+    if not playtime_30d_col or playtime_30d_col not in df.columns:
+        playtime_30d_col = _ensure_column(df, ["playtime_since_review_30d", "author_playtime_last_two_weeks"])
     if playtime_30d_col:
         df["playtime_since_review_30d"] = df[playtime_30d_col].apply(_safe_float)
         abandon_col = cfg.get("abandon_column") or _ensure_column(df, ["abandon_after_30d", "flag_abandon"])
