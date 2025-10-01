@@ -29,8 +29,8 @@ stages:
     deps:
     - path: configs/clustering.yaml
       hash: md5
-      md5: 57cecf8ed2b7a155e0fbc6945656d807
-      size: 5708
+      md5: 0e6aeac1fa0c02cb7add251aef0020b7
+      size: 5683
       isexec: true
     - path: data/processed/embeddings/
       hash: md5
@@ -45,24 +45,24 @@ stages:
     outs:
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: eb4c99b9081ae32639d740b03f581685
-      size: 118009366
+      md5: 59bc0ba6658bde7546997e6a6cf0acc3
+      size: 118031546
     - path: data/processed/game_metadata.parquet
       hash: md5
       md5: 959337e6a935510625aef8417896143a
       size: 246805470
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 245f34d7abcdd7c12f5e8d72c57f1838
-      size: 18404051
+      md5: 17ddebc8f428db8b36904c754550e172
+      size: 34542654
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: a93467c36e40eeebc1f0f5cb3c28c81e
-      size: 21492164
+      md5: 16bfd715102d4eb3ec33da8349bc51f3
+      size: 24007669
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: c07848ebfd8366ac3da9799e43c8e309
-      size: 91168
+      md5: 88c0def1f0f81fb182ed21287697b919
+      size: 171978
   cluster_topics_profile:
     cmd: python src/pipelines/cluster_assignment/profile_clusters_topics.py 
       --clusters data/processed/clusters.parquet --metadata 
@@ -74,27 +74,27 @@ stages:
     deps:
     - path: configs/clustering.yaml
       hash: md5
-      md5: 57cecf8ed2b7a155e0fbc6945656d807
-      size: 5708
+      md5: 0e6aeac1fa0c02cb7add251aef0020b7
+      size: 5683
       isexec: true
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 176625ac3aea189b26f1fdc0ac5e2702
-      size: 118019717
+      md5: 59bc0ba6658bde7546997e6a6cf0acc3
+      size: 118031546
     - path: data/processed/game_metadata.parquet
       hash: md5
       md5: 959337e6a935510625aef8417896143a
       size: 246805470
     - path: src/pipelines/cluster_assignment/profile_clusters_topics.py
       hash: md5
-      md5: e4eec17838185f846eab968aa1e79934
-      size: 13026
+      md5: 20698aeb92db0b708bbc66089fe9d115
+      size: 13029
       isexec: true
     outs:
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: f8f6b41c07d7477740ec6a7468ff6c71
-      size: 12322
+      md5: 1047cdc933901d2a261abdeada9620e0
+      size: 16915
   cluster_topics_map:
     cmd: python scripts/plot_cluster_topics_umap.py --medoids 
       models/cluster_medoids.json --stats outputs/clustering/cluster_stats.csv 
@@ -104,27 +104,27 @@ stages:
     deps:
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 6093766bfbfd822b31943e23e8194ab4
-      size: 18412565
+      md5: 17ddebc8f428db8b36904c754550e172
+      size: 34542654
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: 577077310fd1a1230acd4838e09719fd
-      size: 21517673
+      md5: 16bfd715102d4eb3ec33da8349bc51f3
+      size: 24007669
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: 0908084314ade9e90fec586ca471b407
-      size: 91251
+      md5: 88c0def1f0f81fb182ed21287697b919
+      size: 171978
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: f8f6b41c07d7477740ec6a7468ff6c71
-      size: 12322
+      md5: 1047cdc933901d2a261abdeada9620e0
+      size: 16915
     - path: scripts/plot_cluster_topics_umap.py
       hash: md5
-      md5: 650e082dcb213caf057745113f00a886
-      size: 10580
+      md5: 0819a4bc6cc8cced06236a63aa76eab9
+      size: 14537
       isexec: true
     outs:
     - path: outputs/clustering/cluster_topics_umap.html
       hash: md5
-      md5: 64b4ae5e3d2f07d328fcaf48a86b4392
-      size: 6705579
+      md5: a0b2126ecad297c3f167ded869f825d6
+      size: 6061639

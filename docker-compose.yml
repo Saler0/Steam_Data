@@ -85,6 +85,13 @@ services:
     container_name: steam_analytics
     profiles: ["analytics"] # <-- Solo se incluye si activas el profile "analytics"
     env_file: ./Data_analytics/.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       mongo:
         condition: service_healthy

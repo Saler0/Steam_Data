@@ -1,14 +1,12 @@
 ﻿#!/usr/bin/env python
-"""
-Render a 3D UMAP map of cluster medoids enriched with BERTopic topics.
-"""
+"""Render an interactive UMAP map of cluster medoids enriched with BERTopic topics."""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable
 
 import numpy as np
 import pandas as pd
@@ -22,17 +20,39 @@ except ImportError as exc:  # pragma: no cover
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="3D UMAP visualization of cluster medoids and BERTopic summaries.")
+    parser = argparse.ArgumentParser(
+        description="Interactive UMAP visualization of cluster medoids and BERTopic summaries."
+    )
     parser.add_argument("--medoids", default="models/cluster_medoids.json", help="Input JSON with cluster medoids.")
     parser.add_argument("--stats", default="outputs/clustering/cluster_stats.csv", help="Cluster stats CSV (optional).")
     parser.add_argument("--topics", default="outputs/clustering/cluster_topics.json", help="Cluster topics JSON (optional).")
-    parser.add_argument("--borderline", default="outputs/clustering/borderline_games.csv", help="Borderline games CSV (optional).")
-    parser.add_argument("--out-html", default="outputs/clustering/cluster_topics_umap.html", help="Output HTML file for the plot.")
+    parser.add_argument(
+        "--borderline",
+        default="outputs/clustering/borderline_games.csv",
+        help="Borderline games CSV (optional).",
+    )
+    parser.add_argument(
+        "--out-html",
+        default="outputs/clustering/cluster_topics_umap.html",
+        help="Output HTML file for the plot.",
+    )
     parser.add_argument("--open", action="store_true", help="Open the HTML result after saving.")
     parser.add_argument("--n-neighbors", type=int, default=15, help="UMAP number of neighbors.")
     parser.add_argument("--min-dist", type=float, default=0.1, help="UMAP min_dist parameter.")
     parser.add_argument("--topic-words", type=int, default=5, help="Max number of keywords to show per topic.")
     parser.add_argument("--label-clusters", action="store_true", help="Render cluster ids as text labels.")
+    parser.add_argument(
+        "--n-components",
+        type=int,
+        choices=(2, 3),
+        default=2,
+        help="UMAP dimensionality for the projection (2 or 3).",
+    )
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Custom title for the figure (defaults to an auto-generated one).",
+    )
     return parser.parse_args()
 
 
@@ -99,16 +119,31 @@ def load_borderline(path: Path) -> pd.DataFrame:
     return df
 
 
-def project_umap(vectors: Iterable[np.ndarray], n_neighbors: int, min_dist: float) -> np.ndarray:
+def project_umap(
+    vectors: Iterable[np.ndarray],
+    n_neighbors: int,
+    min_dist: float,
+    n_components: int,
+) -> np.ndarray:
     matrix = np.vstack(list(vectors)).astype(np.float32)
-    reducer = umap.UMAP(n_components=3, n_neighbors=n_neighbors, min_dist=min_dist, metric="cosine", random_state=42)
+    reducer = umap.UMAP(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        metric="cosine",
+        random_state=42,
+    )
     return reducer.fit_transform(matrix)
 
 
-def deterministic_jitter(value: str, scale: float) -> Tuple[float, float, float]:
-    h = hashlib.md5(value.encode("utf-8")).hexdigest()
-    nums = [int(h[i:i + 8], 16) / 0xFFFFFFFF for i in range(0, 24, 8)]
-    return tuple(scale * (n - 0.5) for n in nums)
+def deterministic_jitter(value: str, scale: float, dims: int) -> np.ndarray:
+    digest = hashlib.md5(value.encode("utf-8")).digest()
+    nums = []
+    for i in range(dims):
+        chunk = digest[i * 4 : i * 4 + 4]
+        num = int.from_bytes(chunk, "big") / 0xFFFFFFFF
+        nums.append(num)
+    return scale * (np.asarray(nums, dtype=np.float32) - 0.5)
 
 
 def build_hover_text(row: pd.Series, topic_words: int) -> str:
@@ -126,13 +161,10 @@ def build_hover_text(row: pd.Series, topic_words: int) -> str:
     size = row.get("size")
     if pd.notna(size):
         parts.append(f"games: {int(size)}")
-    border = row.get("borderline_rate")
-    if pd.notna(border):
-        parts.append(f"borderline pct: {border:.2%}")
-    mean_sim = row.get("mean_sim_to_centroid")
-    if pd.notna(mean_sim):
-        parts.append(f"mean sim: {mean_sim:.3f}")
-    return "<br>".join(parts)
+    border_rate = row.get("borderline_rate")
+    if pd.notna(border_rate):
+        parts.append(f"borderline rate: {border_rate:.2%}")
+    return " | ".join(parts)
 
 
 def main() -> None:
@@ -145,16 +177,17 @@ def main() -> None:
     out_path = Path(args.out_html)
 
     medoids_df = load_medoids(medoids_path)
-    coords = project_umap(medoids_df["embedding"], args.n_neighbors, args.min_dist)
-
-    centers = pd.DataFrame(
-        {
-            "cluster_id": medoids_df["cluster_id"].values,
-            "x": coords[:, 0],
-            "y": coords[:, 1],
-            "z": coords[:, 2],
-        }
+    coords = project_umap(
+        medoids_df["embedding"],
+        n_neighbors=args.n_neighbors,
+        min_dist=args.min_dist,
+        n_components=args.n_components,
     )
+
+    axes = ("x", "y", "z")[: args.n_components]
+    centers = pd.DataFrame({"cluster_id": medoids_df["cluster_id"].values})
+    for idx, axis in enumerate(axes):
+        centers[axis] = coords[:, idx]
 
     stats_df = load_stats(stats_path)
     if not stats_df.empty:
@@ -190,46 +223,67 @@ def main() -> None:
         except ValueError:
             color_values = pd.factorize(centers["cluster_id"])[0]
 
-    cluster_trace = go.Scatter3d(
-        x=centers["x"],
-        y=centers["y"],
-        z=centers["z"],
-        mode="markers+text" if args.label_clusters else "markers",
-        text=centers["cluster_id"] if args.label_clusters else None,
-        textposition="top center",
-        marker=dict(
-            size=marker_size,
-            color=color_values,
-            colorscale="Viridis",
-            showscale=True,
-            colorbar=dict(title="Topic id" if "topic_id" in centers.columns else "Cluster id"),
-            opacity=0.9,
+    colorbar_title = "Topic id" if "topic_id" in centers.columns else "Cluster id"
+    marker_common = dict(
+        size=marker_size,
+        color=color_values,
+        colorscale="Viridis",
+        showscale=True,
+        colorbar=dict(
+            title=colorbar_title,
+            bgcolor="#000000",
+            tickcolor="#f5f5f5",
+            title_font=dict(color="#f5f5f5"),
         ),
-        hoverinfo="text",
-        hovertext=centers["hover"],
-        name="Cluster medoids",
+        opacity=0.9,
     )
+
+    if args.n_components == 3:
+        cluster_trace = go.Scatter3d(
+            x=centers["x"],
+            y=centers["y"],
+            z=centers["z"],
+            mode="markers+text" if args.label_clusters else "markers",
+            text=centers["cluster_id"] if args.label_clusters else None,
+            textposition="top center",
+            marker=marker_common,
+            hoverinfo="text",
+            hovertext=centers["hover"],
+            name="Cluster medoids",
+        )
+    else:
+        cluster_trace = go.Scatter(
+            x=centers["x"],
+            y=centers["y"],
+            mode="markers+text" if args.label_clusters else "markers",
+            text=centers["cluster_id"] if args.label_clusters else None,
+            textposition="top center",
+            marker=marker_common,
+            hoverinfo="text",
+            hovertext=centers["hover"],
+            name="Cluster medoids",
+        )
 
     traces = [cluster_trace]
 
     borderline_df = load_borderline(borderline_path)
     if not borderline_df.empty:
-        centers_idx = centers.set_index("cluster_id")[["x", "y", "z"]]
-        spread = centers[["x", "y", "z"]].std().max()
-        scale = float(spread * 0.08 if not np.isnan(spread) else 0.5)
-        xs: list[float] = []
-        ys: list[float] = []
-        zs: list[float] = []
-        texts: list[str] = []
+        centers_idx = centers.set_index("cluster_id")[list(axes)]
+        spread = centers[list(axes)].std().max()
+        if not np.isfinite(spread) or spread == 0:
+            scale = 0.5
+        else:
+            scale = float(spread * 0.08)
+        points = []
+        texts = []
         for row in borderline_df.itertuples():
             cid = getattr(row, "cluster_id")
             if cid not in centers_idx.index:
                 continue
-            cx, cy, cz = centers_idx.loc[cid]
-            dx, dy, dz = deterministic_jitter(str(getattr(row, "appid")), scale)
-            xs.append(cx + dx)
-            ys.append(cy + dy)
-            zs.append(cz + dz)
+            base_coords = centers_idx.loc[cid].to_numpy(dtype=np.float32)
+            jitter = deterministic_jitter(str(getattr(row, "appid")), scale, args.n_components)
+            coords_point = base_coords + jitter
+            points.append(coords_point)
             cmargin = getattr(row, "confidence_margin", np.nan)
             texts.append(
                 "appid={appid} | cluster={cluster} | margin={margin}".format(
@@ -238,34 +292,101 @@ def main() -> None:
                     margin=f"{cmargin:.4f}" if isinstance(cmargin, (int, float)) else "na",
                 )
             )
-        if xs:
-            traces.append(
-                go.Scatter3d(
-                    x=xs,
-                    y=ys,
-                    z=zs,
-                    mode="markers",
-                    marker=dict(size=3, opacity=0.3, color="rgba(255, 255, 255, 0.65)"),
-                    hoverinfo="text",
-                    hovertext=texts,
-                    name="Borderline games",
+        if points:
+            points_arr = np.vstack(points)
+            if args.n_components == 3:
+                traces.append(
+                    go.Scatter3d(
+                        x=points_arr[:, 0],
+                        y=points_arr[:, 1],
+                        z=points_arr[:, 2],
+                        mode="markers",
+                        marker=dict(size=3, opacity=0.35, color="rgba(255, 255, 255, 0.65)"),
+                        hoverinfo="text",
+                        hovertext=texts,
+                        name="Borderline games",
+                    )
                 )
-            )
+            else:
+                traces.append(
+                    go.Scatter(
+                        x=points_arr[:, 0],
+                        y=points_arr[:, 1],
+                        mode="markers",
+                        marker=dict(size=6, opacity=0.35, color="rgba(120, 120, 120, 0.75)"),
+                        hoverinfo="text",
+                        hovertext=texts,
+                        name="Borderline games",
+                    )
+                )
 
     fig = go.Figure(data=traces)
-    fig.update_layout(
-        title="Cluster medoids with BERTopic summaries (UMAP 3D)",
-        scene=dict(xaxis_title="UMAP-1", yaxis_title="UMAP-2", zaxis_title="UMAP-3"),
-        template="plotly_white",
-        legend=dict(x=0.02, y=0.98),
+    title = args.title or f"Cluster medoids with BERTopic summaries (UMAP {args.n_components}D)"
+    dark_layout = dict(
+        title=title,
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
+        font=dict(color="#f5f5f5"),
+        legend=dict(x=0.02, y=0.98, bgcolor="rgba(0,0,0,0)"),
     )
+    if args.n_components == 3:
+        fig.update_layout(
+            **dark_layout,
+            scene=dict(
+                bgcolor="#000000",
+                xaxis=dict(
+                    title="UMAP-1",
+                    backgroundcolor="#000000",
+                    gridcolor="#333333",
+                    zerolinecolor="#666666",
+                    showbackground=True,
+                    color="#f5f5f5",
+                    title_font=dict(color="#f5f5f5"),
+                ),
+                yaxis=dict(
+                    title="UMAP-2",
+                    backgroundcolor="#000000",
+                    gridcolor="#333333",
+                    zerolinecolor="#666666",
+                    showbackground=True,
+                    color="#f5f5f5",
+                    title_font=dict(color="#f5f5f5"),
+                ),
+                zaxis=dict(
+                    title="UMAP-3",
+                    backgroundcolor="#000000",
+                    gridcolor="#333333",
+                    zerolinecolor="#666666",
+                    showbackground=True,
+                    color="#f5f5f5",
+                    title_font=dict(color="#f5f5f5"),
+                ),
+            ),
+        )
+    else:
+        fig.update_layout(
+            **dark_layout,
+            xaxis=dict(
+                title_font=dict(color="#f5f5f5"),
+                color="#f5f5f5",
+            ),
+            yaxis=dict(
+                title="UMAP-2",
+                gridcolor="#333333",
+                zerolinecolor="#666666",
+                showline=True,
+                linecolor="#666666",
+                tickcolor="#f5f5f5",
+                title_font=dict(color="#f5f5f5"),
+                color="#f5f5f5",
+            ),
+            hovermode="closest",
+        )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plot(fig, filename=str(out_path), auto_open=args.open)
-    print(f"OK -> {out_path}")
+    print(f"[OK] UMAP visualization ({args.n_components}D) saved to {out_path}.")
 
 
 if __name__ == "__main__":
     main()
-
-

@@ -246,7 +246,7 @@ Ejemplo sintético del JSON final por juego (`outputs/reports/{appid}.json`). Ca
     }
   ],
   "events": [
-    { "year_month": "2024-06-01", "variable": "players", "direction": "peak", "zscore": 2.7, "value": 12345, "growth_rate": 0.35 }
+    { "year_month": "2024-06-01", "variable": "players", "direction": "peak", "zscore": 2.7, "value": 12345, "growth_rate": 0.35 }    
   ],
   "topics": [
     { "event_year_month": "2024-06-01", "topics": [ { "Topic": 12, "Count": 134, "Name": "performance, stutter, patch" } ] }
