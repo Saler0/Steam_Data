@@ -8,6 +8,7 @@ combinar señales por appid/mes con los eventos detectados.
 import argparse
 import yaml
 from pathlib import Path
+from typing import Iterable
 import pandas as pd
 import os
 import sys
@@ -27,16 +28,32 @@ from src.ingestion.youtube import load_youtube_monthly
 from src.ingestion.dlcs import load_dlcs_for_game
 
 def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
+                            game_name: str | None,
                             news_counts_df: pd.DataFrame | None = None,
                             topics_labels_df: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Enriquece los eventos de un único juego."""
+    """Enriquece los eventos de un unico juego."""
     signals_cfg = cfg.get('signals', {})
     dlc_cfg = cfg.get('dlc', {})
-    external_data = load_external_signals(appid, signals_cfg, dlc_cfg,
-                                          news_counts_df=news_counts_df,
-                                          topics_labels_df=topics_labels_df)
+    months_raw = pd.to_datetime(group['year_month'], errors='coerce').dropna().tolist()
+    target_months: list = []
+    for ts in months_raw:
+        if ts.tzinfo is None:
+            normalized = ts.tz_localize('UTC').to_period('M').to_timestamp(tz='UTC')
+        else:
+            normalized = ts.tz_convert('UTC').to_period('M').to_timestamp(tz='UTC')
+        target_months.append(normalized)
+    external_data = load_external_signals(
+        appid,
+        signals_cfg,
+        dlc_cfg,
+        game_name=game_name,
+        target_months=target_months,
+        news_counts_df=news_counts_df,
+        topics_labels_df=topics_labels_df,
+    )
     explanations = enrich_group(group, external_data)
     return pd.DataFrame(explanations) if explanations else pd.DataFrame()
+
 
 _enrich_events_for_game_ray = None
 if RAY_AVAILABLE:
@@ -44,16 +61,18 @@ if RAY_AVAILABLE:
 
 
 def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
+                          game_name: str | None = None,
+                          target_months: Iterable | None = None,
                           news_counts_df: pd.DataFrame | None = None,
                           topics_labels_df: pd.DataFrame | None = None) -> dict:
-    """Carga señales externas (Twitch, YouTube) y DLCs para un appid.
+    """Carga senales externas (Twitch, YouTube) y DLCs para un appid.
 
-    Retorna un dict con dataframes indexados por `year_month` cuando aplica.
+    Retorna un dict con dataframes indexados por year_month cuando aplica.
     """
     ext: dict = {}
     # Twitch
     tw_cfg = (signals_cfg or {}).get('twitch', {})
-    tw = load_twitch_monthly(appid, tw_cfg) if tw_cfg else None
+    tw = load_twitch_monthly(appid, tw_cfg, target_months=target_months, game_name=game_name) if tw_cfg else None
     if tw is not None and not tw.empty:
         tw = tw.copy()
         tw['year_month'] = pd.to_datetime(tw['year_month'])
@@ -61,7 +80,7 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
 
     # YouTube
     yt_cfg = (signals_cfg or {}).get('youtube', {})
-    yt = load_youtube_monthly(appid, yt_cfg) if yt_cfg else None
+    yt = load_youtube_monthly(appid, yt_cfg, target_months=target_months, game_name=game_name) if yt_cfg else None
     if yt is not None and not yt.empty:
         yt = yt.copy()
         yt['year_month'] = pd.to_datetime(yt['year_month'])
@@ -79,14 +98,14 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
         except Exception:
             pass
 
-    # Noticias clasificadas (conteos por categoría, por mes)
+    # Noticias clasificadas (conteos por mes)
     if news_counts_df is not None and not news_counts_df.empty:
         sub = news_counts_df[news_counts_df['appid'].astype(str) == str(appid)].copy()
         if not sub.empty:
             sub['year_month'] = pd.to_datetime(sub['year_month'])
             ext['news_counts'] = sub.set_index('year_month')
 
-    # Tópicos etiquetados (lista de labels por evento/mes)
+    # Topicos etiquetados (lista de etiquetas por mes)
     if topics_labels_df is not None and not topics_labels_df.empty:
         sub = topics_labels_df[topics_labels_df['appid'].astype(str) == str(appid)].copy()
         if not sub.empty:
@@ -186,6 +205,19 @@ def main():
             print("[INFO] No hay eventos para enriquecer. Abortando.")
             mlflow.log_metric("events_enriched", 0)
             return
+
+        metadata_lookup: dict = {}
+        meta_path = cfg.get('metadata_parquet')
+        if meta_path:
+            try:
+                md = read_parquet_any(meta_path)
+                if not md.empty and 'appid' in md.columns:
+                    md = md.copy()
+                    md['appid'] = md['appid'].astype(str)
+                    if 'name' in md.columns:
+                        metadata_lookup = {row['appid']: str(row['name']) for _, row in md[['appid','name']].dropna().iterrows()}
+            except Exception as meta_exc:
+                print(f"[WARN] No se pudo cargar metadata de {meta_path}: {meta_exc}")
         # --- Cargar noticias clasificadas (agregadas por mes) ---
         news_counts_df = pd.DataFrame()
         try:
@@ -263,7 +295,8 @@ def main():
                 app = str(appid)
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
-                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, news_app, tlabels_app))
+                game_name = metadata_lookup.get(app) if metadata_lookup else None
+                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app))
             results = ray.get(futures)
             ray.shutdown()
         else:
@@ -273,7 +306,8 @@ def main():
                 app = str(appid)
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
-                results.append(_enrich_events_for_game(app, group, cfg, news_app, tlabels_app))
+                game_name = metadata_lookup.get(app) if metadata_lookup else None
+                results.append(_enrich_events_for_game(app, group, cfg, game_name, news_app, tlabels_app))
         
         all_explanations = [res for res in results if not res.empty]
         

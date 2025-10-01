@@ -1,0 +1,33 @@
+﻿# Configuration for prepare_reviews_with_segments.py
+reviews_source: null  # Keep null to load from Mongo by default
+review_id_column: recommendationid
+appid_column: appid
+text_column: review_clean
+date_column: timestamp_created_date
+recommended_column: voted_up
+playtime_column: author_playtime_at_review
+playtime_30d_column: author_playtime_last_two_weeks
+abandon_column: null
+gifted_column: received_for_free
+early_access_column: written_during_early_access
+post_launch_column: null
+median_playtime_column: null
+
+mongo:
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
+  query: {}
+  projection: {}
+  limit: null
+  
+abandon_heuristic:
+  general_column: abandon_general
+  review_column: abandon_after_review
+  post_review_minutes_threshold: 10.0
+  last_two_weeks_threshold: 10.0
+  activity_segments:
+    inactive_hours: 0.0
+    low_hours: 2.0
+    occasional_hours: 10.0
+    frequent_hours: 30.0

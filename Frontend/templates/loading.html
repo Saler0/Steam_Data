@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="loading-container">
+  <div class="spinner"></div>
+  <p>Cargando tu juego... serás redirigido al dashboard en breve.</p>
+</div>
+
+<script>
+  setTimeout(function() {
+    window.location.href = "{{ url_for('dashboard') }}";
+  }, 2000);
+</script>
+{% endblock %}
