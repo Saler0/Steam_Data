@@ -43,7 +43,7 @@ set "CUSTOM_STAGES="
 set "APPID_LIST="
 set "RUN_REVIEWS_MONGO=0"
 set "POC_ARGS="
-
+set "RUN_CCF_ONE=0"
 
 for %%A in (%*) do (
     set "ARG=%%~A"
@@ -51,6 +51,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="topics-only" set "RUN_TOPICS_ONLY=1"
     if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
     if /I "!ARG!"=="reviews-mongo" set "RUN_REVIEWS_MONGO=1"
+    if /I "!ARG!"=="ccf-one" set "RUN_CCF_ONE=1"
     if /I "!ARG!"=="preagg-only" (
         set "RUN_PREAGG_ONLY=1"
         set "CUSTOM_MODE=1"
@@ -67,8 +68,9 @@ for %%A in (%*) do (
     )
 )
 
+rem --- ramas de subcomandos ---
+if "!RUN_CCF_ONE!"=="1" goto :run_ccf_one
 if "!RUN_POC!"=="1" goto :run_poc
-
 if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 
 if defined APPID_LIST (
@@ -159,8 +161,53 @@ if "!RUN_TOPICS_ONLY!"=="1" (
     if errorlevel 1 goto :dvc_failed
 )
 
-
 goto :dvc_success
+
+:run_ccf_one
+echo.
+echo ============================
+echo Ejecutando SOLO CCF/Granger para 1 appid...
+echo Uso: %~nx0 ccf-one APPID
+echo ============================
+if "%~2"=="" (
+    echo [ERROR] Debes indicar un APPID. Ej.: %~nx0 ccf-one 1938090
+    pause
+    exit /b 1
+)
+set "APPID=%~2"
+
+echo [INFO] Preparando artefactos temporales dentro del contenedor...
+rem Crea parquet con un unico appid
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python -c \"import pandas as pd, pathlib; pathlib.Path('data/processed').mkdir(parents=True, exist_ok=True); pd.DataFrame({'appid':[str(%APPID%)],'cluster_id':[0]}).to_parquet('data/processed/_tmp_single_app_clusters.parquet')\""
+if errorlevel 1 (
+    echo [ERROR] No se pudo crear el parquet temporal.
+    pause
+    exit /b 1
+)
+
+rem Genera configs/ccf_single.yaml derivada
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/ccf_analysis.yaml','r',encoding='utf-8')); cfg['input_path']['clusters_parquet']='data/processed/_tmp_single_app_clusters.parquet'; cfg['output_dir']=f'outputs/ccf_analysis/single_%APPID%'; open('configs/ccf_single.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
+if errorlevel 1 (
+    echo [ERROR] No se pudo generar configs/ccf_single.yaml.
+    pause
+    exit /b 1
+)
+
+echo [INFO] Lanzando analyze_competitors_ccf.py solo para APPID=%APPID%...
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_single.yaml
+if errorlevel 1 goto :ccf_failed
+
+echo.
+echo ============================
+echo Listo. Revisa:
+echo   outputs/ccf_analysis/single_%APPID%/
+echo ============================
+pause
+endlocal
+exit /b 0
 
 :run_poc
 echo.
@@ -247,6 +294,7 @@ exit /b 1
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item %1
 exit /b %errorlevel%
+
 :run_reviews_mongo
 echo.
 echo ============================
@@ -275,7 +323,10 @@ pause
 endlocal
 exit /b 0
 
-
-
-
-
+:ccf_failed
+echo.
+echo ERROR: La ejecucion de CCF/Granger fallo.
+echo Revisa la salida del contenedor analytics.
+pause
+endlocal
+exit /b 1
