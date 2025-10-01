@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal enabledelayedexpansion
 
 rem Ir a la carpeta del script (donde esta docker-compose.yml)
