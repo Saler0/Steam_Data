@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Acerca de{% endblock %}
+{% block content %}
+
+<!-- Banner principal -->
+
+<section class="about-banner">
+    <div class="about-banner-content">
+        <h1>Proyecto Gamebooster</h1>
+        <p>
+            Conformado por un equipo multidisciplinario de especialistas en ciencia de datos e ingeniería de software, apasionados por los videojuegos y la innovación tecnológica.
+        </p>
+        <ul>
+            <li>Big Data y NLP para transformar millones de reseñas y métricas en información clara.</li>
+            <li>Comparativas reales con juegos similares y detección de tendencias.</li>
+            <li>Recomendaciones personalizadas a través de dashboards e informes estadísticos.</li>
+        </ul>
+    </div>
+</section>
+
+<!-- Sección de valor -->
+<section class="about-value">
+    <div class="about-value-content">
+        <h2>¿Por qué Gamebooster?</h2>
+        <div class="about-cards-vertical">
+            <!-- Card 1: texto izquierda, imagen derecha -->
+            <div class="about-card-row">
+                <div class="about-card-text">
+                    <h3>Visibilidad total</h3>
+                    <p>Analiza tendencias, métricas y percepciones de la comunidad en tiempo real.</p>
+                </div>
+                <div class="about-card-img-out">
+                    <img src="{{ url_for('static', filename='img/visibilidad.jpg') }}" alt="Visibilidad total">
+                </div>
+            </div>
+            <!-- Card 2: imagen izquierda, texto derecha -->
+            <div class="about-card-row reverse">
+                <div class="about-card-img-out">
+                    <img src="{{ url_for('static', filename='img/automatizacion.jpg') }}" alt="Automatización inteligente">
+                </div>
+                <div class="about-card-text">
+                    <h3>Automatización inteligente</h3>
+                    <p>Procesamos millones de datos de Steam, redes sociales y reseñas para brindarte insights claros y personalizados.</p>
+                </div>
+            </div>
+            <!-- Card 3: texto izquierda, imagen derecha -->
+            <div class="about-card-row">
+                <div class="about-card-text">
+                    <h3>Comparativas precisas</h3>
+                    <p>Descubre cómo se posiciona tu juego frente a la competencia y detecta oportunidades de mejora.</p>
+                </div>
+                <div class="about-card-img-out">
+                    <img src="{{ url_for('static', filename='img/comparativas.jpg') }}" alt="Comparativas precisas">
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Sección de misión -->
+<section class="about-mission">
+    <div class="about-mission-content">
+        <h2>Nuestra misión</h2>
+        <p>
+            Impulsar el talento indie y profesional con datos confiables, accesibles y fáciles de entender, para que cada estudio pueda enfocarse en lo que realmente importa: crear grandes videojuegos.
+        </p>
+    </div>
+</section>
+
+
+{% endblock %}
