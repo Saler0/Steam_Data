@@ -1,24 +1,204 @@
 {% extends "base.html" %}
 {% block title %}Agregar Juego{% endblock %}
+
 {% block content %}
-<h2>Describe tu juego</h2>
-<form method="post" action="{{ url_for('agregar_juego') }}">
-    <div>
-        <label for="nombre">Nombre del juego:</label>
-        <input type="text" id="nombre" name="nombre" required>
-    </div>
-    <div>
-        <label for="categoria">Categoria:</label>
-        <input type="text" id="categoria" name="categoria" required>
-    </div>
-    <div>
-        <label for="descripcion">Descripcion:</label>
-        <textarea id="descripcion" name="descripcion" rows="4" required></textarea>
-    </div>
-    <div>
-        <label for="precio">Precio:</label>
-        <input type="number" id="precio" name="precio" step="0.01" min="0" required>
-    </div>
-    <button type="submit">Agregar</button>
-</form>
+<div class="form-container">
+  <h2>Describe tu juego</h2>
+  <form id="gameForm" method="post" action="{{ url_for('agregar_juego') }}">
+      
+      <div class="form-group">
+          <label for="nombre">Nombre del juego:</label>
+          <input type="text" id="nombre" name="nombre" required placeholder="Ej: Steam Adventure">
+      </div>
+
+      <div class="form-group">
+          <label for="short_description">Descripción corta:</label>
+          <input type="text" id="categoria" name="categoria" required placeholder="Ej: Accion, Estrategia">
+      </div>
+
+      <div class="form-group">
+          <label for="detailed_description">Descripción detallada:</label>
+          <textarea id="descripcion" name="descripcion" rows="4" required placeholder="Describe brevemente el juego..."></textarea>
+      </div>
+
+      <!-- Dropdowns lado a lado -->
+      <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+        <!-- Géneros -->
+        <div class="form-group dropdown" style="flex:1;">
+          <label>Géneros: <span class="selected-summary"></span></label>
+          <div class="dropdown-content">
+                <label><span>Adjustable Difficulty</span></label>
+                <label><span>Adjustable Text Size</span></label>
+                <label><span>Camera Comfort</span></label>
+                <label><span>Captions available</span></label>
+                <label><span>Chat Speech-to-text</span></label>
+                <label><span>Chat Text-to-speech</span></label>
+                <label><span>Co-op</span></label>
+                <label><span>Color Alternatives</span></label>
+                <label><span>Commentary available</span></label>
+                <label><span>Cross-Platform Multiplayer</span></label>
+                <label><span>Custom Volume Controls</span></label>
+                <label><span>Family Sharing</span></label>
+                <label><span>Full controller support</span></label>
+                <label><span>HDR available</span></label>
+                <label><span>In-App Purchases</span></label>
+                <label><span>Includes Source SDK</span></label>
+                <label><span>Includes level editor</span></label>
+                <label><span>Keyboard Only Option</span></label>
+                <label><span>LAN Co-op</span></label>
+                <label><span>LAN PvP</span></label>
+                <label><span>MMO</span></label>
+                <label><span>Mods</span></label>
+                <label><span>Mods (require HL2)</span></label>
+                <label><span>Mouse Only Option</span></label>
+                <label><span>Multi-player</span></label>
+                <label><span>Narrated Game Menus</span></label>
+                <label><span>Online Co-op</span></label>
+                <label><span>Online PvP</span></label>
+                <label><span>Partial Controller Support</span></label>
+                <label><span>Playable without Timed Input</span></label>
+                <label><span>PvP</span></label>
+                <label><span>Remote Play Together</span></label>
+                <label><span>Remote Play on Phone</span></label>
+                <label><span>Remote Play on TV</span></label>
+                <label><span>Remote Play on Tablet</span></label>
+                <label><span>Save Anytime</span></label>
+                <label><span>Shared/Split Screen</span></label>
+                <label><span>Shared/Split Screen Co-op</span></label>
+                <label><span>Shared/Split Screen PvP</span></label>
+                <label><span>Single-player</span></label>
+                <label><span>Stats</span></label>
+                <label><span>Steam Achievements</span></label>
+                <label><span>Steam Cloud</span></label>
+                <label><span>Steam Leaderboards</span></label>
+                <label><span>Steam Timeline</span></label>
+                <label><span>Steam Trading Cards</span></label>
+                <label><span>Steam Turn Notifications</span></label>
+                <label><span>Steam Workshop</span></label>
+                <label><span>SteamVR Collectibles</span></label>
+                <label><span>Stereo Sound</span></label>
+                <label><span>Subtitle Options</span></label>
+                <label><span>Surround Sound</span></label>
+                <label><span>Touch Only Option</span></label>
+                <label><span>Tracked Controller Support</span></label>
+                <label><span>VR Only</span></label>
+                <label><span>VR Support</span></label>
+                <label><span>VR Supported</span></label>
+                <label><span>Valve Anti-Cheat enabled</span></label>
+          </div>
+        </div>
+
+        <!-- Categorías -->
+        <div class="form-group dropdown" style="flex:1;">
+          <label>Categorías: <span class="selected-summary"></span></label>
+          <div class="dropdown-content">
+                <label><span>Adjustable Difficulty</span></label>
+                <label><span>Adjustable Text Size</span></label>
+                <label><span>Camera Comfort</span></label>
+                <label><span>Captions available</span></label>
+                <label><span>Chat Speech-to-text</span></label>
+                <label><span>Chat Text-to-speech</span></label>
+                <label><span>Co-op</span></label>
+                <label><span>Color Alternatives</span></label>
+                <label><span>Commentary available</span></label>
+                <label><span>Cross-Platform Multiplayer</span></label>
+                <label><span>Custom Volume Controls</span></label>
+                <label><span>Family Sharing</span></label>
+                <label><span>Full controller support</span></label>
+                <label><span>HDR available</span></label>
+                <label><span>In-App Purchases</span></label>
+                <label><span>Includes Source SDK</span></label>
+                <label><span>Includes level editor</span></label>
+                <label><span>Keyboard Only Option</span></label>
+                <label><span>LAN Co-op</span></label>
+                <label><span>LAN PvP</span></label>
+                <label><span>MMO</span></label>
+                <label><span>Mods</span></label>
+                <label><span>Mods (require HL2)</span></label>
+                <label><span>Mouse Only Option</span></label>
+                <label><span>Multi-player</span></label>
+                <label><span>Narrated Game Menus</span></label>
+                <label><span>Online Co-op</span></label>
+                <label><span>Online PvP</span></label>
+                <label><span>Partial Controller Support</span></label>
+                <label><span>Playable without Timed Input</span></label>
+                <label><span>PvP</span></label>
+                <label><span>Remote Play Together</span></label>
+                <label><span>Remote Play on Phone</span></label>
+                <label><span>Remote Play on TV</span></label>
+                <label><span>Remote Play on Tablet</span></label>
+                <label><span>Save Anytime</span></label>
+                <label><span>Shared/Split Screen</span></label>
+                <label><span>Shared/Split Screen Co-op</span></label>
+                <label><span>Shared/Split Screen PvP</span></label>
+                <label><span>Single-player</span></label>
+                <label><span>Stats</span></label>
+                <label><span>Steam Achievements</span></label>
+                <label><span>Steam Cloud</span></label>
+                <label><span>Steam Leaderboards</span></label>
+                <label><span>Steam Timeline</span></label>
+                <label><span>Steam Trading Cards</span></label>
+                <label><span>Steam Turn Notifications</span></label>
+                <label><span>Steam Workshop</span></label>
+                <label><span>SteamVR Collectibles</span></label>
+                <label><span>Stereo Sound</span></label>
+                <label><span>Subtitle Options</span></label>
+                <label><span>Surround Sound</span></label>
+                <label><span>Touch Only Option</span></label>
+                <label><span>Tracked Controller Support</span></label>
+                <label><span>VR Only</span></label>
+                <label><span>VR Support</span></label>
+                <label><span>VR Supported</span></label>
+                <label><span>Valve Anti-Cheat enabled</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+          <label for="precio">Precio:</label>
+          <input type="number" id="precio" name="precio" step="0.01" min="0" required placeholder="Ej: 19.99">
+      </div>
+      <h2>
+      <button type="submit" class="btn-primary">Agregar</button> 
+      </h2>
+      </form> 
+  </form>
+</div>
+
+<!-- JS Dropdown y selección de chips -->
+<script>
+  // Toggle dropdown
+  document.querySelectorAll('.dropdown').forEach(dropdown => {
+    const label = dropdown.querySelector('label');
+    const content = dropdown.querySelector('.dropdown-content');
+    const summary = label.querySelector('.selected-summary'); // span donde se muestra lo seleccionado
+
+    // Abrir/cerrar dropdown
+    label.addEventListener('click', (e) => {
+      e.preventDefault();
+      content.classList.toggle('show');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!dropdown.contains(e.target)) {
+        content.classList.remove('show');
+      }
+    });
+
+    // Selección de chips
+    content.querySelectorAll('label').forEach(chip => {
+      chip.addEventListener('click', () => {
+        chip.classList.toggle('selected');
+
+        // Actualizar resumen de seleccionados
+        const selected = Array.from(content.querySelectorAll('label.selected'))
+                              .map(c => c.textContent);
+        summary.textContent = selected.join(', ');
+      });
+    });
+  });
+</script>
+
+
+
 {% endblock %}

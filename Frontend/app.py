@@ -27,6 +27,45 @@ def create_app() -> Flask:
     def about():
         return render_template("about.html")
 
+    # @app.route("/agregar_juego", methods=["GET", "POST"])
+    # def agregar_juego():
+    #     if request.method == "POST":
+    #         payload = {
+    #             "nombre": request.form.get("nombre", "").strip(),
+    #             "categoria": request.form.get("categoria", "").strip(),
+    #             "descripcion": request.form.get("descripcion", "").strip(),
+    #             "precio": request.form.get("precio", "").strip(),
+    #         }
+
+    #         if not all(payload.values()):
+    #             flash("Todos los campos son obligatorios.", "error")
+    #             return redirect(url_for("agregar_juego"))
+
+    #         try:
+    #             payload["precio"] = float(payload["precio"])
+    #         except ValueError:
+    #             flash("El precio debe ser numerico.", "error")
+    #             return redirect(url_for("agregar_juego"))
+
+    #         try:
+    #             response = requests.post(backend_url("/api/games"), json=payload, timeout=5)
+    #         except requests.RequestException:
+    #             flash("No se pudo comunicar con el backend.", "error")
+    #             return redirect(url_for("agregar_juego"))
+
+    #         if response.status_code >= 400:
+    #             try:
+    #                 error_payload = response.json()
+    #             except ValueError:
+    #                 error_payload = {}
+    #             message = error_payload.get("message") or "No se pudo guardar el juego."
+    #             flash(message, "error")
+    #             return redirect(url_for("agregar_juego"))
+
+    #         flash("Juego agregado correctamente.", "success")
+    #         return redirect(url_for("agregar_juego"))
+
+    #     return render_template("user.html")
     @app.route("/agregar_juego", methods=["GET", "POST"])
     def agregar_juego():
         if request.method == "POST":
@@ -35,10 +74,14 @@ def create_app() -> Flask:
                 "categoria": request.form.get("categoria", "").strip(),
                 "descripcion": request.form.get("descripcion", "").strip(),
                 "precio": request.form.get("precio", "").strip(),
+                "short_description": request.form.get("short_description", "").strip(),
+                "detailed_description": request.form.get("detailed_description", "").strip(),
+                "genres": request.form.getlist("genres"),
+                "categories": request.form.getlist("categories"),
             }
 
-            if not all(payload.values()):
-                flash("Todos los campos son obligatorios.", "error")
+            if not all([payload["nombre"], payload["categoria"], payload["descripcion"], payload["precio"]]):
+                flash("Todos los campos básicos son obligatorios.", "error")
                 return redirect(url_for("agregar_juego"))
 
             try:
@@ -62,10 +105,11 @@ def create_app() -> Flask:
                 flash(message, "error")
                 return redirect(url_for("agregar_juego"))
 
-            flash("Juego agregado correctamente.", "success")
-            return redirect(url_for("agregar_juego"))
+            # ✅ Si todo salió bien → en lugar de volver al form
+            return render_template("loading.html")
 
-        return render_template("user.html")
+        # GET request → mostrar formulario
+        return render_template("form.html")
 
     @app.errorhandler(404)
     def handle_not_found(_error):
