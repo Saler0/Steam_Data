@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 """Prepare per-review dataset with experience labels and optional BERTopic topics (pandas only)."""
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+import torch
 
 THIS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = THIS_DIR.parents[2]
@@ -511,6 +512,7 @@ def _fallback_topics(df: pd.DataFrame, topics_out: str) -> None:
 
 
 def _run_bertopic(df: pd.DataFrame, cfg: Dict[str, Any], topics_out: str) -> None:
+    Path(topics_out).parent.mkdir(parents=True, exist_ok=True)
     if df.empty or "review_text" not in df.columns:
         _fallback_topics(df, topics_out)
         return
@@ -518,6 +520,10 @@ def _run_bertopic(df: pd.DataFrame, cfg: Dict[str, Any], topics_out: str) -> Non
         print("[WARN] BERTopic not available; using fallback topics.")
         _fallback_topics(df, topics_out)
         return
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[INFO] Using device: {device} for BERTopic")
+
     language = cfg.get("bertopic_language", "multilingual")
     min_topic_size = cfg.get("bertopic_min_topic_size", 20)
     topic_model = BERTopic(language=language, min_topic_size=min_topic_size, verbose=False)
