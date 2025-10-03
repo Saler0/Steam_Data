@@ -34,7 +34,7 @@ clustering:
   cluster_version: 202509
 
 # ----------------------
-# Parámetros de reglas
+# Parámetros de reglas de decision
 # ----------------------
 
 regla_precio:
@@ -106,7 +106,7 @@ cluster_history:
   start_date: null
   end_date: null
   min_points: 90
-
+# ----------------------
 
 
 neighbor_strategy:
