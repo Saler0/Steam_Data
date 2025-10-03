@@ -10,7 +10,6 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["BACKEND_URL"] = os.environ.get("BACKEND_URL", "http://localhost:5001").rstrip("/")
-    backend_timeout = float(os.environ.get("BACKEND_TIMEOUT", "120"))
     app.secret_key = os.environ.get("FRONTEND_SECRET_KEY", "front-secret-key")
 
     def backend_url(path: str) -> str:
@@ -49,7 +48,7 @@ def create_app() -> Flask:
     #             return redirect(url_for("agregar_juego"))
 
     #         try:
-    #             response = requests.post(backend_url("/api/games"), json=payload, timeout=backend_timeout)
+    #             response = requests.post(backend_url("/api/games"), json=payload, timeout=5)
     #         except requests.RequestException:
     #             flash("No se pudo comunicar con el backend.", "error")
     #             return redirect(url_for("agregar_juego"))
@@ -119,7 +118,7 @@ def create_app() -> Flask:
 
 
             try:
-                response = requests.post(backend_url("/api/games"), json=payload, timeout=backend_timeout)
+                response = requests.post(backend_url("/api/games"), json=payload, timeout=5)
             except requests.RequestException:
                 flash("No se pudo comunicar con el backend.", "error")
                 return redirect(url_for("agregar_juego"))
@@ -133,10 +132,10 @@ def create_app() -> Flask:
                 flash(message, "error")
                 return redirect(url_for("agregar_juego"))
 
-            # If everything succeeded show loading screen
+            # ? Si todo salió bien ? en lugar de volver al form
             return render_template("loading.html")
 
-        # GET request -> show form
+        # GET request ? mostrar formulario
         return render_template("form.html")
 
     @app.errorhandler(404)
@@ -160,4 +159,3 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("FRONTEND_PORT", 5100))
     app.run(debug=True, port=port)
-
