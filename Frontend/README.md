@@ -14,7 +14,7 @@ Aplicacion Flask que renderiza el sitio Gamebooster y consume la API REST del ba
    - PowerShell (Windows):
      ```powershell
      python -m venv venv
-     .\venv\Scripts\Activate.ps1
+     .\venv\Scripts\Activate
      ```
    - macOS/Linux bash:
      ```bash
