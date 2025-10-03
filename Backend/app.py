@@ -2,7 +2,7 @@
 
 import os
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -11,8 +11,15 @@ from werkzeug.exceptions import NotFound
 from db.mongodb import MongoDBClient
 from pymongo.errors import PyMongoError
 
+from services.single_game_poc import (
+    PoCConfigurationError,
+    PoCExecutionError,
+    SingleGamePoCService,
+)
+
 
 ALLOWED_PLATFORMS = {"windows", "mac", "linux"}
+
 
 
 def create_app() -> Flask:
@@ -22,11 +29,22 @@ def create_app() -> Flask:
     mongo_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_name)
     app.config["MONGO_CLIENT"] = mongo_client
 
+    try:
+        poc_service = SingleGamePoCService()
+    except PoCConfigurationError as exc:
+        poc_service = None
+        app.logger.error("SingleGamePoCService initialization failed: %s", exc)
+    except Exception as exc:  # pragma: no cover - defensive
+        poc_service = None
+        app.logger.exception("Unexpected error initializing SingleGamePoCService: %s", exc)
+    app.config["POC_SERVICE"] = poc_service
+
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     register_routes(app, mongo_client)
 
     return app
+
 
 
 def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
@@ -92,6 +110,117 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 502,
             )
 
+        poc_service: Optional[SingleGamePoCService] = app.config.get("POC_SERVICE")
+        if poc_service is None:
+            collection.delete_one({"_id": insert_result.inserted_id})
+            return (
+                jsonify(
+                    {
+                        "message": "Servicio de asignacion no disponible",
+                        "error": "No se pudo inicializar el servicio de PoC",
+                    }
+                ),
+                503,
+            )
+
+        try:
+            poc_result = poc_service.run(
+                {
+                    "name": document["nombre"],
+                    "short_description": document["short_description"],
+                    "detailed_description": document["detailed_description"],
+                    "genres": document["genres"],
+                    "categories": document["categories"],
+                    "price": document["precio"],
+                },
+                neighbors=20,
+                min_similarity=0.0,
+            )
+        except PoCExecutionError as exc:
+            collection.delete_one({"_id": insert_result.inserted_id})
+            app.logger.exception("PoC execution failed for game '%s': %s", document["nombre"], exc)
+            return (
+                jsonify(
+                    {
+                        "message": "No se pudo ejecutar la asignacion de competidores",
+                        "error": str(exc),
+                    }
+                ),
+                502,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            collection.delete_one({"_id": insert_result.inserted_id})
+            app.logger.exception("Unexpected error running PoC for game '%s': %s", document["nombre"], exc)
+            return (
+                jsonify(
+                    {
+                        "message": "Error inesperado al ejecutar la asignacion de competidores",
+                        "error": str(exc),
+                    }
+                ),
+                502,
+            )
+
+        raw_neighbors = poc_result.get("neighbors", []) if isinstance(poc_result, dict) else []
+        normalized_neighbors = []
+        for item in raw_neighbors:
+            if not isinstance(item, dict):
+                continue
+            neighbor = {
+                "appid": item.get("appid"),
+                "cluster_id": item.get("cluster_id"),
+                "name": item.get("name"),
+            }
+            similarity = item.get("similarity")
+            try:
+                neighbor["similarity"] = float(similarity) if similarity is not None else None
+            except (TypeError, ValueError):
+                neighbor["similarity"] = None
+            score = item.get("score")
+            if score is not None:
+                try:
+                    neighbor["score"] = float(score)
+                except (TypeError, ValueError):
+                    pass
+            source = item.get("source")
+            if source:
+                neighbor["source"] = source
+            normalized_neighbors.append(neighbor)
+            if len(normalized_neighbors) >= 20:
+                break
+
+        best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
+        try:
+            best_similarity_val = float(best_similarity) if best_similarity is not None else None
+        except (TypeError, ValueError):
+            best_similarity_val = None
+
+        poc_record = {
+            "best_cluster_id": poc_result.get("best_cluster_id") if isinstance(poc_result, dict) else None,
+            "best_cluster_similarity": best_similarity_val,
+            "neighbors": normalized_neighbors,
+            "diagnostics": poc_result.get("diagnostics", {}) if isinstance(poc_result, dict) else {},
+            "generated_at": datetime.utcnow(),
+        }
+
+        try:
+            collection.update_one(
+                {"_id": insert_result.inserted_id},
+                {"$set": {"poc_assignment": poc_record}},
+            )
+        except PyMongoError as exc:
+            collection.delete_one({"_id": insert_result.inserted_id})
+            app.logger.exception("Failed to persist PoC assignment for game '%s': %s", document["nombre"], exc)
+            return (
+                jsonify(
+                    {
+                        "message": "No se pudo guardar el resultado del PoC",
+                        "error": str(exc),
+                    }
+                ),
+                502,
+            )
+
         response_payload = {
             "mongo_id": str(insert_result.inserted_id),
             "name": document["nombre"],
@@ -104,8 +233,16 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "install_size_gb": document["install_size_gb"],
             "ram_gb": document["ram_gb"],
             "created_at": document["created_at"].isoformat() + "Z",
+            "poc_assignment": {
+                "best_cluster_id": poc_record["best_cluster_id"],
+                "best_cluster_similarity": poc_record["best_cluster_similarity"],
+                "neighbors": normalized_neighbors,
+                "diagnostics": poc_record["diagnostics"],
+                "generated_at": poc_record["generated_at"].isoformat() + "Z",
+            },
         }
         return jsonify(response_payload), 201
+
 
 
 def validate_game_payload(payload: Dict[str, Any]) -> Dict[str, str]:
@@ -195,3 +332,4 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("BACKEND_PORT", 5001))
     app.run(debug=True, port=port)
+
