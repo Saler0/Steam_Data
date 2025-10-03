@@ -67,8 +67,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
 
         document = {
             "nombre": payload["nombre"].strip(),
-            "descripcion_corta": short_description,
-            "descripcion_detallada": detailed_description,
+            "short_description": short_description,
+            "detailed_description": detailed_description,
             "genres": genres,
             "categories": categories,
             "precio": float(payload["precio"]),
@@ -94,9 +94,9 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
 
         response_payload = {
             "mongo_id": str(insert_result.inserted_id),
-            "nombre": document["nombre"],
-            "descripcion_corta": document["descripcion_corta"],
-            "descripcion_detallada": document["descripcion_detallada"],
+            "name": document["nombre"],
+            "short_description": document["short_description"],
+            "detailed_description": document["detailed_description"],
             "genres": document["genres"],
             "categories": document["categories"],
             "precio": document["precio"],
