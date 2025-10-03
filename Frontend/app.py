@@ -69,26 +69,53 @@ def create_app() -> Flask:
     @app.route("/agregar_juego", methods=["GET", "POST"])
     def agregar_juego():
         if request.method == "POST":
+            nombre = request.form.get("nombre", "").strip()
+            short_description = request.form.get("short_description", "").strip()
+            detailed_description = request.form.get("detailed_description", "").strip()
+
+
             payload = {
-                "nombre": request.form.get("nombre", "").strip(),
-                "categoria": request.form.get("categoria", "").strip(),
-                "descripcion": request.form.get("descripcion", "").strip(),
+                "nombre": nombre,
+
                 "precio": request.form.get("precio", "").strip(),
-                "short_description": request.form.get("short_description", "").strip(),
-                "detailed_description": request.form.get("detailed_description", "").strip(),
+                "short_description": short_description,
+                "detailed_description": detailed_description,
                 "genres": request.form.getlist("genres"),
                 "categories": request.form.getlist("categories"),
             }
 
-            if not all([payload["nombre"], payload["categoria"], payload["descripcion"], payload["precio"]]):
-                flash("Todos los campos básicos son obligatorios.", "error")
+            platforms = [p for p in request.form.getlist("platforms") if p]
+            raw_install_size = request.form.get("install_size_gb", "").strip()
+            raw_ram = request.form.get("ram_gb", "").strip()
+
+            if not all([nombre, payload["precio"], short_description, payload["detailed_description"], raw_install_size, raw_ram]):
+                flash("Todos los campos basicos son obligatorios.", "error")
+                return redirect(url_for("agregar_juego"))
+
+            if not platforms:
+                flash("Selecciona al menos una plataforma.", "error")
                 return redirect(url_for("agregar_juego"))
 
             try:
                 payload["precio"] = float(payload["precio"])
+                install_size = float(raw_install_size)
+                ram_gb = float(raw_ram)
             except ValueError:
-                flash("El precio debe ser numerico.", "error")
+                flash("Los campos numericos deben ser validos.", "error")
                 return redirect(url_for("agregar_juego"))
+
+            if install_size < 0 or ram_gb < 0:
+                flash("Los valores numericos deben ser no negativos.", "error")
+                return redirect(url_for("agregar_juego"))
+
+            payload.update(
+                {
+                    "platforms": platforms,
+                    "install_size_gb": install_size,
+                    "ram_gb": ram_gb,
+                }
+            )
+
 
             try:
                 response = requests.post(backend_url("/api/games"), json=payload, timeout=5)

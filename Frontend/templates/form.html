@@ -13,12 +13,12 @@
 
       <div class="form-group">
           <label for="short_description">Descripción corta:</label>
-          <input type="text" id="categoria" name="categoria" required placeholder="Ej: Accion, Estrategia">
+          <input type="text" id="short_description" name="short_description" required placeholder="Resume tu propuesta en una frase">
       </div>
 
       <div class="form-group">
           <label for="detailed_description">Descripción detallada:</label>
-          <textarea id="descripcion" name="descripcion" rows="4" required placeholder="Describe brevemente el juego..."></textarea>
+          <textarea id="detailed_description" name="detailed_description" rows="4" required placeholder="Describe brevemente el juego..."></textarea>
       </div>
 
       <!-- Dropdowns lado a lado -->
@@ -152,6 +152,25 @@
                 <label><span>Valve Anti-Cheat enabled</span></label>
           </div>
         </div>
+      </div>
+
+      <div class="form-group">
+          <label>Plataformas disponibles:</label>
+          <div class="checkbox-group">
+              <label><input type="checkbox" name="platforms" value="windows"> Windows</label>
+              <label><input type="checkbox" name="platforms" value="mac"> Mac</label>
+              <label><input type="checkbox" name="platforms" value="linux"> Linux</label>
+          </div>
+      </div>
+
+      <div class="form-group">
+          <label for="install_size_gb">Tamaño de instalación (GB):</label>
+          <input type="number" id="install_size_gb" name="install_size_gb" step="0.1" min="0" required placeholder="Ej: 20">
+      </div>
+
+      <div class="form-group">
+          <label for="ram_gb">RAM recomendada (GB):</label>
+          <input type="number" id="ram_gb" name="ram_gb" step="0.1" min="0" required placeholder="Ej: 8">
       </div>
 
       <div class="form-group">
