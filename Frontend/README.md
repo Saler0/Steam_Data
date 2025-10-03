@@ -5,7 +5,7 @@ Aplicacion Flask que renderiza el sitio Gamebooster y consume la API REST del ba
 ## Requisitos
 
 - Python 3.11 o superior
-- API backend ejecutándose (por defecto `http://localhost:5001`)
+- API backend ejecutï¿½ndose (por defecto `http://localhost:5001`)
 - Entorno virtual por proyecto (recomendado)
 
 ## Configuracion inicial
