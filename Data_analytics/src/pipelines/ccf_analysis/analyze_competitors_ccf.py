@@ -34,6 +34,7 @@ except ImportError:
 # Importaciones de utilidades del proyecto
 from src.utils.io import read_parquet_any, write_parquet_any, write_csv_any, makedirs_if_local, path_exists
 from src.utils.timeseries import dlog
+from src.utils.config_utils import expand_env_in_obj
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests, kpss
 from statsmodels.stats.multitest import multipletests
 from statsmodels.stats.diagnostic import acorr_ljungbox
@@ -422,7 +423,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     args = ap.parse_args()
-    cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = expand_env_in_obj(yaml.safe_load(open(args.config, 'r')))
     
     parallel_mode = cfg.get('parallel_mode', 'multiprocessing')
     

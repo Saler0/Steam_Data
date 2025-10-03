@@ -2,9 +2,9 @@
 mongo:
   # En Docker, usa el hostname del servicio en la red (p.ej., 'mongo').
   # En local, puedes sobrescribir con la variable de entorno MONGO_URI.
-  uri: "mongodb://mongo:27017"
-  database: "steam"
-  collection: "games"
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
 
 mlflow:
   experiment_name: "steam_rules_pipeline"

@@ -128,3 +128,41 @@ stages:
       hash: md5
       md5: a0b2126ecad297c3f167ded869f825d6
       size: 6061639
+  preagg_reviews:
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config 
+      configs/ccf_analysis.yaml
+    deps:
+    - path: configs/ccf_analysis.yaml
+      hash: md5
+      md5: d436eb11057a0545d7e8caffa1d88cb2
+      size: 4907
+      isexec: true
+    - path: src/pipelines/preaggregations/reviews_monthly.py
+      hash: md5
+      md5: efff0d7e43cfd3906d00f927cfb82864
+      size: 6727
+      isexec: true
+    outs:
+    - path: data/warehouse/reviews_monthly.parquet
+      hash: md5
+      md5: 4b69e98c1b9afbb11d1136c33b003b06
+      size: 8257
+  preagg_players:
+    cmd: "python src/pipelines/preaggregations/players_monthly.py --file ../Data_management/landing_zone/steamchart/steamcharts_data.csv
+      --out data/warehouse/players_monthly.parquet\n"
+    deps:
+    - path: ../Data_management/landing_zone/steamchart/steamcharts_data.csv
+      hash: md5
+      md5: 8671854657e6566da10e63a36cbe1fef
+      size: 5964
+      isexec: true
+    - path: src/pipelines/preaggregations/players_monthly.py
+      hash: md5
+      md5: c27c7dc5add8e8f8bf3e7c79287a89c2
+      size: 5633
+      isexec: true
+    outs:
+    - path: data/warehouse/players_monthly.parquet
+      hash: md5
+      md5: 881b5cbe1704c9b9bea4dbd79b76c270
+      size: 4169
