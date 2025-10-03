@@ -292,7 +292,7 @@ exit /b 1
 
 :RunSingleStage
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics dvc repro --single-item %1
+  exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
 exit /b %errorlevel%
 
 :run_reviews_mongo

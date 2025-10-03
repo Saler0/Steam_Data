@@ -12,9 +12,9 @@ input_path:
 
 mongo_connection:
   # Conexión a MongoDB para obtener los datos de las reseñas (positivas/negativas).
-  uri: ${MONGO_URI:-mongodb://localhost:27017}
-  database: ${MONGO_DB_REVIEWS:-steam}
-  collection: ${MONGO_COLL_REVIEWS:-reviews}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
 
 players_data:
   # Configuración para cargar los datos de jugadores activos.

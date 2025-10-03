@@ -21,11 +21,15 @@ stages:
   preagg_players:
     cmd: >
       python src/pipelines/preaggregations/players_monthly.py
-      --file ../Data_management/landing_zone/steamchart/steamcharts_data.csv
+      --postgres-host $POSTGRES_HOST
+      --postgres-port $POSTGRES_PORT
+      --postgres-user $POSTGRES_USER
+      --postgres-password $POSTGRES_PASSWORD
+      --postgres-db $POSTGRES_DB
+      --postgres-table exploitation_zone
       --out data/warehouse/players_monthly.parquet
     deps:
       - src/pipelines/preaggregations/players_monthly.py
-      - ../Data_management/landing_zone/steamchart/steamcharts_data.csv
     outs:
       - data/warehouse/players_monthly.parquet
 
@@ -262,7 +266,7 @@ stages:
         --appid ${report.appid}
         --top_k ${report.neighbors_top_k}
     deps:
-      - src/insights/build_game_report.py
+      - src/pipelines/build_game_report.py
       - configs/events.yaml
       - data/processed/clusters.parquet
       - outputs/events/events.parquet
