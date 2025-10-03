@@ -897,6 +897,10 @@ body {
     transition: background 0.2s;
 }
 
+.dropdown-content label input[type="checkbox"] {
+    display: none;
+}
+
 .selected-summary {
   font-size: 0.6rem;
   color: #00d9ff; /* color diferente al label principal */

@@ -24,7 +24,7 @@
       <!-- Dropdowns lado a lado -->
       <div style="display:flex; gap:2rem; flex-wrap:wrap;">
         <!-- Géneros -->
-        <div class="form-group dropdown" style="flex:1;">
+        <div class="form-group dropdown" data-field="genres" style="flex:1;">
           <label>Géneros: <span class="selected-summary"></span></label>
           <div class="dropdown-content">
                 <label><span>Adjustable Difficulty</span></label>
@@ -89,7 +89,7 @@
         </div>
 
         <!-- Categorías -->
-        <div class="form-group dropdown" style="flex:1;">
+        <div class="form-group dropdown" data-field="categories" style="flex:1;">
           <label>Categorías: <span class="selected-summary"></span></label>
           <div class="dropdown-content">
                 <label><span>Adjustable Difficulty</span></label>
@@ -186,34 +186,52 @@
 
 <!-- JS Dropdown y selección de chips -->
 <script>
-  // Toggle dropdown
-  document.querySelectorAll('.dropdown').forEach(dropdown => {
-    const label = dropdown.querySelector('label');
-    const content = dropdown.querySelector('.dropdown-content');
-    const summary = label.querySelector('.selected-summary'); // span donde se muestra lo seleccionado
-
-    // Abrir/cerrar dropdown
-    label.addEventListener('click', (e) => {
-      e.preventDefault();
-      content.classList.toggle('show');
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!dropdown.contains(e.target)) {
-        content.classList.remove('show');
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.dropdown').forEach(dropdown => {
+      const headerLabel = dropdown.querySelector('label');
+      const content = dropdown.querySelector('.dropdown-content');
+      const summary = headerLabel ? headerLabel.querySelector('.selected-summary') : null;
+      const fieldName = dropdown.dataset.field;
+      if (!content || !summary || !fieldName) {
+        return;
       }
-    });
 
-    // Selección de chips
-    content.querySelectorAll('label').forEach(chip => {
-      chip.addEventListener('click', () => {
-        chip.classList.toggle('selected');
+      const updateSummary = () => {
+        const selectedValues = Array.from(content.querySelectorAll('input[type="checkbox"]:checked'))
+          .map(input => input.value);
+        summary.textContent = selectedValues.join(', ');
+      };
 
-        // Actualizar resumen de seleccionados
-        const selected = Array.from(content.querySelectorAll('label.selected'))
-                              .map(c => c.textContent);
-        summary.textContent = selected.join(', ');
+      content.querySelectorAll('label').forEach(optionLabel => {
+        const value = optionLabel.textContent.trim();
+        optionLabel.textContent = '';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.name = fieldName;
+        checkbox.value = value;
+        const span = document.createElement('span');
+        span.textContent = value;
+        optionLabel.appendChild(checkbox);
+        optionLabel.appendChild(span);
+        optionLabel.classList.toggle('selected', checkbox.checked);
+        checkbox.addEventListener('change', () => {
+          optionLabel.classList.toggle('selected', checkbox.checked);
+          updateSummary();
+        });
       });
+
+      headerLabel.addEventListener('click', event => {
+        event.preventDefault();
+        content.classList.toggle('show');
+      });
+
+      document.addEventListener('click', event => {
+        if (!dropdown.contains(event.target)) {
+          content.classList.remove('show');
+        }
+      });
+
+      updateSummary();
     });
   });
 </script>
