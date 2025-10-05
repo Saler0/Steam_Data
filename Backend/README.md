@@ -13,7 +13,7 @@ Esta aplicacion Flask expone el catalogo de juegos mediante una API REST. Gestio
    - PowerShell (Windows):
      ```powershell
      python -m venv venv
-     .\venv\Scripts\Activate.ps1
+     .\venv\Scripts\Activate
      ```
    - macOS/Linux bash:
      ```bash
