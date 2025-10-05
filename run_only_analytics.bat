@@ -44,6 +44,7 @@ set "APPID_LIST="
 set "RUN_REVIEWS_MONGO=0"
 set "POC_ARGS="
 set "RUN_CCF_ONE=0"
+set "RUN_NEIGHBORS=0"
 
 for %%A in (%*) do (
     set "ARG=%%~A"
@@ -52,6 +53,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
     if /I "!ARG!"=="reviews-mongo" set "RUN_REVIEWS_MONGO=1"
     if /I "!ARG!"=="ccf-one" set "RUN_CCF_ONE=1"
+    if /I "!ARG!"=="neighbors" set "RUN_NEIGHBORS=1"
     if /I "!ARG!"=="preagg-only" (
         set "RUN_PREAGG_ONLY=1"
         set "CUSTOM_MODE=1"
@@ -70,6 +72,7 @@ for %%A in (%*) do (
 
 rem --- ramas de subcomandos ---
 if "!RUN_CCF_ONE!"=="1" goto :run_ccf_one
+if "!RUN_NEIGHBORS!"=="1" goto :run_neighbors
 if "!RUN_POC!"=="1" goto :run_poc
 if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 
@@ -284,7 +287,7 @@ if "%~2"=="" goto :RunStageWithAppid_Error
 echo [INFO] Ejecutando %~1 (report.appid=%~2) dentro de steam_analytics...
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item --set-param report.appid=%~2 %~1
-exit /b %errorlevel%
+  exit /b %errorlevel%
 
 :RunStageWithAppid_Error
 echo [ERROR] Faltan argumentos para RunStageWithAppid.
@@ -293,7 +296,110 @@ exit /b 1
 :RunSingleStage
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
-exit /b %errorlevel%
+  exit /b %errorlevel%
+
+:run_neighbors
+echo.
+echo ============================
+echo Ejecutando pipeline limitado a vecinos (subset de APPIDs)...
+echo ============================
+if not defined APPID_LIST (
+    echo [ERROR] Debes indicar appids con appids=111,222,333 junto a 'neighbors'
+    pause
+    endlocal
+    exit /b 1
+)
+
+rem Normaliza separadores
+set "APPID_LIST=!APPID_LIST:,= !"
+
+rem Preparar archivo temporal de clusters con solo estos appids
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "python -c \"import os, pandas as pd, pathlib; pathlib.Path('data/processed').mkdir(parents=True, exist_ok=True); apps=[a for a in os.getenv('APPIDS','').split() if a]; df=pd.DataFrame({'appid':[str(a) for a in apps],'cluster_id':[0]*len(apps)}); df.to_parquet('data/processed/_tmp_neighbors_clusters.parquet')\""
+if errorlevel 1 (
+    echo [ERROR] No se pudo crear el parquet temporal de vecinos.
+    pause
+    endlocal
+    exit /b 1
+)
+
+rem Generar configs/events_subset.yaml apuntando al parquet temporal
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/events.yaml','r',encoding='utf-8')); ip=cfg.get('input_paths') or {}; ip['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['input_paths']=ip; cfg['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
+if errorlevel 1 (
+    echo [ERROR] No se pudo generar configs/events_subset.yaml.
+    pause
+    endlocal
+    exit /b 1
+)
+
+rem Generar configs/ccf_subset.yaml apuntando al parquet temporal
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/ccf_analysis.yaml','r',encoding='utf-8')); cfg['input_path']['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['output_dir']='outputs/ccf_analysis/subset_neighbors'; open('configs/ccf_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
+if errorlevel 1 (
+    echo [ERROR] No se pudo generar configs/ccf_subset.yaml.
+    pause
+    endlocal
+    exit /b 1
+)
+
+rem Opcional: ejecutar preagregados antes si se pidio
+if "!RUN_PREAGG_BEFORE!"=="1" (
+    echo [INFO] Ejecutando preagg_reviews y preagg_players antes del subset...
+    call :RunSingleStage preagg_reviews
+    if errorlevel 1 goto :neighbors_failed
+    call :RunSingleStage preagg_players
+    if errorlevel 1 goto :neighbors_failed
+)
+
+rem Ejecutar eventos -> topicos para el subset
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+if errorlevel 1 goto :neighbors_failed
+
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
+if errorlevel 1 goto :neighbors_failed
+
+rem Anotar topicos con CCF (topics_relevance)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events_subset.yaml
+if errorlevel 1 goto :neighbors_failed
+
+rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
+for %%I in (!APPID_LIST!) do (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I
+  if errorlevel 1 goto :neighbors_failed
+)
+
+rem Enriquecer
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/pipelines/event_detection/enrich_events.py --config configs/events_subset.yaml
+if errorlevel 1 goto :neighbors_failed
+
+rem CCF limitado al subset
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
+if errorlevel 1 goto :neighbors_failed
+
+echo.
+echo ===============================================
+echo Subset (vecinos) ejecutado correctamente.
+echo - Eventos/Topicos/Enrich: outputs/events/*
+echo - CCF: outputs/ccf_analysis/subset_neighbors/*
+echo ===============================================
+pause
+endlocal
+exit /b 0
+
+:neighbors_failed
+echo.
+echo ERROR: Fallo en la ejecucion del subset de vecinos.
+echo Revisa los logs en el contenedor 'analytics'.
+pause
+endlocal
+exit /b 1
 
 :run_reviews_mongo
 echo.

@@ -266,7 +266,7 @@ stages:
         --appid ${report.appid}
         --top_k ${report.neighbors_top_k}
     deps:
-      - src/pipelines/build_game_report.py
+      - src/insights/build_game_report.py
       - configs/events.yaml
       - data/processed/clusters.parquet
       - outputs/events/events.parquet
@@ -317,6 +317,9 @@ stages:
       - outputs/events/events.parquet
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
+      - outputs/events/review_segments.parquet
+      - outputs/clustering/cluster_stats.csv
+      - outputs/clustering/cluster_topics.json
     params:
       - configs/params.yaml:client_report
     outs:
