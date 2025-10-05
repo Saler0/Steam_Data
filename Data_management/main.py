@@ -119,10 +119,10 @@ def main():
         logging.info("========== INICIO DE PIPELINE APP ==========")
 
         # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
-        logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
-        pipelineI = PipelineIngest(trusted_client)
-        pipelineI.run()
-        logging.info("✅ INGESTA ➜ LANDING ")
+        # logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
+        # pipelineI = PipelineIngest(trusted_client)
+        # pipelineI.run()
+        # logging.info("✅ INGESTA ➜ LANDING ")
 
         # # ===== LANDING ZONE --> TRUSTED ZONE =====
         # logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")
@@ -130,18 +130,18 @@ def main():
         # pipelineLT.run()
         # logging.info("✅ LANDING ➜ TRUSTED ")
 
-        # # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
-        # logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
+        # ===== TRUSTED ZONE --> EXPLOITATION ZONE =====
+        logging.info("===== INICIO DE PIPELINE DE TRUSTED ZONE A EXPLOTATION ZONE =====")
 
-        # # Creamos un cliente PARA CADA ZONA:
-        # trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
-        # exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
+        # Creamos un cliente PARA CADA ZONA:
+        trusted_client    = MongoDBClient(uri=mongo_uri, db_name=mongo_db_trusted)
+        exploitation_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_exploitation)
         
-        # pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
-        # pipelineTE.run()
-        # logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
+        pipelineTE = PipelineTustedExplotationZone(trusted_client,exploitation_client)
+        pipelineTE.run()
+        logging.info("✅ TRUSTED ➜ EXPLOTATION completado")
         
-        # logging.info("✅ PIPELINE APP COMPLETO ✅")
+        logging.info("✅ PIPELINE APP COMPLETO ✅")
         
     except Exception:
         logging.exception("💥 Pipeline abortado por excepción no capturada")
