@@ -21,10 +21,10 @@ report:
 # Client report (standalone stage)
 # ----------------------
 client_report:
-  client_id: "client-001"
-  client_file: "configs/client_example.json"
-  neighbors_top_k: 15
-  same_cluster_only: true
+  client_id: "poc-stellar"
+  client_file: "configs/clients/poc-stellar.json"
+  neighbors_top_k: 20
+  same_cluster_only: false
 
 # ----------------------
 # Clustering params (for DVC cluster_assign)
