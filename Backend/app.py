@@ -11,6 +11,7 @@ from werkzeug.exceptions import NotFound
 from db.mongodb import MongoDBClient
 from pymongo.errors import PyMongoError
 
+from services.decision_rules import DecisionRulesService
 from services.single_game_poc import (
     PoCConfigurationError,
     PoCExecutionError,
@@ -27,7 +28,9 @@ def create_app() -> Flask:
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
     mongo_db_name = os.environ.get("MONGO_DB", "exploitation_zone")
     mongo_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_name)
+    decision_rules_service = DecisionRulesService(mongo_client)
     app.config["MONGO_CLIENT"] = mongo_client
+    app.config["DECISION_RULES_SERVICE"] = decision_rules_service
 
     try:
         poc_service = SingleGamePoCService()
@@ -188,6 +191,15 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             normalized_neighbors.append(neighbor)
             if len(normalized_neighbors) >= 20:
                 break
+        decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
+        if isinstance(decision_rules_service, DecisionRulesService):
+            try:
+                price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate price rule: %s", exc)
+                price_rule = {"label": "error", "details": str(exc)}
+        else:
+            price_rule = {"label": "sin_servicio"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -200,13 +212,13 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "best_cluster_similarity": best_similarity_val,
             "neighbors": normalized_neighbors,
             "diagnostics": poc_result.get("diagnostics", {}) if isinstance(poc_result, dict) else {},
-            "generated_at": datetime.utcnow(),
+            "generated_at": datetime.utcnow()
         }
 
         try:
             collection.update_one(
                 {"_id": insert_result.inserted_id},
-                {"$set": {"poc_assignment": poc_record}},
+                {"$set": {"poc_assignment": poc_record, "price_rule": price_rule}},
             )
         except PyMongoError as exc:
             collection.delete_one({"_id": insert_result.inserted_id})
@@ -240,6 +252,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 "diagnostics": poc_record["diagnostics"],
                 "generated_at": poc_record["generated_at"].isoformat() + "Z",
             },
+            "price_rule": price_rule
         }
         return jsonify(response_payload), 201
 
