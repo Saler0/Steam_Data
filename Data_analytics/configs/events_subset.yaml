@@ -30,7 +30,7 @@ parallelization:
   mode: ray
 ray_cluster:
   enabled: true
-  address: auto
+  address: local
 mlflow:
   enabled: true
   experiment: Steam Analytics

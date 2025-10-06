@@ -54,7 +54,6 @@ set "CLIENT_FILE="
 set "APPID_BUILDING=0"
 for %%A in (%*) do (
     set "ARG=%%~A"
-    echo [DEBUG] Procesando argumento: !ARG!
     if /I "!ARG!"=="skip-embeddings" set "SKIP_EMB=1"
     if /I "!ARG!"=="topics-only" set "RUN_TOPICS_ONLY=1"
     if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
@@ -86,7 +85,6 @@ for %%A in (%*) do (
             ) else (
                 set "APPID_LIST=!ARG!"
             )
-            echo [DEBUG] APPID_LIST acumulando: !APPID_LIST!
         ) else (
             set "APPID_BUILDING=0"
         )
@@ -374,7 +372,6 @@ if "!RUN_PLAYERS_PG!"=="1" (
   if defined PG_TABLE (
     set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
   )
-  echo [DEBUG] PG_ARGS: !PG_ARGS!
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
   if errorlevel 1 goto :neighbors_failed

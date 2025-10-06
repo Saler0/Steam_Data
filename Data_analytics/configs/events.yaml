@@ -98,7 +98,7 @@ ray_cluster:
   # La dirección del 'head node' del clúster de Ray.
   # 'auto' intenta conectarse a un clúster local, o a uno ya iniciado en la red.
   # También puedes especificar una dirección IP específica (ej. 'ray://<IP>:10001').
-  address: "auto"
+  address: "local" # opciones: "auto" | "local" | "ray://<IP>:10001"
 
 # CONFIGURACIÓN DE MLflow
 # Controla el seguimiento de experimentos, modelos y artefactos.
