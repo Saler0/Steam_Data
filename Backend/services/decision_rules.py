@@ -1,7 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from statistics import median
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from pymongo.errors import PyMongoError
 
@@ -70,12 +70,9 @@ class DecisionRulesService:
 
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
-        unique_ids = []
+        unique_ids: List[str] = []
         for appid in neighbor_appids:
-            if isinstance(appid, dict):
-                candidate = appid.get("appid")
-            else:
-                candidate = appid
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
             if candidate is None:
                 continue
             text_id = str(candidate).strip()
@@ -87,30 +84,33 @@ class DecisionRulesService:
             return prices
 
         str_ids = list({uid for uid in unique_ids})
-        int_ids = []
+        int_ids: List[int] = []
         for uid in str_ids:
             try:
                 int_ids.append(int(uid))
             except ValueError:
                 continue
 
-        query_clauses = []
+        query_clauses: List[Dict[str, Any]] = []
         if int_ids:
-            query_clauses.append({"appid": {"": int_ids}})
+            query_clauses.append({"appid": {"$in": int_ids}})
         if str_ids:
-            query_clauses.append({"appid": {"": str_ids}})
+            query_clauses.append({"appid": {"$in": str_ids}})
 
         if not query_clauses:
             return prices
 
         if len(query_clauses) == 1:
-            query = query_clauses[0]
+            query: Dict[str, Any] = query_clauses[0]
         else:
-            query = {"": query_clauses}
+            query = {"$or": query_clauses}
 
-        projection = {FIELDS.get("steam_price", "price"): 1, "_id": 0}
+        projection = {FIELDS.get("price"): 1, "_id": 0}
+        collection_name = (
+            COLLECTIONS.get('juegos_steam')
+        )
         try:
-            collection = self.mongo_client.get_collection(COLLECTIONS["steam_games"])
+            collection = self.mongo_client.get_collection(collection_name)
             cursor = collection.find(query, projection)
         except PyMongoError:
             return prices
