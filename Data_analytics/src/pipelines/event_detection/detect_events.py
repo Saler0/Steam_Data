@@ -70,7 +70,7 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
     except Exception:
         return None
 
-def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg: dict | None = None) -> pd.DataFrame:
+def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg: dict | None = None, date_filter: dict | None = None) -> pd.DataFrame:
     """
     Carga y une datos de jugadores (desde CSV) y reseñas (desde MongoDB) para un appid.
     """
@@ -78,7 +78,7 @@ def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg
 
     # 0) Intentar leer preagregados si están configurados
     if preagg:
-        df_pre = _read_preagg(preagg.get('players_monthly'), preagg.get('reviews_monthly'), appid, date_filter=cfg.get('date_filter'))
+        df_pre = _read_preagg(preagg.get('players_monthly'), preagg.get('reviews_monthly'), appid, date_filter=date_filter)
         if df_pre is not None and not df_pre.empty:
             return df_pre
     
@@ -157,7 +157,7 @@ def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
     cfg_reviews = cfg.get('mongo_connection', {})
     z_thresh = float(cfg['detection']['zscore_threshold'])
     
-    df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'))
+    df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'), date_filter=cfg.get('date_filter'))
     
     if df_ts is None or df_ts.empty or len(df_ts) < 12:
         return pd.DataFrame()
