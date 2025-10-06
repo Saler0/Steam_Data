@@ -216,12 +216,30 @@ def main():
         print(f"Detectando eventos para {len(all_appids)} juegos de forma paralela con {mode}...")
         
         if mode == 'ray' and RAY_AVAILABLE:
+            use_ray = True
             if not ray.is_initialized():
-                print("[INFO] Inicializando Ray...")
-                ray.init(address=cfg.get('ray_cluster', {}).get('address', 'auto'))
-            futures = [_detect_events_for_game_ray.remote(appid, cfg) for appid in all_appids]
-            results = ray.get(futures)
-            ray.shutdown()
+                address = (cfg.get('ray_cluster', {}) or {}).get('address', 'auto')
+                try:
+                    print("[INFO] Inicializando Ray...")
+                    if address in (None, "", "local", "auto"):
+                        # Preferir local si no se especifica un cluster explícito
+                        ray.init()
+                    else:
+                        ray.init(address=address)
+                except Exception as e:
+                    print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Usando multiprocessing.")
+                    use_ray = False
+            if use_ray:
+                futures = [_detect_events_for_game_ray.remote(appid, cfg) for appid in all_appids]
+                results = ray.get(futures)
+                try:
+                    ray.shutdown()
+                except Exception:
+                    pass
+            else:
+                with Pool(multiprocessing.cpu_count()) as pool:
+                    tasks = [(appid, cfg) for appid in all_appids]
+                    results = pool.map(_detect_events_for_game_sync, tasks)
         elif mode == 'ray' and not RAY_AVAILABLE:
             print("[WARN] Ray no está disponible. Cambiando a 'multiprocessing'.")
             with Pool(multiprocessing.cpu_count()) as pool:

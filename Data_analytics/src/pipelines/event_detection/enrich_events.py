@@ -189,8 +189,17 @@ def main():
     
     parallel_mode = (cfg.get('parallelization', {}) or {}).get('mode', 'ray')
     if parallel_mode == 'ray' and RAY_AVAILABLE and not ray.is_initialized():
-        print("[INFO] Inicializando Ray...")
-        ray.init(address=cfg.get('ray_cluster', {}).get('address', 'auto'))
+        address = (cfg.get('ray_cluster', {}) or {}).get('address', 'auto')
+        try:
+            print("[INFO] Inicializando Ray...")
+            if address in (None, "", "local", "auto"):
+                ray.init()
+            else:
+                ray.init(address=address)
+        except Exception as e:
+            print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Fallback a ejecución local.")
+            # degradar el modo para el resto del script
+            parallel_mode = 'multiprocessing'
 
     # Configure MLflow experiment and run name prefix
     ml_cfg = (cfg.get('mlflow') or {})
@@ -305,7 +314,7 @@ def main():
         event_groups = events_df.groupby('appid')
         
         print(f"Enriqueciendo eventos para {len(event_groups)} juegos de forma paralela...")
-        if parallel_mode == 'ray' and RAY_AVAILABLE:
+        if parallel_mode == 'ray' and RAY_AVAILABLE and ray.is_initialized():
             futures = []
             for appid, group in event_groups:
                 app = str(appid)
@@ -314,7 +323,10 @@ def main():
                 game_name = metadata_lookup.get(app) if metadata_lookup else None
                 futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app))
             results = ray.get(futures)
-            ray.shutdown()
+            try:
+                ray.shutdown()
+            except Exception:
+                pass
         else:
             # Fallback secuencial si Ray no está disponible
             results = []
