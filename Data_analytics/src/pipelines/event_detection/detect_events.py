@@ -184,8 +184,24 @@ def main():
     cfg = yaml.safe_load(open(args.config, 'r'))
     
     mode = cfg['parallelization'].get('mode', 'multiprocessing')
-    
-    with mlflow.start_run(run_name=f"detect_events_{mode}"):
+
+    # Configure MLflow according to config: set experiment and run name
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+
+    with mlflow.start_run(run_name=f"{run_name_prefix}detect_events_{mode}"):
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
         clusters_path = cfg.get('input_paths', {}).get('clusters_parquet', 'data/processed/clusters.parquet')
         if not Path(clusters_path).exists():
             raise FileNotFoundError(f"Archivo de clústeres no encontrado en {clusters_path}")

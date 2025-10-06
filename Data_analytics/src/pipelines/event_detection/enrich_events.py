@@ -192,7 +192,23 @@ def main():
         print("[INFO] Inicializando Ray...")
         ray.init(address=cfg.get('ray_cluster', {}).get('address', 'auto'))
 
-    with mlflow.start_run(run_name=f"enrich_events"):
+    # Configure MLflow experiment and run name prefix
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+
+    with mlflow.start_run(run_name=f"{run_name_prefix}enrich_events"):
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
         outdir = Path(cfg.get('output_dir', 'outputs/events'))
         outdir.mkdir(parents=True, exist_ok=True)
         events_path = outdir / 'events.parquet'

@@ -194,10 +194,22 @@ def main():
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config, 'r'))
     
-    # Iniciar MLflow
-    if not cfg['mlflow']['enabled']: os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null' 
-    with mlflow.start_run(run_name=f"{cfg['mlflow'].get('run_name_prefix', '')}bertopic_analysis"):
-        mlflow.log_dict(cfg, "config.yaml")
+    # Iniciar MLflow: respetar enabled/experiment/run_name_prefix y registrar config
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+    with mlflow.start_run(run_name=f"{run_name_prefix}bertopic_analysis"):
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
 
         outdir = Path(cfg.get('output_dir', 'outputs/events'))
         events_path = outdir / 'events.parquet'
