@@ -134,8 +134,8 @@ stages:
     deps:
     - path: configs/ccf_analysis.yaml
       hash: md5
-      md5: ee9e59f6faf17806cb93a8b74f2fe1e7
-      size: 4878
+      md5: de1b86944e44be9061b44b3f35a9bf13
+      size: 4924
       isexec: true
     - path: src/pipelines/preaggregations/reviews_monthly.py
       hash: md5
@@ -161,5 +161,5 @@ stages:
     outs:
     - path: data/warehouse/players_monthly.parquet
       hash: md5
-      md5: 2f5901d608238c635ce5e93eae7f5234
-      size: 4771
+      md5: b773a889714e913c948e37fd2d1d91c3
+      size: 1818

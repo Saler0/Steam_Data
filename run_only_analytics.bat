@@ -51,8 +51,10 @@ set "RUN_POC_CLIENT=0"
 set "CLIENT_ID="
 set "CLIENT_FILE="
 
+set "APPID_BUILDING=0"
 for %%A in (%*) do (
     set "ARG=%%~A"
+    echo [DEBUG] Procesando argumento: !ARG!
     if /I "!ARG!"=="skip-embeddings" set "SKIP_EMB=1"
     if /I "!ARG!"=="topics-only" set "RUN_TOPICS_ONLY=1"
     if /I "!ARG!"=="single-game-poc" set "RUN_POC=1"
@@ -74,9 +76,20 @@ for %%A in (%*) do (
         set "CUSTOM_MODE=1"
         set "CUSTOM_STAGES=!CUSTOM_STAGES! !ARG:~6!"
     )
-    if /I "!ARG:~0,7!"=="appids=" (
-        set "APPID_LIST=!ARG:~7!"
-        set "APPID_LIST=!APPID_LIST:"=!"
+    if /I "!ARG!"=="appids" (
+        set "APPID_BUILDING=1"
+        set "APPID_LIST="
+    ) else if "!APPID_BUILDING!"=="1" (
+        if not "!ARG!"=="with-preagg" if not "!ARG!"=="players-pg" if not "!ARG!"=="pg-table=" if not "!ARG!"=="exploitation_zone" (
+            if defined APPID_LIST (
+                set "APPID_LIST=!APPID_LIST!,!ARG!"
+            ) else (
+                set "APPID_LIST=!ARG!"
+            )
+            echo [DEBUG] APPID_LIST acumulando: !APPID_LIST!
+        ) else (
+            set "APPID_BUILDING=0"
+        )
     )
 )
 
@@ -357,10 +370,11 @@ if errorlevel 1 (
 rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
 if "!RUN_PLAYERS_PG!"=="1" (
   echo [INFO] Generando players_monthly desde Postgres...
-  set "PG_ARGS=--postgres-host %%POSTGRES_HOST%% --postgres-port %%POSTGRES_PORT%% --postgres-user %%POSTGRES_USER%% --postgres-password %%POSTGRES_PASSWORD%% --postgres-db %%POSTGRES_DB%%"
+  set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
   if defined PG_TABLE (
-    set "PG_ARGS=!PG_ARGS! --postgres-table !PG_TABLE!"
+    set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
   )
+  echo [DEBUG] PG_ARGS: !PG_ARGS!
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
   if errorlevel 1 goto :neighbors_failed

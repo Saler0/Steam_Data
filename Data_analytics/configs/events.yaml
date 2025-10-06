@@ -1,30 +1,60 @@
 ﻿# ----------------------------------------------------------------------------
-# Fichero de ConfiguraciÃ³n para la DetecciÃ³n y AnÃ¡lisis de Eventos de Videojuegos
+# Fichero de Configuración para la Detección y Análisis de Eventos de Videojuegos
 #
-# Este archivo centraliza los parÃ¡metros para los diferentes scripts del pipeline.
-# Un cambio en este archivo puede afectar a toda la ejecuciÃ³n,
-# permitiendo una gestiÃ³n flexible del proceso.
+# Este archivo centraliza los parámetros para los diferentes scripts del pipeline.
+# Un cambio en este archivo puede afectar a toda la ejecución,
+# permitiendo una gestión flexible del proceso.
 # ----------------------------------------------------------------------------
 
 # Directorios de salida para los artefactos generados por el pipeline.
 output_dir: outputs/events
 reports_output_dir: "outputs/reports"
-backend: python  # opciones: python | spark
+backend: python # opciones: python | spark
 
 # Entradas para el reporte final
 embeddings_parquet: data/processed/embeddings/
 clusters_parquet: data/processed/clusters.parquet
 metadata_parquet: data/processed/game_metadata.parquet
 
+# Parámetros de Similitud
 neighbors_top_k: 15
 neighbors_same_cluster_only: true
 neighbors_min_similarity: 0.4
 
-# ConexiÃ³n a Mongo para leer reseÃ±as de texto en BERTopic (topics)
+# --- CONFIGURACIÓN DE CONEXIONES Y RUTAS DE DATOS ---
+# Conexión a Mongo para leer reseñas de texto en BERTopic (topics)
 mongo_connection:
   uri: ${MONGO_URI:-mongodb://mongo:27017}
   database: ${MONGO_DB_REVIEWS:-exploitation_zone}
   collection: ${MONGO_COLL_REVIEWS:-steam_reviews}
+
+# Configuración para obtener información sobre los DLCs (Contenido Descargable).
+# Esta sección se usa en el script `dlcs.py`.
+dlc:
+  enabled: true
+  mongo_connection:
+    # URL de conexión a la base de datos de MongoDB.
+    uri: ${MONGO_URI:-mongodb://mongo:27017}
+    database: ${MONGO_DB_GAMES:-exploitation_zone}
+    collection: ${MONGO_COLL_GAMES:-juegos_steam}
+
+# CONFIGURACIÓN DE MONGO PARA NOTICIAS
+# Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
+mongodb:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
+  collection_name: ${MONGO_COLL_NEWS:-news_games}
+
+# Preagregados mensuales opcionales (para escala)
+preaggregated:
+  reviews_monthly: data/warehouse/reviews_monthly.parquet
+  players_monthly: data/warehouse/players_monthly.parquet
+
+# Ruta de tópicos para el clasificador de noticias si se usa
+topics_input_path: outputs/events/topics.parquet
+
+# Filtro opcional por clúster para limitar el alcance del pipeline de eventos (ej. [42])
+cluster_filter: []
 
 # --- Ejemplos en lago de objetos ---
 # GCS:
@@ -33,6 +63,8 @@ mongo_connection:
 # embeddings_parquet: gs://mi-bucket-steam/processed/embeddings/
 # clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
 # metadata_parquet: gs://mi-bucket-steam/processed/game_metadata.parquet
+# reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
+# players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
 
 # S3 (pandas requiere s3fs; Spark usar s3a://):
 # output_dir: s3://mi-bucket-steam/outputs/events
@@ -40,42 +72,127 @@ mongo_connection:
 # embeddings_parquet: s3://mi-bucket-steam/processed/embeddings/
 # clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
 # metadata_parquet: s3://mi-bucket-steam/processed/game_metadata.parquet
+# reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
+# players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
 
-# --- CONFIGURACIÃ“N DE PARALELIZACIÃ“N ---
-# Controla cÃ³mo se distribuye la carga de trabajo de la detecciÃ³n de eventos
-# entre los diferentes nÃºcleos de la CPU.
+
+# ----------------------------------------------------------------------------
+# --- CONFIGURACIÓN DE OPERACIÓN Y EJECUCIÓN ---
+# ----------------------------------------------------------------------------
+
+# CONFIGURACIÓN DE PARALELIZACIÓN
+# Controla cómo se distribuye la carga de trabajo de la detección de eventos
+# entre los diferentes núcleos de la CPU.
 parallelization:
-  # Elige el motor de paralelizaciÃ³n. Esto afecta directamente a la lÃ³gica en el
+  # Elige el motor de paralelización. Esto afecta directamente a la lógica en el
   # script `detect_events.py`.
-  # 'ray': Ideal para escalar a un clÃºster de mÃºltiples mÃ¡quinas.
-  # 'multiprocessing': Recomendado para ejecutar en una Ãºnica mÃ¡quina, usando todos sus nÃºcleos.
+  # 'ray': Ideal para escalar a un clúster de múltiples máquinas.
+  # 'multiprocessing': Recomendado para ejecutar en una única máquina, usando todos sus núcleos.
   mode: "ray" # Opciones: "ray" | "multiprocessing"
 
-# ConfiguraciÃ³n especÃ­fica para el clÃºster de Ray.
-# Esta secciÃ³n solo se usa si `parallelization.mode` estÃ¡ configurado como 'ray'.
+# Configuración específica para el clúster de Ray.
+# Esta sección solo se usa si `parallelization.mode` está configurado como 'ray'.
 ray_cluster:
-  # Activa o desactiva la inicializaciÃ³n de Ray.
+  # Activa o desactiva la inicialización de Ray.
   enabled: true
-  # La direcciÃ³n del 'head node' del clÃºster de Ray.
-  # 'auto' intenta conectarse a un clÃºster local, o a uno ya iniciado en la red.
-  # TambiÃ©n puedes especificar una direcciÃ³n IP especÃ­fica (ej. 'ray://<IP>:10001').
+  # La dirección del 'head node' del clúster de Ray.
+  # 'auto' intenta conectarse a un clúster local, o a uno ya iniciado en la red.
+  # También puedes especificar una dirección IP específica (ej. 'ray://<IP>:10001').
   address: "auto"
 
-# --- PARÃMETROS DE DETECCIÃ“N DE EVENTOS ---
-# Controla el corazÃ³n del script `detect_events.py`, que identifica picos y caÃ­das.
+# CONFIGURACIÓN DE MLflow
+# Controla el seguimiento de experimentos, modelos y artefactos.
+mlflow:
+  enabled: true
+  # Nombre del experimento en MLflow.
+  experiment: "Steam Analytics"
+  # Prefijo para el nombre de las ejecuciones.
+  run_name_prefix: "eventos_detect" 
+
+
+# ----------------------------------------------------------------------------
+# --- PARÁMETROS CENTRALES DEL PIPELINE ---
+# ----------------------------------------------------------------------------
+
+# PARÁMETROS DE DETECCIÓN DE EVENTOS
+# Controla el corazón del script `detect_events.py`, que identifica picos y caídas.
 detection:
-  # El umbral de z-score para que un pico/caÃ­da sea considerado un "evento".
-  # Un z-score de 1.5 significa que el cambio es 1.5 desviaciones estÃ¡ndar
-  # por encima o por debajo de la media. Un valor mÃ¡s alto (ej. 3.0) hace
-  # el detector menos sensible, y solo marca cambios mÃ¡s anÃ³malos.
+  # El umbral de z-score para que un pico/caída sea considerado un "evento".
+  # Un z-score de 1.5 significa que el cambio es 1.5 desviaciones estándar
+  # por encima o por debajo de la media. Un valor más alto (ej. 3.0) hace
+  # el detector menos sensible, y solo marca cambios más anómalos.
   zscore_threshold: 1.4
 
-# --- FUENTES DE DATOS EXTERNAS (SEÃ‘ALES) PARA ENRIQUECIMIENTO ---
-# Define la configuraciÃ³n para obtener datos que se usarÃ¡n para contextualizar
+# Ventanas de emparejamiento de picos (opcional)
+pairing:
+  lags_months: [1, 2]
+
+# CONFIGURACIÓN DEL MODELADO DE TÓPICOS (BERTopic)
+# Parámetros para el script que realiza el modelado de tópicos.
+bertopic:
+  # El modelo de embedding usado para convertir texto en vectores.
+  embedding_model: 'all-MiniLM-L6-v2'
+  # La frecuencia mínima de documentos para que una palabra sea considerada.
+  min_df: 5 
+  # El tamaño mínimo de un clúster de documentos para ser un tópico.
+  min_topic_size: 15
+  # Ventana de tiempo (en meses) para agrupar documentos antes de modelar tópicos.
+  window_months: 2
+  # El número de tópicos a extraer por cada ventana de tiempo.
+  top_n_topics: 3
+  # Ponderación opcional por votos de utilidad en reseñas
+  weighting:
+    enabled: true
+    method: log2 # opciones: log2 | log10 | log1p
+    cap: 5       # máximo de repeticiones por reseña
+    min_len: 100 # longitud mínima del texto a considerar
+  # Límite de documentos por evento (tras ponderación)
+  max_docs_per_event: 20000
+
+# CONFIGURACIÓN DE SCORING DE TÓPICOS (CCF)
+# Controla cómo se etiqueta la relevancia y cómo penalizar polaridad negativa/mixta
+topics_scoring:
+  high_z: 2.0           # umbral alto para marcar 'high'
+  penalize_negative: true # degradar si la polaridad es negativa
+  penalize_mixed: true    # degradar si la polaridad es mixta
+  degrade_levels: 1       # niveles a degradar (1: high->medium, medium->low)
+
+
+# ----------------------------------------------------------------------------
+# --- CONFIGURACIÓN DE LLM Y ENRIQUECIMIENTO DE DATOS ---
+# ----------------------------------------------------------------------------
+
+# CONFIGURACIÓN DEL CLASIFICADOR (LLM)
+# Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
+# Esta sección es usada por el script `news_classifier.py`.
+llm:
+  # Activa o desactiva el uso del LLM en el pipeline.
+  enabled: true
+  # Identificador del modelo que se pasa a la API del servidor.
+  model_id: "local-llm"
+  # URL del servidor donde corre el LLM (por ejemplo, una instancia de vLLM, Ollama, etc.).
+  server_url: "http://localhost:8000/v1/chat/completions"
+  # Máximo número de tokens a generar por el modelo en cada respuesta.
+  max_new_tokens: 128
+  # Controla la aleatoriedad de la respuesta. Un valor bajo (ej. 0.1) produce
+  # respuestas más deterministas y consistentes.
+  temperature: 0.1
+  # Número máximo de hilos para clasificar títulos de noticias en paralelo
+  max_workers: 8
+  # La taxonomía de categorías que el LLM usará para etiquetar los tópicos de BERTopic.
+  taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
+  # Las categorías que el LLM usará para clasificar las noticias de Steam.
+  news_labels: ["patch","marketing","community","other"]
+  # Nombre del experimento de MLflow para esta etapa.
+  mlflow_experiment: "news_topics_classification"
+
+
+# FUENTES DE DATOS EXTERNAS (SEÑALES) PARA ENRIQUECIMIENTO
+# Define la configuración para obtener datos que se usarán para contextualizar
 # los eventos detectados. Estos datos se gestionan por scripts como
 # `fetch_signals_for_event.py`.
 signals:
-  # ConfiguraciÃ³n para los datos de la plataforma de streaming Twitch.
+  # Configuración para los datos de la plataforma de streaming Twitch.
   twitch:
     # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
     # 'api': Llama a la API de Twitch para obtener datos en tiempo real.
@@ -86,10 +203,10 @@ signals:
     client_secret: ${TWITCH_CLIENT_SECRET}
     # Ruta al archivo de datos de Twitch cuando el modo es 'file'.
     file: "data/external/twitch/monthly_{appid}.csv"
-    # Directorio de cachÃ© si el modo es 'api'.
+    # Directorio de caché si el modo es 'api'.
     api_cache_dir: "data/external/twitch/api_cache"
   
-  # ConfiguraciÃ³n para los datos de la plataforma de videos YouTube.
+  # Configuración para los datos de la plataforma de videos YouTube.
   youtube:
     mode: "file"
     # Clave de la API de YouTube. Se recomienda usar una variable de entorno.
@@ -97,111 +214,8 @@ signals:
     file: "data/external/youtube/monthly_{appid}.csv"
     api_cache_dir: "data/external/youtube/api_cache"
   
-  # ConfiguraciÃ³n para los datos de noticias/actualizaciones de Steam.
+  # Configuración para los datos de noticias/actualizaciones de Steam.
   # Gestionado por el script `steam_updates.py`.
   steam_updates:
     mode: "file"
     file: "data/external/changelogs/{appid}.json"
-
-# ConfiguraciÃ³n para obtener informaciÃ³n sobre los DLCs (Contenido Descargable).
-# Esta secciÃ³n se usa en el script `dlcs.py`.
-dlc:
-  enabled: true
-  mongo_connection:
-    # URL de conexiÃ³n a la base de datos de MongoDB.
-    uri: ${MONGO_URI:-mongodb://mongo:27017}
-    database: ${MONGO_DB_GAMES:-exploitation_zone}
-    collection: ${MONGO_COLL_GAMES:-juegos_steam}
-
-# --- CONFIGURACIÃ“N DEL MODELADO DE TÃ“PICOS (BERTopic) ---
-# ParÃ¡metros para el script que realiza el modelado de tÃ³picos.
-bertopic:
-  # El modelo de embedding usado para convertir texto en vectores.
-  embedding_model: 'all-MiniLM-L6-v2'
-  # La frecuencia mÃ­nima de documentos para que una palabra sea considerada.
-  min_df: 5 
-  # El tamaÃ±o mÃ­nimo de un clÃºster de documentos para ser un tÃ³pico.
-  min_topic_size: 15
-  # Ventana de tiempo (en meses) para agrupar documentos antes de modelar tÃ³picos.
-  window_months: 2
-  # El nÃºmero de tÃ³picos a extraer por cada ventana de tiempo.
-  top_n_topics: 3
-  # PonderaciÃ³n opcional por votos de utilidad en reseÃ±as
-  weighting:
-    enabled: true
-    method: log2   # opciones: log2 | log10 | log1p
-    cap: 5         # mÃ¡ximo de repeticiones por reseÃ±a
-    min_len: 100   # longitud mÃ­nima del texto a considerar
-  # LÃ­mite de documentos por evento (tras ponderaciÃ³n)
-  max_docs_per_event: 20000
-
-# Preagregados mensuales opcionales (para escala)
-preaggregated:
-  reviews_monthly: data/warehouse/reviews_monthly.parquet
-  players_monthly: data/warehouse/players_monthly.parquet
-
-  # Ejemplos en lago de objetos:
-  # GCS:
-  # reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
-  # players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
-  # S3:
-  # reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
-  # players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
-
-# --- CONFIGURACIÃ“N DEL CLASIFICADOR (LLM) ---
-# ParÃ¡metros para la clasificaciÃ³n de noticias y etiquetado de tÃ³picos con un LLM.
-# Esta secciÃ³n es usada por el script `news_classifier.py`.
-llm:
-  # Activa o desactiva el uso del LLM en el pipeline.
-  enabled: true
-  # Identificador del modelo que se pasa a la API del servidor.
-  model_id: "local-llm"
-  # URL del servidor donde corre el LLM (por ejemplo, una instancia de vLLM, Ollama, etc.).
-  server_url: "http://localhost:8000/v1/chat/completions"
-  # MÃ¡ximo nÃºmero de tokens a generar por el modelo en cada respuesta.
-  max_new_tokens: 128
-  # Controla la aleatoriedad de la respuesta. Un valor bajo (ej. 0.1) produce
-  # respuestas mÃ¡s deterministas y consistentes.
-  temperature: 0.1
-  # NÃºmero mÃ¡ximo de hilos para clasificar tÃ­tulos de noticias en paralelo
-  max_workers: 8
-  # La taxonomÃ­a de categorÃ­as que el LLM usarÃ¡ para etiquetar los tÃ³picos de BERTopic.
-  taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
-  # Las categorÃ­as que el LLM usarÃ¡ para clasificar las noticias de Steam.
-  news_labels: ["patch","marketing","community","other"]
-  # Nombre del experimento de MLflow para esta etapa.
-  mlflow_experiment: "news_topics_classification"
-
-# Ruta de tÃ³picos para el clasificador de noticias si se usa
-topics_input_path: outputs/events/topics.parquet
-
-# --- CONFIGURACIÃ“N DE MLflow ---
-# Controla el seguimiento de experimentos, modelos y artefactos.
-mlflow:
-  enabled: true
-  # Nombre del experimento en MLflow.
-  experiment: "Steam Analytics"
-  # Prefijo para el nombre de las ejecuciones.
-  run_name_prefix: "eventos_detect" 
-
-# Filtro opcional por clÃºster para limitar el alcance del pipeline de eventos (ej. [42])
-cluster_filter: []
-
-# --- CONFIGURACIÃ“N DE MONGO PARA NOTICIAS ---
-# Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
-mongodb:
-  uri: ${MONGO_URI:-mongodb://mongo:27017}
-  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
-  collection_name: ${MONGO_COLL_NEWS:-news_games}
-
-# --- CONFIGURACIÃ“N DE SCORING DE TÃ“PICOS (CCF) ---
-# Controla cÃ³mo se etiqueta la relevancia y cÃ³mo penalizar polaridad negativa/mixta
-topics_scoring:
-  high_z: 2.0              # umbral alto para marcar 'high'
-  penalize_negative: true  # degradar si la polaridad es negativa
-  penalize_mixed: true     # degradar si la polaridad es mixta
-  degrade_levels: 1        # niveles a degradar (1: high->medium, medium->low)
-
-# Ventanas de emparejamiento de picos (opcional)
-pairing:
-  lags_months: [1, 2]
