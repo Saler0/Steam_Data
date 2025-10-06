@@ -383,11 +383,24 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
 if errorlevel 1 goto :neighbors_failed
 
+rem Generar segmentos de reseñas (revisiones por experiencia) y aplicar al reporte
+echo [INFO] Generando reviews_with_segments y review_segments...
+call :RunSingleStage reviews_with_segments
+if errorlevel 1 goto :neighbors_failed
+call :RunSingleStage review_segments
+if errorlevel 1 goto :neighbors_failed
+
+rem Generar reporte de cliente (usa configs/params.yaml:client_report)
+echo [INFO] Generando client_report a partir de params...
+call :RunSingleStage client_report
+if errorlevel 1 goto :neighbors_failed
+
 echo.
 echo ===============================================
-echo Subset (vecinos) ejecutado correctamente.
+echo Subset (vecinos) ejecutado correctamente y reporte de cliente generado.
 echo - Eventos/Topicos/Enrich: outputs/events/*
 echo - CCF: outputs/ccf_analysis/subset_neighbors/*
+echo - Reporte cliente: outputs/reports/client_*.json
 echo ===============================================
 pause
 endlocal

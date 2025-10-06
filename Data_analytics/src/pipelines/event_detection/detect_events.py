@@ -229,6 +229,45 @@ def main():
             mlflow.log_metric("total_games_analyzed", len(all_appids))
             mlflow.log_metric("events_detected", len(final_df))
             print(f"[OK] Eventos detectados guardados en -> {out_path}")
+
+            # Emparejar picos players -> reviews positivas con lags configurados
+            try:
+                lags = []
+                lags_cfg = (cfg.get('pairing', {}) or {}).get('lags_months') or (cfg.get('correlation', {}) or {}).get('lags_months')
+                if isinstance(lags_cfg, list):
+                    lags = [int(x) for x in lags_cfg if str(x).strip()]
+                if not lags:
+                    lags = [1, 2]
+                ev = final_df.copy()
+                ev['appid'] = ev['appid'].astype(str)
+                ev['year_month'] = pd.to_datetime(ev['year_month'], errors='coerce')
+                players_peaks = ev[(ev['variable'] == 'players') & (ev['direction'] == 'peak')][['appid','year_month','zscore']]
+                pos_peaks = ev[(ev['variable'] == 'pos') & (ev['direction'] == 'peak')][['appid','year_month','zscore']]
+                pairs_rows = []
+                if not players_peaks.empty and not pos_peaks.empty:
+                    for _, row in players_peaks.iterrows():
+                        base_ym = pd.to_datetime(row['year_month'])
+                        app = row['appid']
+                        for lag in lags:
+                            target_ym = (base_ym.to_period('M') + lag).to_timestamp()
+                            match = pos_peaks[(pos_peaks['appid'] == app) & (pos_peaks['year_month'] == target_ym)]
+                            if not match.empty:
+                                pairs_rows.append({
+                                    'appid': app,
+                                    'base_month': base_ym,
+                                    'target_month': target_ym,
+                                    'lag_months': int(lag),
+                                    'players_z': float(row['zscore']),
+                                    'pos_z': float(match.iloc[0]['zscore']),
+                                })
+                if pairs_rows:
+                    pairs_df = pd.DataFrame(pairs_rows)
+                    pair_out = Path(cfg.get('output_dir', 'outputs/events')) / 'paired_peaks.parquet'
+                    write_parquet_any(pairs_df, pair_out)
+                    mlflow.log_artifact(str(pair_out))
+                    mlflow.log_metric('paired_peaks_count', int(len(pairs_df)))
+            except Exception as e:
+                print(f"[WARN] Emparejamiento de picos falló: {e}")
         else:
             print("[WARN] No se detectaron eventos. Creando fichero vacío.")
             mlflow.log_metric("total_games_analyzed", len(all_appids))

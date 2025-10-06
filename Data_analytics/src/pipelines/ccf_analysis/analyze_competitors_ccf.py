@@ -142,8 +142,13 @@ def _read_reviews(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
     return out
 
 def _ccf_series(x: pd.Series, y: pd.Series, max_lag: int) -> dict:
-    """Calcula la Correlación Cruzada (CCF) entre dos series para diferentes desfases."""
-    out = {}
+    """Calcula la CCF por desfase con z-score por ventana para estabilidad numérica."""
+    out: dict[int, float] = {}
+    x = pd.Series(x).astype(float).dropna().reset_index(drop=True)
+    y = pd.Series(y).astype(float).dropna().reset_index(drop=True)
+    n = min(len(x), len(y))
+    if n < 5:
+        return {lag: np.nan for lag in range(-max_lag, max_lag + 1)}
     for lag in range(-max_lag, max_lag + 1):
         if lag < 0:
             xs = x.iloc[-lag:]
@@ -153,11 +158,18 @@ def _ccf_series(x: pd.Series, y: pd.Series, max_lag: int) -> dict:
             xs = x.iloc[:len(ys)]
         else:
             xs, ys = x, y
-        
-        if len(xs) < 5 or xs.isnull().all() or ys.isnull().all() or np.std(xs) == 0 or np.std(ys) == 0:
+        if len(xs) < 5 or len(ys) < 5:
             out[lag] = np.nan
             continue
-        
+        xs = xs.astype(float)
+        ys = ys.astype(float)
+        xs_std = xs.std(ddof=0)
+        ys_std = ys.std(ddof=0)
+        if xs_std == 0 or ys_std == 0:
+            out[lag] = np.nan
+            continue
+        xs = (xs - xs.mean()) / xs_std
+        ys = (ys - ys.mean()) / ys_std
         out[lag] = float(np.corrcoef(xs, ys)[0, 1])
     return out
 
@@ -270,13 +282,19 @@ def analyze_pair(df: pd.DataFrame, predictor: str, target: str, cfg: dict) -> di
     granger_cfg = cfg.get('granger', {})
     gxy_pmin, gyx_pmin = None, None
     try:
-        res_xy = grangercausalitytests(df[[target, predictor]].dropna(), maxlag=granger_cfg['maxlag'], verbose=False)
-        gxy_pmin = min([res[0]['ssr_chi2test'][1] for lag, res in res_xy.items()])
-    except Exception: pass
+        df_xy = pd.DataFrame({target: y_final, predictor: x_final}).dropna()
+        if len(df_xy) >= (granger_cfg.get('maxlag', 3) + 2):
+            res_xy = grangercausalitytests(df_xy[[target, predictor]], maxlag=granger_cfg['maxlag'], verbose=False)
+            gxy_pmin = min([res[0]['ssr_chi2test'][1] for lag, res in res_xy.items()])
+    except Exception:
+        pass
     try:
-        res_yx = grangercausalitytests(df[[predictor, target]].dropna(), maxlag=granger_cfg['maxlag'], verbose=False)
-        gyx_pmin = min([res[0]['ssr_chi2test'][1] for lag, res in res_yx.items()])
-    except Exception: pass
+        df_yx = pd.DataFrame({predictor: x_final, target: y_final}).dropna()
+        if len(df_yx) >= (granger_cfg.get('maxlag', 3) + 2):
+            res_yx = grangercausalitytests(df_yx[[predictor, target]], maxlag=granger_cfg['maxlag'], verbose=False)
+            gyx_pmin = min([res[0]['ssr_chi2test'][1] for lag, res in res_yx.items()])
+    except Exception:
+        pass
     
     # P-valores de estacionariedad (ADF/KPSS) sobre las series utilizadas
     try:
