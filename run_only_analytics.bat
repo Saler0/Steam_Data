@@ -47,6 +47,9 @@ set "RUN_CCF_ONE=0"
 set "RUN_NEIGHBORS=0"
 set "RUN_PLAYERS_PG=0"
 set "PG_TABLE="
+set "RUN_POC_CLIENT=0"
+set "CLIENT_ID="
+set "CLIENT_FILE="
 
 for %%A in (%*) do (
     set "ARG=%%~A"
@@ -58,6 +61,9 @@ for %%A in (%*) do (
     if /I "!ARG!"=="neighbors" set "RUN_NEIGHBORS=1"
     if /I "!ARG!"=="players-pg" set "RUN_PLAYERS_PG=1"
     if /I "!ARG:~0,9!"=="pg-table=" set "PG_TABLE=!ARG:~9!"
+    if /I "!ARG!"=="poc-client" set "RUN_POC_CLIENT=1"
+    if /I "!ARG:~0,10!"=="client_id=" set "CLIENT_ID=!ARG:~10!"
+    if /I "!ARG:~0,12!"=="client_file=" set "CLIENT_FILE=!ARG:~12!"
     if /I "!ARG!"=="preagg-only" (
         set "RUN_PREAGG_ONLY=1"
         set "CUSTOM_MODE=1"
@@ -79,6 +85,7 @@ if "!RUN_CCF_ONE!"=="1" goto :run_ccf_one
 if "!RUN_NEIGHBORS!"=="1" goto :run_neighbors
 if "!RUN_POC!"=="1" goto :run_poc
 if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
+if "!RUN_POC_CLIENT!"=="1" goto :run_poc_client
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -406,6 +413,15 @@ if errorlevel 1 goto :neighbors_failed
 call :RunSingleStage review_segments
 if errorlevel 1 goto :neighbors_failed
 
+rem Reglas de decision (prepare/apply/evaluate)
+echo [INFO] Ejecutando reglas de decision...
+call :RunSingleStage prepare
+if errorlevel 1 goto :neighbors_failed
+call :RunSingleStage apply_rules
+if errorlevel 1 goto :neighbors_failed
+call :RunSingleStage evaluate
+if errorlevel 1 goto :neighbors_failed
+
 rem Generar reporte de cliente (usa configs/params.yaml:client_report)
 echo [INFO] Generando client_report a partir de params...
 call :RunSingleStage client_report
@@ -429,6 +445,56 @@ echo Revisa los logs en el contenedor 'analytics'.
 pause
 endlocal
 exit /b 1
+
+:run_poc_client
+echo.
+echo ============================
+echo Preparando cliente (vecinos y appids) y ejecutando subset...
+echo ============================
+
+if not defined CLIENT_ID (
+  set "CLIENT_ID=client-001"
+)
+
+rem Ejecuta pipeline de cliente para derivar vecinos
+if defined CLIENT_FILE (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-file !CLIENT_FILE! --client-id !CLIENT_ID!
+) else (
+  echo [WARN] CLIENT_FILE no especificado; usando configs/clients/!CLIENT_ID!.json si existe.
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-id !CLIENT_ID!
+)
+if errorlevel 1 (
+  echo [ERROR] No se pudieron calcular vecinos del cliente.
+  pause
+  endlocal
+  exit /b 1
+)
+
+rem Actualiza params.yaml con client_id y client_file
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport yaml,sys,os\np='configs/params.yaml'\nwith open(p,'r',encoding='utf-8') as f:\n  cfg=yaml.safe_load(f) or {}\ncr=cfg.get('client_report') or {}\ncr['client_id']=os.environ.get('CID','client-001')\ncf=os.environ.get('CFILE') or f'configs/clients/{cr["client_id"]}.json'\ncr['client_file']=cf\ncfg['client_report']=cr\nopen(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\nprint('[OK] params.yaml actualizado')\nPY" 
+  
+if errorlevel 1 (
+  echo [ERROR] No se pudo actualizar configs/params.yaml.
+  pause
+  endlocal
+  exit /b 1
+)
+
+rem Leer appids desde outputs/clients/client_{id}_appids.txt
+for /f "usebackq tokens=*" %%L in ("Data_analytics\\outputs\\clients\\client_!CLIENT_ID!_appids.txt") do set "APPID_LIST=%%L"
+if not defined APPID_LIST (
+  echo [ERROR] No se encontraron appids de vecinos para el cliente !CLIENT_ID!.
+  pause
+  endlocal
+  exit /b 1
+)
+
+rem Encadena al modo neighbors con los appids obtenidos
+set "RUN_NEIGHBORS=1"
+goto :run_neighbors
 
 :run_reviews_mongo
 echo.

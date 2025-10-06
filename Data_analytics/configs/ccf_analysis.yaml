@@ -86,9 +86,9 @@ ccf_pairs:
   
   # ¿Afecta el crecimiento de jugadores al de reseñas NEGATIVAS?
   - {predictor: "players", target: "neg", name: "players_vs_negative_reviews"}
-  
-  # Ejemplo de otro par opcional
-  - {predictor: "pos", target: "neg", name: "positive_vs_negative_reviews"}
+
+  # ¿Afecta el crecimiento de jugadores al volumen total de reseñas?
+  - {predictor: "players", target: "total_reviews", name: "players_vs_total_reviews"}
 
 # Número máximo de meses de desfase (hacia adelante y atrás) a comprobar en la CCF.
 ccf_lags: 6

@@ -350,6 +350,10 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict
     
     for pair in cfg.get('ccf_pairs', []):
         predictor_name, target_name = pair['predictor'], pair['target']
+        # Enforce only players vs reviews (no reviews vs reviews)
+        review_vars = {"pos", "neg", "total_reviews"}
+        if not (predictor_name == "players" and target_name in review_vars):
+            continue
         
         if predictor_name not in df_transformed.columns or target_name not in df_transformed.columns:
             continue
