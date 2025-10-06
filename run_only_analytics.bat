@@ -45,6 +45,8 @@ set "RUN_REVIEWS_MONGO=0"
 set "POC_ARGS="
 set "RUN_CCF_ONE=0"
 set "RUN_NEIGHBORS=0"
+set "RUN_PLAYERS_PG=0"
+set "PG_TABLE="
 
 for %%A in (%*) do (
     set "ARG=%%~A"
@@ -54,6 +56,8 @@ for %%A in (%*) do (
     if /I "!ARG!"=="reviews-mongo" set "RUN_REVIEWS_MONGO=1"
     if /I "!ARG!"=="ccf-one" set "RUN_CCF_ONE=1"
     if /I "!ARG!"=="neighbors" set "RUN_NEIGHBORS=1"
+    if /I "!ARG!"=="players-pg" set "RUN_PLAYERS_PG=1"
+    if /I "!ARG:~0,9!"=="pg-table=" set "PG_TABLE=!ARG:~9!"
     if /I "!ARG!"=="preagg-only" (
         set "RUN_PREAGG_ONLY=1"
         set "CUSTOM_MODE=1"
@@ -341,6 +345,18 @@ if errorlevel 1 (
     pause
     endlocal
     exit /b 1
+)
+
+rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
+if "!RUN_PLAYERS_PG!"=="1" (
+  echo [INFO] Generando players_monthly desde Postgres...
+  set "PG_ARGS=--postgres-host %%POSTGRES_HOST%% --postgres-port %%POSTGRES_PORT%% --postgres-user %%POSTGRES_USER%% --postgres-password %%POSTGRES_PASSWORD%% --postgres-db %%POSTGRES_DB%%"
+  if defined PG_TABLE (
+    set "PG_ARGS=!PG_ARGS! --postgres-table !PG_TABLE!"
+  )
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+  if errorlevel 1 goto :neighbors_failed
 )
 
 rem Opcional: ejecutar preagregados antes si se pidio
