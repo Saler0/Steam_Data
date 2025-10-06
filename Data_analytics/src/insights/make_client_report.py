@@ -37,6 +37,7 @@ from src.insights.text_templates import (
     describe_topic_insight,
     describe_key_signal,
     summarize_global_relevance,
+    compose_client_narrative,
 )
 
 from src.utils.io import (
@@ -1301,7 +1302,8 @@ def main() -> None:
     ap.add_argument('--same_cluster_only', type=lambda x: str(x).lower() in ['1', 'true', 'yes'], default=True)
     ap.add_argument('--out', default=None, help='Ruta de salida JSON; por defecto outputs/reports/client_{id}.json')
     ap.add_argument('--params', default='configs/params.yaml')
-    ap.add_argument('--version', default='1.3', help='Version del payload del reporte de cliente.')
+    ap.add_argument('--version', default='1.4', help='Version del payload del reporte de cliente.')
+    ap.add_argument('--language', default='en', help='Language for narrative (en/es).')
     args = ap.parse_args()
 
     client = json.loads(Path(args.client_file).read_text(encoding='utf-8'))
@@ -1677,6 +1679,12 @@ def main() -> None:
         'methodology': methodology,
         'provenance': provenance,
     }
+
+    # Compose a concise narrative paragraph (no Reddit fields)
+    try:
+        report['narrative'] = compose_client_narrative(report, lang=args.language)
+    except Exception:
+        report['narrative'] = ''
 
     out_path = Path(args.out) if args.out else Path('outputs/reports') / f"client_{client_id}.json"
 
