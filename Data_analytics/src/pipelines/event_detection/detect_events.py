@@ -230,7 +230,8 @@ def main():
                     print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Usando multiprocessing.")
                     use_ray = False
             if use_ray:
-                futures = [_detect_events_for_game_ray.remote(appid, cfg) for appid in all_appids]
+                # _detect_events_for_game_sync expects a single tuple arg (appid, cfg)
+                futures = [_detect_events_for_game_ray.remote((appid, cfg)) for appid in all_appids]
                 results = ray.get(futures)
                 try:
                     ray.shutdown()
