@@ -311,9 +311,8 @@ def classify_news_batched(news_df: pd.DataFrame, llm_cfg: Dict, batch_size: int 
             except Exception:
                 ok = False
         if not ok:
-            worker_fn = partial(classify_single_news, llm_cfg=llm_cfg)
             with ThreadPoolExecutor(max_workers=llm_cfg.get("max_workers", 8)) as ex:
-                res = list(ex.map(lambda t: worker_fn(t, None), chunk))
+                res = list(ex.map(lambda t: classify_single_news(t, llm_cfg, None), chunk))
             for j, (lbl, kws) in enumerate(res):
                 labels_out[i + j] = lbl
                 keywords_out[i + j] = (kws or [])[:kw_max]

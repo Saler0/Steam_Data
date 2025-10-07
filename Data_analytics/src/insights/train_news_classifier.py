@@ -20,6 +20,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 import joblib
+import mlflow
 
 
 def _compose_text(df: pd.DataFrame, cols: List[str]) -> pd.Series:
@@ -42,6 +43,8 @@ def main() -> None:
     ap.add_argument('--label-col', default='label', help='Nombre de la columna de etiqueta')
     ap.add_argument('--model-out', default='models/news_svm.joblib', help='Ruta de salida del modelo')
     ap.add_argument('--test-size', type=float, default=0.2, help='Proporción de test para validar (0 desactiva split)')
+    ap.add_argument('--mlflow-experiment', default='news_classifier_svm', help='Nombre de experimento en MLflow')
+    ap.add_argument('--mlflow-enabled', action='store_true', default=True, help='Habilitar logging en MLflow')
     args = ap.parse_args()
 
     in_path = Path(args.input)
@@ -63,14 +66,17 @@ def main() -> None:
         ('tfidf', TfidfVectorizer(lowercase=True, ngram_range=(1,2), max_features=200000)),
         ('clf', LinearSVC()),
     ])
-
+    metrics: dict = {}
+    report_txt: str | None = None
     if args.test_size and 0 < args.test_size < 0.9:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=args.test_size, random_state=42, stratify=y)
         pipe.fit(X_train, y_train)
         y_pred = pipe.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
+        metrics['accuracy'] = float(acc)
         print(f"[OK] Accuracy test: {acc:.3f}")
-        print(classification_report(y_test, y_pred))
+        report_txt = classification_report(y_test, y_pred)
+        print(report_txt)
     else:
         pipe.fit(X, y)
 
@@ -79,7 +85,35 @@ def main() -> None:
     joblib.dump(pipe, out_path)
     print(f"[OK] Modelo guardado en -> {out_path}")
 
+    if args.mlflow_enabled:
+        try:
+            mlflow.set_experiment(args.mlflow_experiment)
+            with mlflow.start_run(run_name='svm_train'):
+                # Params
+                mlflow.log_param('text_cols', ','.join(text_cols))
+                mlflow.log_param('label_col', args.label_col)
+                mlflow.log_param('test_size', args.test_size)
+                mlflow.log_param('vectorizer', 'tfidf')
+                mlflow.log_param('ngram_range', '1-2')
+                mlflow.log_param('max_features', 200000)
+                mlflow.log_param('classifier', 'LinearSVC')
+                mlflow.log_param('dataset_size', len(df))
+                mlflow.log_param('n_classes', len(sorted(set(y))))
+                # Metrics
+                for k, v in metrics.items():
+                    mlflow.log_metric(k, v)
+                # Artifacts
+                # Save classification report if present
+                if report_txt:
+                    rpt_path = Path('outputs/events') / 'news_svm_classification_report.txt'
+                    rpt_path.parent.mkdir(parents=True, exist_ok=True)
+                    rpt_path.write_text(report_txt, encoding='utf-8')
+                    mlflow.log_artifact(str(rpt_path))
+                # Log model
+                mlflow.log_artifact(str(out_path))
+        except Exception as e:
+            print(f"[WARN] No se pudo registrar en MLflow: {e}")
+
 
 if __name__ == '__main__':
     main()
-
