@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from pymongo.errors import PyMongoError
 
-from config import COLLECTIONS, DECISION_RULES, FIELDS
+from config import DECISION_RULES
 from db.mongodb import MongoDBClient
 
 PriceRuleResult = Dict[str, Any]
@@ -105,17 +105,16 @@ class DecisionRulesService:
         else:
             query = {"$or": query_clauses}
 
-        projection = {FIELDS.get("price"): 1, "_id": 0}
-        collection_name = (
-            COLLECTIONS.get('juegos_steam')
-        )
+        price_field = 'price'
+        projection = {price_field: 1, '_id': 0}
+        collection_name = 'juegos_steam'
         try:
             collection = self.mongo_client.get_collection(collection_name)
             cursor = collection.find(query, projection)
         except PyMongoError:
             return prices
 
-        price_key = FIELDS.get("steam_price", "price")
+        price_key = price_field
         for doc in cursor:
             value = doc.get(price_key)
             if value in (None, ""):
