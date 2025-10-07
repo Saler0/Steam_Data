@@ -12,12 +12,14 @@ from functools import partial
 from pathlib import Path
 from typing import Dict, List
 import os
+import time
 import sys
 import re
 
 import mlflow
 import pandas as pd
 import requests
+from requests.exceptions import RequestException, ConnectionError as RequestsConnectionError
 from pymongo import MongoClient
 
 # Ensure project root is importable
@@ -26,30 +28,78 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from src.utils.io import read_parquet_any, write_parquet_any
 
 def query_llm(prompt: str, llm_cfg: Dict) -> str:
-    """
-    Envía un prompt al endpoint del LLM y devuelve la respuesta.
+    """Envía un prompt al LLM seleccionado y devuelve el texto.
 
-    Args:
-        prompt (str): El prompt a enviar al modelo.
-        llm_cfg (Dict): Configuración del LLM (URL del servidor, modelo, etc.).
-
-    Returns:
-        str: La respuesta de texto generada por el LLM.
+    Soporta:
+      - provider: "openai" con API key en env (`OPENAI_API_KEY` por defecto)
+      - `server_url`: endpoint compatible con /v1/chat/completions (p.ej., local)
     """
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": llm_cfg.get("model_id", "local-model"),
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": llm_cfg.get("max_new_tokens", 128),
-        "temperature": llm_cfg.get("temperature", 0.1)
-    }
-    try:
-        response = requests.post(llm_cfg["server_url"], headers=headers, data=json.dumps(payload))
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"  -> LLM query failed: {e}")
-        return ""
+    model = llm_cfg.get("model_id", "gpt-4.1-mini")
+    max_tokens = llm_cfg.get("max_new_tokens", 128)
+    temperature = llm_cfg.get("temperature", 0.1)
+    messages = [{"role": "user", "content": prompt}]
+
+    # 1) OpenAI (REST)
+    provider = str(llm_cfg.get("provider", "")).lower()
+    api_key = llm_cfg.get("api_key") or os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"))
+    base_url = llm_cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    if provider == "openai" or (provider == "" and api_key):
+        if not api_key:
+            print("  -> LLM deshabilitado: falta OPENAI_API_KEY en entorno o llm.api_key en config.")
+            return ""
+        url = base_url.rstrip("/") + "/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        for attempt in range(int(llm_cfg.get("retries", 3))):
+            try:
+                resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
+                resp.raise_for_status()
+                return resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            except RequestException as e:
+                if attempt < int(llm_cfg.get("retries", 3)) - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                print(f"  -> LLM (OpenAI) fallo de red: {e}")
+                return ""
+            except Exception as e:
+                print(f"  -> LLM (OpenAI) error: {e}")
+                return ""
+
+    # 2) Servidor local/externo compatible con /v1/chat/completions
+    server_url = llm_cfg.get("server_url")
+    if server_url:
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        for attempt in range(int(llm_cfg.get("retries", 2))):
+            try:
+                response = requests.post(server_url, headers=headers, data=json.dumps(payload), timeout=10)
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"].strip()
+            except RequestsConnectionError:
+                return ""
+            except RequestException:
+                if attempt < int(llm_cfg.get("retries", 2)) - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return ""
+            except Exception:
+                return ""
+
+    # Si no hay proveedor configurado
+    return ""
 
 def load_news_from_mongo(appid: int, mongo_cfg: Dict) -> pd.DataFrame:
     """
@@ -118,18 +168,69 @@ def classify_single_news(title: str, llm_cfg: Dict) -> str | None:
     return label if label in allowed else None
 
 def classify_news_parallel(news_df: pd.DataFrame, llm_cfg: Dict) -> pd.DataFrame:
-    """Clasifica noticias en paralelo usando un ThreadPoolExecutor."""
+    """Clasifica noticias; usa batching si está configurado, si no paralelo por título."""
+    batch_size = int(llm_cfg.get("batch_size", 0) or 0)
+    if batch_size > 0:
+        return classify_news_batched(news_df, llm_cfg, batch_size)
     titles = news_df['title'].tolist()
     max_workers = llm_cfg.get("max_workers", 8)
-    
     worker_fn = partial(classify_single_news, llm_cfg=llm_cfg)
-
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         labels = list(executor.map(worker_fn, titles))
-    
     news_df_copy = news_df.copy()
     news_df_copy['label'] = labels
-    
+    return news_df_copy.dropna(subset=['label']).reset_index(drop=True)
+
+def _normalize_label(raw: str, allowed: set[str]) -> str | None:
+    label = (raw or "").strip().lower()
+    aliases = {"patches": "patch", "marketing/ads": "marketing", "community update": "community"}
+    label = aliases.get(label, label)
+    return label if label in allowed else None
+
+def classify_news_batched(news_df: pd.DataFrame, llm_cfg: Dict, batch_size: int = 20) -> pd.DataFrame:
+    """Clasifica noticias en lotes con una única llamada por lote.
+
+    Espera respuesta como JSON array con una etiqueta por título.
+    """
+    allowed = {str(x).strip().lower() for x in (llm_cfg.get("news_labels", []) or [])}
+    titles = news_df['title'].tolist()
+    labels_out: list[str | None] = [None] * len(titles)
+
+    for i in range(0, len(titles), batch_size):
+        chunk = titles[i:i+batch_size]
+        # Construir prompt con instrucciones claras y formato JSON
+        labels_str = ", ".join(sorted(allowed))
+        prompt = (
+            "Eres un clasificador. Dada una lista JSON de títulos de noticias, "
+            f"devuelve un JSON array con exactamente {len(chunk)} etiquetas, una por cada título, "
+            f"usando solo estas categorías: [{labels_str}]. No expliques nada más.\n\n"
+            f"Títulos (JSON): {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            "Responde únicamente con un JSON array de etiquetas."
+        )
+        resp = query_llm(prompt, llm_cfg)
+        parsed: list[str] | None = None
+        if resp:
+            # Intentar parsear como JSON array
+            try:
+                parsed_json = json.loads(resp)
+                if isinstance(parsed_json, list):
+                    parsed = [str(x) for x in parsed_json]
+            except Exception:
+                # fallback: intentar separar por líneas
+                lines = [ln.strip(" -•\t") for ln in resp.splitlines() if ln.strip()]
+                if len(lines) == len(chunk):
+                    parsed = lines
+        if not parsed or len(parsed) != len(chunk):
+            # Fallback por elemento para este lote
+            worker_fn = partial(classify_single_news, llm_cfg=llm_cfg)
+            with ThreadPoolExecutor(max_workers=llm_cfg.get("max_workers", 8)) as ex:
+                parsed = list(ex.map(worker_fn, chunk))
+        # Normalizar y validar
+        for j, raw in enumerate(parsed):
+            labels_out[i + j] = _normalize_label(raw or "", allowed)
+
+    news_df_copy = news_df.copy()
+    news_df_copy['label'] = labels_out
     return news_df_copy.dropna(subset=['label']).reset_index(drop=True)
 
 def _merge_parquet_safely(df_new: pd.DataFrame, path: Path, key_cols: list[str]) -> pd.DataFrame:
@@ -257,7 +358,9 @@ def main():
 
         if args.appid:
             mlflow.log_param("appid", args.appid)
-            mlflow.log_params(llm_cfg)
+            # Evitar registrar secretos
+            safe_llm_params = {k: v for k, v in llm_cfg.items() if k not in {"api_key"}}
+            mlflow.log_params(safe_llm_params)
             
             news_df = load_news_from_mongo(args.appid, mongo_cfg)
             

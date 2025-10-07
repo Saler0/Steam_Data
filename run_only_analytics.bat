@@ -403,7 +403,7 @@ if errorlevel 1 goto :neighbors_failed
 rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
 for %%I in (!APPID_LIST!) do (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
   if errorlevel 1 goto :neighbors_failed
 )
 

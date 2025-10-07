@@ -166,24 +166,24 @@ topics_scoring:
 # Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
 # Esta sección es usada por el script `news_classifier.py`.
 llm:
-  # Activa o desactiva el uso del LLM en el pipeline.
   enabled: true
-  # Identificador del modelo que se pasa a la API del servidor.
-  model_id: "local-llm"
-  # URL del servidor donde corre el LLM (por ejemplo, una instancia de vLLM, Ollama, etc.).
-  server_url: "http://localhost:8000/v1/chat/completions"
-  # Máximo número de tokens a generar por el modelo en cada respuesta.
+  # Proveedor del LLM: "openai" usa la REST API de OpenAI (requiere OPENAI_API_KEY)
+  provider: "openai"
+  # Modelo a usar con OpenAI
+  model_id: "gpt-4.1-mini"
+  # Clasificación en lotes para reducir coste/latencia
+  batch_size: 20
+  # Nombre de la variable de entorno para el API key (por defecto OPENAI_API_KEY)
+  api_key_env: ${LLM_API_KEY_ENV:-OPENAI_API_KEY}
+  # Base URL opcional (permite proxys o pass-through). Por defecto api.openai.com/v1
+  base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  # Alternativamente, si quieres usar un servidor local, especifica server_url y quita provider/api_key
+  # server_url: "http://localhost:8000/v1/chat/completions"
   max_new_tokens: 128
-  # Controla la aleatoriedad de la respuesta. Un valor bajo (ej. 0.1) produce
-  # respuestas más deterministas y consistentes.
   temperature: 0.1
-  # Número máximo de hilos para clasificar títulos de noticias en paralelo
   max_workers: 8
-  # La taxonomía de categorías que el LLM usará para etiquetar los tópicos de BERTopic.
   taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
-  # Las categorías que el LLM usará para clasificar las noticias de Steam.
   news_labels: ["patch","marketing","community","other"]
-  # Nombre del experimento de MLflow para esta etapa.
   mlflow_experiment: "news_topics_classification"
 
 
