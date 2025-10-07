@@ -19,6 +19,11 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import yaml
+import os
+import sys
+
+# Ensure project root is importable
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.utils.io import read_parquet_any, write_parquet_any
 

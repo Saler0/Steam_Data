@@ -13,9 +13,14 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from typing import Dict, Any, List
 import os
+import sys
+import re
 from multiprocessing import Pool, cpu_count
 import mlflow
 from typing import Optional
+
+# Ensure project root is importable
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 # Importaciones de utilidades del proyecto
 from src.utils.io import read_parquet_any, write_parquet_any, makedirs_if_local
@@ -58,7 +63,7 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
     
     mongo_cfg = cfg.get('mongo_connection', {})
 
-    for (_, year_month), event_group in group.groupby(group.index):
+    for year_month, event_group in group.groupby('year_month'):
         event_date = pd.Timestamp(year_month)
         window = int(topic_cfg.get('window_months', 2))
         start_date = event_date - pd.DateOffset(months=window)
@@ -188,11 +193,27 @@ def load_reviews_for_window(appid: str, start_date: pd.Timestamp, end_date: pd.T
         out.extend([text] * w)
     return out
 
+def resolve_env_vars(config):
+    """Resuelve las variables de entorno en un diccionario de configuración."""
+    def replace_var(match):
+        var = match.group(1)
+        default = match.group(2) if ':' in var else ''
+        var_name = var.split(':')[0]
+        return os.environ.get(var_name, default) if var_name else default
+    pattern = r'\${([^}^{:]+)(?::-[^}]*)?}'
+    for key, value in config.items():
+        if isinstance(value, str):
+            config[key] = re.sub(pattern, replace_var, value)
+        elif isinstance(value, dict):
+            config[key] = resolve_env_vars(value)
+    return config
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = resolve_env_vars(cfg)
     
     # Iniciar MLflow: respetar enabled/experiment/run_name_prefix y registrar config
     ml_cfg = (cfg.get('mlflow') or {})
@@ -240,7 +261,7 @@ def main():
         elif parallel_mode == 'ray' and RAY_AVAILABLE:
             print("[INFO] Usando Ray para paralelización distribuida.")
             if not ray.is_initialized(): ray.init()
-            futures = [_process_event_group_ray.remote(appid, group, cfg) for appid, group in processing_args]
+            futures = [_process_event_group_ray.remote(appid, group, cfg) for appid, group in event_groups]
             results = ray.get(futures)
             all_topics_results = [item for sublist in results for item in sublist]
         else: # Modo secuencial

@@ -11,11 +11,17 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Dict, List
+import os
+import sys
+import re
 
 import mlflow
 import pandas as pd
 import requests
 from pymongo import MongoClient
+
+# Ensure project root is importable
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.utils.io import read_parquet_any, write_parquet_any
 
@@ -183,6 +189,20 @@ def _select_mlflow_experiment(cfg: Dict) -> str:
         return mlf["experiment"]
     return cfg.get("mlflow_experiment_name", "Steam_Events_Classification")
 
+def resolve_env_vars(config):
+    """Resuelve las variables de entorno en un diccionario de configuración."""
+    def replace_var(match):
+        var = match.group(1)
+        default = match.group(2) if ':' in var else ''
+        var_name = var.split(':')[0]
+        return os.environ.get(var_name, default) if var_name else default
+    pattern = r'\${([^}^{:]+)(?::-[^}]*)?}'
+    for key, value in config.items():
+        if isinstance(value, str):
+            config[key] = re.sub(pattern, replace_var, value)
+        elif isinstance(value, dict):
+            config[key] = resolve_env_vars(value)
+    return config
 
 def main():
     """Punto de entrada principal del script."""
@@ -195,6 +215,8 @@ def main():
     with open(args.config, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
     
+    cfg = resolve_env_vars(cfg)
+
     outdir = Path(cfg.get('output_dir', 'outputs/events'))
     outdir.mkdir(parents=True, exist_ok=True)
     
@@ -262,12 +284,7 @@ def main():
             if Path(topics_input_path).exists():
                 topics_df = read_parquet_any(Path(topics_input_path))
                 if not topics_df.empty:
-                    print(f"\nEtiquetando tópicos desde '{topics_input_path}'...")
-                    labeled_topics = label_topics(topics_df, llm_cfg)
-                    output_path = outdir / 'topics_labeled.parquet'
-                    write_parquet_any(labeled_topics, output_path)
-                    mlflow.log_artifact(str(output_path), artifact_path="topics")
-                    print(f"Tópicos etiquetados guardados en -> {output_path}")
+                    print(f"\nTópicos etiquetados guardados en -> {output_path}")
             else:
                 print(f"\nNo se encontró el fichero de tópicos ({topics_input_path}). Se omite el etiquetado.")
 

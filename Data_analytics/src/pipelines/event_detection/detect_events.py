@@ -10,6 +10,7 @@ import pandas as pd
 from pymongo import MongoClient
 import os
 import sys
+import re
 
 # Ensure project root is importable when running as a script
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
@@ -152,7 +153,8 @@ def detect_events_for_series(df: pd.DataFrame, variable: str, z_thresh: float) -
 
 def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
     """Detecta y retorna eventos para un único appid (versión sincronizada)."""
-    appid, cfg = args
+    appid, cfg_ref = args
+    cfg = ray.get(cfg_ref)  # Deserializa el ObjectRef a un diccionario
     cfg_players = cfg.get('players_data', {})
     cfg_reviews = cfg.get('mongo_connection', {})
     z_thresh = float(cfg['detection']['zscore_threshold'])
@@ -177,11 +179,27 @@ _detect_events_for_game_ray = None
 if RAY_AVAILABLE:
     _detect_events_for_game_ray = ray.remote(_detect_events_for_game_sync)
 
+def resolve_env_vars(config):
+    """Resuelve las variables de entorno en un diccionario de configuración."""
+    def replace_var(match):
+        var = match.group(1)
+        default = match.group(2) if ':' in var else ''
+        var_name = var.split(':')[0]
+        return os.environ.get(var_name, default) if var_name else default
+    pattern = r'\${([^}^{:]+)(?::-[^}]*)?}'
+    for key, value in config.items():
+        if isinstance(value, str):
+            config[key] = re.sub(pattern, replace_var, value)
+        elif isinstance(value, dict):
+            config[key] = resolve_env_vars(value)
+    return config
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = resolve_env_vars(cfg)  # Resuelve las variables de entorno
     
     mode = cfg['parallelization'].get('mode', 'multiprocessing')
 
@@ -222,7 +240,6 @@ def main():
                 try:
                     print("[INFO] Inicializando Ray...")
                     if address in (None, "", "local", "auto"):
-                        # Preferir local si no se especifica un cluster explícito
                         ray.init()
                     else:
                         ray.init(address=address)
@@ -230,8 +247,8 @@ def main():
                     print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Usando multiprocessing.")
                     use_ray = False
             if use_ray:
-                # _detect_events_for_game_sync expects a single tuple arg (appid, cfg)
-                futures = [_detect_events_for_game_ray.remote((appid, cfg)) for appid in all_appids]
+                cfg_ref = ray.put(cfg)  # Sube cfg resuelto a la object store de Ray
+                futures = [_detect_events_for_game_ray.remote((appid, cfg_ref)) for appid in all_appids]
                 results = ray.get(futures)
                 try:
                     ray.shutdown()
@@ -257,6 +274,7 @@ def main():
         
         if all_events:
             final_df = pd.concat(all_events, ignore_index=True)
+            final_df['event_id'] = final_df['appid'].astype(str) + '_' + final_df['variable'] + '_' + pd.to_datetime(final_df['year_month']).dt.strftime('%Y-%m')
             out_path = Path(cfg.get('output_dir', 'outputs/events')) / 'events.parquet'
             out_path.parent.mkdir(parents=True, exist_ok=True)
             write_parquet_any(final_df, out_path)
