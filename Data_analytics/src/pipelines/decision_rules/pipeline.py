@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import yaml
 import argparse
 from pymongo import MongoClient
@@ -265,7 +265,7 @@ def prepare(params):
 # ------------------------
 def apply_rules(params):
     """Aplicar reglas al dataset preparado."""
-    spark = get_spark_session("SteamApplyRules")
+    spark = get_spark_session("SteamApplyRules", config={"spark.driver.memory": "4g"})
     df = spark.read.parquet("data/prepared/")
 
     pdf = df.toPandas()

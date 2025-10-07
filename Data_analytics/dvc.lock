@@ -163,3 +163,100 @@ stages:
       hash: md5
       md5: b773a889714e913c948e37fd2d1d91c3
       size: 1818
+  reviews_with_segments:
+    cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py 
+      --config configs/review_segments.yaml --output 
+      data/warehouse/reviews_with_segments.parquet --topics-output 
+      outputs/events/reviews_topics.parquet --allow-empty
+    deps:
+    - path: configs/review_segments.yaml
+      hash: md5
+      md5: b823adb4c5f99e77f0c2ccc04c712d3b
+      size: 985
+      isexec: true
+    - path: src/pipelines/review_segments/prepare_reviews_with_segments.py
+      hash: md5
+      md5: 17eb30b9b80e23d6336e13e45e4f0edd
+      size: 26841
+      isexec: true
+    outs:
+    - path: data/warehouse/reviews_with_segments.parquet
+      hash: md5
+      md5: 4c46958bee760a27c14c2ac0f5f8d8c9
+      size: 36426603
+    - path: outputs/events/reviews_topics.parquet
+      hash: md5
+      md5: 14a8479db5ee9bb319c1909035e58045
+      size: 18483344
+  review_segments:
+    cmd: python src/insights/build_review_segments.py --events 
+      outputs/events/events.parquet --reviews 
+      data/warehouse/reviews_with_segments.parquet --topics 
+      outputs/events/reviews_topics.parquet --output 
+      outputs/events/review_segments.parquet
+    deps:
+    - path: data/warehouse/reviews_with_segments.parquet
+      hash: md5
+      md5: 4c46958bee760a27c14c2ac0f5f8d8c9
+      size: 36426603
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: 51eac8178e5aef418fe228913bad6619
+      size: 7244
+    - path: outputs/events/reviews_topics.parquet
+      hash: md5
+      md5: 14a8479db5ee9bb319c1909035e58045
+      size: 18483344
+    - path: src/insights/build_review_segments.py
+      hash: md5
+      md5: 606a51600cea9cd19782d070a90ec793
+      size: 15439
+      isexec: true
+    outs:
+    - path: outputs/events/review_segments.parquet
+      hash: md5
+      md5: c709b779f738842abaf5c7e464206608
+      size: 598
+  prepare:
+    cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare 
+      --config configs/params.yaml
+    deps:
+    - path: configs/params.yaml
+      hash: md5
+      md5: 2f2d40a2d85d658e7f4ff63886fea61b
+      size: 4587
+      isexec: true
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 59bc0ba6658bde7546997e6a6cf0acc3
+      size: 118031546
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: 51eac8178e5aef418fe228913bad6619
+      size: 7244
+    - path: outputs/events/explanations.parquet
+      hash: md5
+      md5: 622a1750fd67453319ab0e73cd72a9ed
+      size: 3643
+    - path: src/pipelines/decision_rules/pipeline.py
+      hash: md5
+      md5: 711880b14657345d3ffd4e9b1d48df48
+      size: 18598
+      isexec: true
+    - path: src/pipelines/decision_rules/reglas_decision.py
+      hash: md5
+      md5: 813e397b05bed35583cf044b00c77106
+      size: 45750
+      isexec: true
+    params:
+      configs/params.yaml:
+        mongo:
+          uri: mongodb://host.docker.internal:27017
+          database: exploitation_zone
+          collection: steam_reviews
+    outs:
+    - path: data/prepared/
+      hash: md5
+      md5: 131c14547961571dc42080d67a40d96d.dir
+      size: 244655489
+      nfiles: 32

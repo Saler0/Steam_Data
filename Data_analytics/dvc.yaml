@@ -168,7 +168,7 @@ stages:
 
   # --- Rama Paralela 2: Aplicación y Evaluación de Reglas de Decisión ---
   prepare:
-    cmd: python src/pipelines/decision_rules/pipeline.py prepare --config configs/params.yaml
+    cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare --config configs/params.yaml
     deps:
       - src/pipelines/decision_rules/pipeline.py
       - src/pipelines/decision_rules/reglas_decision.py
@@ -183,7 +183,7 @@ stages:
       - data/prepared/
 
   apply_rules:
-    cmd: python src/pipelines/decision_rules/pipeline.py apply_rules --config configs/params.yaml
+    cmd: python src/pipelines/decision_rules/pipeline.py --stage apply_rules --config configs/params.yaml
     deps:
       - src/pipelines/decision_rules/pipeline.py
       - src/pipelines/decision_rules/reglas_decision.py
@@ -208,7 +208,7 @@ stages:
       - data/with_rules/
 
   evaluate:
-    cmd: python src/pipelines/decision_rules/pipeline.py evaluate --config configs/params.yaml
+    cmd: python src/pipelines/decision_rules/pipeline.py --stage evaluate --config configs/params.yaml
     deps:
       - src/pipelines/decision_rules/pipeline.py
       - data/with_rules/
