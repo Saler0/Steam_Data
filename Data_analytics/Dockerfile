@@ -42,6 +42,8 @@ ENV MLFLOW_TRACKING_URI=http://mlflow:5000
 ENV GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp.json
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="/usr/local/bin:${JAVA_HOME}/bin:${PATH}"
+# Evita deadlocks/avisos de HuggingFace tokenizers en procesos forkeados (Ray)
+ENV TOKENIZERS_PARALLELISM=false
 # El comando por defecto ha sido movido a docker-compose.yml,
 # lo que es más flexible. Dejar el Dockerfile sin CMD es una práctica común
 # para imágenes que se usarán en diferentes contextos.

@@ -37,10 +37,12 @@ def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
     months_raw = pd.to_datetime(group['year_month'], errors='coerce').dropna().tolist()
     target_months: list = []
     for ts in months_raw:
-        if ts.tzinfo is None:
-            normalized = ts.tz_localize('UTC').to_period('M').to_timestamp(tz='UTC')
-        else:
-            normalized = ts.tz_convert('UTC').to_period('M').to_timestamp(tz='UTC')
+        ts = pd.Timestamp(ts)
+        # Normalizar a mes (naive, sin tz) para consistencia con el resto del pipeline
+        if ts.tzinfo is not None:
+            # Convertir a UTC y quitar tz antes de pasar a Period
+            ts = ts.tz_convert('UTC').tz_localize(None)
+        normalized = ts.to_period('M').to_timestamp()
         target_months.append(normalized)
     external_data = load_external_signals(
         appid,

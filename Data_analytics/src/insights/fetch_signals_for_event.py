@@ -33,7 +33,8 @@ def main() -> None:
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     signals_cfg = cfg.get("signals", {})
 
-    target_month = pd.Timestamp(f"{args.year_month}-01", tz="UTC").to_period("M").to_timestamp(tz="UTC")
+    # Normaliza a inicio de mes (naive) para que coincida con el resto del pipeline
+    target_month = pd.Timestamp(f"{args.year_month}-01").to_period("M").to_timestamp()
     month_list = [target_month]
     appid = str(args.appid)
 

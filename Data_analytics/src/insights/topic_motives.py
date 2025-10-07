@@ -79,6 +79,11 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             random.seed(42)
             reviews = random.sample(reviews, max_docs)
         
+        # Asegurar mínimo de documentos acorde a min_df del vectorizador
+        min_df_cfg = int(topic_cfg.get('min_df', 5))
+        if len(reviews) < min_df_cfg:
+            print(f"  -> No hay suficientes reseñas ({len(reviews)}) para modelar tópicos.")
+            continue
         if len(reviews) < topic_model.min_topic_size:
             print(f"  -> No hay suficientes reseñas ({len(reviews)}) para modelar tópicos.")
             continue
@@ -194,19 +199,40 @@ def load_reviews_for_window(appid: str, start_date: pd.Timestamp, end_date: pd.T
     return out
 
 def resolve_env_vars(config):
-    """Resuelve las variables de entorno en un diccionario de configuración."""
-    def replace_var(match):
-        var = match.group(1)
-        default = match.group(2) if ':' in var else ''
-        var_name = var.split(':')[0]
-        return os.environ.get(var_name, default) if var_name else default
-    pattern = r'\${([^}^{:]+)(?::-[^}]*)?}'
+    """Resuelve ${VAR:-default} en un diccionario de configuración.
+
+    - Usa el valor de entorno si está definido y no es cadena vacía.
+    - En caso contrario, usa el default provisto (si existe) o "".
+    """
+    pattern = re.compile(r"\${([^}]+)}")
+
+    def _replace_one(s: str) -> str:
+        m = pattern.search(s)
+        if not m:
+            return s
+        expr = m.group(1)
+        if ':-' in expr:
+            var_name, default = expr.split(':-', 1)
+        else:
+            var_name, default = expr, ''
+        env_val = os.environ.get(var_name)
+        value = env_val if env_val not in (None, '') else default
+        return s[: m.start()] + value + s[m.end():]
+
+    out = {}
     for key, value in config.items():
         if isinstance(value, str):
-            config[key] = re.sub(pattern, replace_var, value)
+            prev = None
+            cur = value
+            while prev != cur:
+                prev = cur
+                cur = _replace_one(cur)
+            out[key] = cur
         elif isinstance(value, dict):
-            config[key] = resolve_env_vars(value)
-    return config
+            out[key] = resolve_env_vars(value)
+        else:
+            out[key] = value
+    return out
 
 def main():
     ap = argparse.ArgumentParser()

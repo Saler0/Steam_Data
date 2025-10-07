@@ -190,19 +190,41 @@ def _select_mlflow_experiment(cfg: Dict) -> str:
     return cfg.get("mlflow_experiment_name", "Steam_Events_Classification")
 
 def resolve_env_vars(config):
-    """Resuelve las variables de entorno en un diccionario de configuración."""
-    def replace_var(match):
-        var = match.group(1)
-        default = match.group(2) if ':' in var else ''
-        var_name = var.split(':')[0]
-        return os.environ.get(var_name, default) if var_name else default
-    pattern = r'\${([^}^{:]+)(?::-[^}]*)?}'
+    """Resuelve ${VAR:-default} en un diccionario de configuración.
+
+    - Usa el valor de entorno si está definido y no es cadena vacía.
+    - En caso contrario, usa el default provisto (si existe) o "".
+    """
+    pattern = re.compile(r"\${([^}]+)}")
+
+    def _replace_one(s: str) -> str:
+        m = pattern.search(s)
+        if not m:
+            return s
+        expr = m.group(1)
+        if ':-' in expr:
+            var_name, default = expr.split(':-', 1)
+        else:
+            var_name, default = expr, ''
+        env_val = os.environ.get(var_name)
+        value = env_val if env_val not in (None, '') else default
+        return s[: m.start()] + value + s[m.end():]
+
+    out = {}
     for key, value in config.items():
         if isinstance(value, str):
-            config[key] = re.sub(pattern, replace_var, value)
+            prev = None
+            cur = value
+            # Reemplazar iterativamente por si hay varias variables en la misma cadena
+            while prev != cur:
+                prev = cur
+                cur = _replace_one(cur)
+            out[key] = cur
         elif isinstance(value, dict):
-            config[key] = resolve_env_vars(value)
-    return config
+            out[key] = resolve_env_vars(value)
+        else:
+            out[key] = value
+    return out
 
 def main():
     """Punto de entrada principal del script."""

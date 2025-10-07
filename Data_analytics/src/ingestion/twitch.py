@@ -22,9 +22,10 @@ def _normalize_months(months: Optional[Iterable]) -> list[pd.Timestamp]:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts):
             continue
-        if ts.tzinfo is None:
-            ts = ts.tz_localize("UTC")
-        out.append(ts.to_period("M").to_timestamp(tz="UTC"))
+        if ts.tzinfo is not None:
+            # Convertir a UTC y quitar tz para unificar formato naive
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        out.append(ts.to_period("M").to_timestamp())
     return sorted(set(out))
 
 
@@ -144,15 +145,16 @@ def load_twitch_monthly(
 
     months = _normalize_months(target_months)
     if months:
-        start_date = months[0].tz_convert(None) if getattr(months[0], 'tzinfo', None) else months[0]
-        end_date = months[-1].tz_convert(None) if getattr(months[-1], 'tzinfo', None) else months[-1]
+        # months ya viene normalizado a naive (inicio de mes)
+        start_date = months[0]
+        end_date = months[-1]
     else:
         months_back = int(cfg.get("months_back", 6))
         end_date = pd.Timestamp.utcnow()
         start_date = end_date - pd.DateOffset(months=months_back)
-    # Extend range to cover full months
-    start_date = pd.Timestamp(start_date).to_period("M").to_timestamp(tz="UTC")
-    end_date = (pd.Timestamp(end_date).to_period("M").to_timestamp(tz="UTC") + pd.offsets.MonthEnd(1))
+    # Extiende el rango a meses completos: naive -> localiza UTC para la API
+    start_date = pd.Timestamp(start_date).to_period("M").to_timestamp().tz_localize("UTC")
+    end_date = (pd.Timestamp(end_date).to_period("M").to_timestamp().tz_localize("UTC") + pd.offsets.MonthEnd(1))
 
     client_id = cfg.get("client_id")
     client_secret = cfg.get("client_secret")

@@ -22,9 +22,10 @@ def _normalize_months(months: Optional[Iterable]) -> list[pd.Timestamp]:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts):
             continue
-        if ts.tzinfo is None:
-            ts = ts.tz_localize("UTC")
-        out.append(ts.to_period("M").to_timestamp(tz="UTC"))
+        if ts.tzinfo is not None:
+            # Convertir a UTC y quitar tz para unificar formato naive
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        out.append(ts.to_period("M").to_timestamp())
     return sorted(set(out))
 
 
@@ -169,8 +170,9 @@ def load_youtube_monthly(
         months_back = int(cfg.get("months_back", 6))
         end_date = pd.Timestamp.utcnow().tz_localize("UTC")
         start_date = end_date - pd.DateOffset(months=months_back)
-    start_iso = start_date.to_period("M").to_timestamp(tz="UTC").isoformat()
-    end_iso = (end_date.to_period("M").to_timestamp(tz="UTC") + pd.offsets.MonthEnd(1)).isoformat()
+    # Pasar a inicio de mes (naive) y luego marcar como UTC para RFC3339
+    start_iso = start_date.to_period("M").to_timestamp().tz_localize("UTC").isoformat()
+    end_iso = (end_date.to_period("M").to_timestamp().tz_localize("UTC") + pd.offsets.MonthEnd(1)).isoformat()
 
     cache_dir = Path(cfg.get("api_cache_dir", "data/external/youtube/api_cache"))
     cache_path = cache_dir / f"{appid}.parquet"
