@@ -173,6 +173,11 @@ llm:
   model_id: "gpt-4.1-mini"
   # Clasificación en lotes para reducir coste/latencia
   batch_size: 20
+  # Extraer palabras clave por noticia
+  keywords_enabled: true
+  keywords_max: 6
+  # Usar también el campo 'contents' como contexto (si existe)
+  use_contents: false
   # Nombre de la variable de entorno para el API key (por defecto OPENAI_API_KEY)
   api_key_env: ${LLM_API_KEY_ENV:-OPENAI_API_KEY}
   # Base URL opcional (permite proxys o pass-through). Por defecto api.openai.com/v1

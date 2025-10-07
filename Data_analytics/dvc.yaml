@@ -228,7 +228,7 @@ stages:
       - data/warehouse/reviews_monthly.parquet
       - data/warehouse/players_monthly.parquet
     outs:
-      - outputs/ccf_analysis/summary.parquet
+      # CCF summary es opcional para client_report; el script lo maneja si falta
       - outputs/ccf_analysis/consistency.parquet
 
   cluster_history:

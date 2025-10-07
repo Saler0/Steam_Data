@@ -151,34 +151,85 @@ def distinct_appids(mongo_cfg: Dict) -> List[int]:
         print(f"No se pudieron obtener appids distintos de Mongo: {e}")
         return []
 
-def classify_single_news(title: str, llm_cfg: Dict) -> str | None:
-    """Clasifica un título de noticia. Normaliza y valida contra etiquetas permitidas."""
+def classify_single_news(title: str, llm_cfg: Dict, contents: str | None = None) -> Tuple[str | None, List[str]]:
+    """Clasifica un título (y opcionalmente contenido) y extrae keywords.
+
+    Devuelve (label, keywords). La label pertenece a allowed o None; keywords es lista posiblemente vacía.
+    """
     labels_cfg = llm_cfg.get("news_labels", []) or []
     allowed = {str(x).strip().lower() for x in labels_cfg}
     labels_str = ", ".join(labels_cfg)
-    prompt = (
-        f"Clasifica la siguiente noticia en una de estas categorías: [{labels_str}]. "
-        f"Responde solo con una categoría exacta.\n\nNoticia: '{title}'\n\nCategoría:"
-    )
+    want_kw = bool(llm_cfg.get("keywords_enabled", True))
+    kw_max = int(llm_cfg.get("keywords_max", 6))
+    use_contents = bool(llm_cfg.get("use_contents", False))
+
+    extra = ""
+    if use_contents and contents:
+        snippet = str(contents)[:500]
+        extra = f"\nContenido: '{snippet}'"
+
+    if want_kw:
+        prompt = (
+            "Clasifica la noticia y extrae palabras clave. Devuelve JSON.\n"
+            f"Categorias: [{labels_str}].\n"
+            "Formato estricto: {\"label\": <categoria>, \"keywords\": [<kw1>, <kw2>, ...]}\n"
+            f"Maximo {kw_max} keywords, concretas (frases cortas), sin repetir la categoria.\n\n"
+            f"Titulo: '{title}'{extra}\n\n"
+            "JSON:"
+        )
+    else:
+        prompt = (
+            f"Clasifica la siguiente noticia en una de estas categorías: [{labels_str}]. "
+            f"Responde solo con una categoría exacta.\n\nNoticia: '{title}'\n\nCategoría:"
+        )
+
     raw = query_llm(prompt, llm_cfg)
-    label = (raw or "").strip().lower()
-    # Correcciones simples de alias
-    aliases = {"patches": "patch", "marketing/ads": "marketing", "community update": "community"}
-    label = aliases.get(label, label)
-    return label if label in allowed else None
+    def _norm_label(val: str | None) -> str | None:
+        label = (val or "").strip().lower()
+        aliases = {"patches": "patch", "marketing/ads": "marketing", "community update": "community"}
+        label = aliases.get(label, label)
+        return label if label in allowed else None
+
+    label_out: str | None = None
+    keywords_out: List[str] = []
+    if want_kw and raw:
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                label_out = _norm_label(str(obj.get("label")))
+                kws = obj.get("keywords")
+                if isinstance(kws, list):
+                    keywords_out = [str(k).strip() for k in kws if str(k).strip()]
+        except Exception:
+            pass
+    if label_out is None:
+        label_out = _norm_label(raw)
+
+    if want_kw and not keywords_out:
+        import re as _re
+        quoted = _re.findall(r"['\"]([^'\"]{3,60})['\"]", title)
+        keywords_out = [q.strip() for q in quoted][:kw_max]
+
+    if kw_max and len(keywords_out) > kw_max:
+        keywords_out = keywords_out[:kw_max]
+    return label_out, keywords_out
 
 def classify_news_parallel(news_df: pd.DataFrame, llm_cfg: Dict) -> pd.DataFrame:
-    """Clasifica noticias; usa batching si está configurado, si no paralelo por título."""
+    """Clasifica noticias en paralelo y añade 'keywords' (lista de strings)."""
     batch_size = int(llm_cfg.get("batch_size", 0) or 0)
     if batch_size > 0:
         return classify_news_batched(news_df, llm_cfg, batch_size)
-    titles = news_df['title'].tolist()
+    has_contents = 'contents' in news_df.columns
+    rows = news_df[['title','contents']].to_dict(orient='records') if has_contents else news_df[['title']].assign(contents=None).to_dict(orient='records')
     max_workers = llm_cfg.get("max_workers", 8)
-    worker_fn = partial(classify_single_news, llm_cfg=llm_cfg)
+    def _worker(r: Dict) -> Tuple[str | None, List[str]]:
+        return classify_single_news(r['title'], llm_cfg, r.get('contents'))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        labels = list(executor.map(worker_fn, titles))
+        results = list(executor.map(_worker, rows))
+    labels, keywords = zip(*results) if results else ([], [])
     news_df_copy = news_df.copy()
-    news_df_copy['label'] = labels
+    news_df_copy['label'] = list(labels)
+    news_df_copy['keywords'] = list(keywords)
     return news_df_copy.dropna(subset=['label']).reset_index(drop=True)
 
 def _normalize_label(raw: str, allowed: set[str]) -> str | None:
@@ -188,49 +239,67 @@ def _normalize_label(raw: str, allowed: set[str]) -> str | None:
     return label if label in allowed else None
 
 def classify_news_batched(news_df: pd.DataFrame, llm_cfg: Dict, batch_size: int = 20) -> pd.DataFrame:
-    """Clasifica noticias en lotes con una única llamada por lote.
-
-    Espera respuesta como JSON array con una etiqueta por título.
-    """
+    """Clasifica noticias en lotes; devuelve label + keywords por fila."""
     allowed = {str(x).strip().lower() for x in (llm_cfg.get("news_labels", []) or [])}
+    want_kw = bool(llm_cfg.get("keywords_enabled", True))
+    kw_max = int(llm_cfg.get("keywords_max", 6))
     titles = news_df['title'].tolist()
     labels_out: list[str | None] = [None] * len(titles)
+    keywords_out: list[List[str]] = [[] for _ in range(len(titles))]
+
+    def _normalize_label(raw: str | None) -> str | None:
+        label = (raw or "").strip().lower()
+        aliases = {"patches": "patch", "marketing/ads": "marketing", "community update": "community"}
+        label = aliases.get(label, label)
+        return label if label in allowed else None
 
     for i in range(0, len(titles), batch_size):
         chunk = titles[i:i+batch_size]
-        # Construir prompt con instrucciones claras y formato JSON
         labels_str = ", ".join(sorted(allowed))
-        prompt = (
-            "Eres un clasificador. Dada una lista JSON de títulos de noticias, "
-            f"devuelve un JSON array con exactamente {len(chunk)} etiquetas, una por cada título, "
-            f"usando solo estas categorías: [{labels_str}]. No expliques nada más.\n\n"
-            f"Títulos (JSON): {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            "Responde únicamente con un JSON array de etiquetas."
-        )
+        if want_kw:
+            prompt = (
+                "Eres un clasificador. Dada una lista JSON de títulos, "
+                f"devuelve un JSON array de objetos con exactamente {len(chunk)} elementos. Cada objeto: {{\"label\": <categoria>, \"keywords\": [..]}}.\n"
+                f"Usa solo categorías: [{labels_str}]. Máx {kw_max} keywords por título, frases cortas específicas, sin repetir la categoría.\n\n"
+                f"Títulos (JSON): {json.dumps(chunk, ensure_ascii=False)}\n\nRespuesta JSON:"
+            )
+        else:
+            prompt = (
+                "Eres un clasificador. Dada una lista JSON de títulos de noticias, "
+                f"devuelve un JSON array con exactamente {len(chunk)} etiquetas, una por cada título, "
+                f"usando solo estas categorías: [{labels_str}].\n\n"
+                f"Títulos (JSON): {json.dumps(chunk, ensure_ascii=False)}\n\nRespuesta JSON:"
+            )
         resp = query_llm(prompt, llm_cfg)
-        parsed: list[str] | None = None
+        ok = False
         if resp:
-            # Intentar parsear como JSON array
             try:
                 parsed_json = json.loads(resp)
-                if isinstance(parsed_json, list):
-                    parsed = [str(x) for x in parsed_json]
+                if want_kw and isinstance(parsed_json, list):
+                    ok = True
+                    for j, item in enumerate(parsed_json[:len(chunk)]):
+                        lbl = _normalize_label((item or {}).get('label'))
+                        kws = item.get('keywords') if isinstance(item, dict) else []
+                        kws = [str(k).strip() for k in (kws or []) if str(k).strip()][:kw_max]
+                        labels_out[i + j] = lbl
+                        keywords_out[i + j] = kws
+                elif not want_kw and isinstance(parsed_json, list):
+                    ok = True
+                    for j, raw in enumerate(parsed_json[:len(chunk)]):
+                        labels_out[i + j] = _normalize_label(str(raw))
             except Exception:
-                # fallback: intentar separar por líneas
-                lines = [ln.strip(" -•\t") for ln in resp.splitlines() if ln.strip()]
-                if len(lines) == len(chunk):
-                    parsed = lines
-        if not parsed or len(parsed) != len(chunk):
-            # Fallback por elemento para este lote
+                ok = False
+        if not ok:
             worker_fn = partial(classify_single_news, llm_cfg=llm_cfg)
             with ThreadPoolExecutor(max_workers=llm_cfg.get("max_workers", 8)) as ex:
-                parsed = list(ex.map(worker_fn, chunk))
-        # Normalizar y validar
-        for j, raw in enumerate(parsed):
-            labels_out[i + j] = _normalize_label(raw or "", allowed)
+                res = list(ex.map(lambda t: worker_fn(t, None), chunk))
+            for j, (lbl, kws) in enumerate(res):
+                labels_out[i + j] = lbl
+                keywords_out[i + j] = (kws or [])[:kw_max]
 
     news_df_copy = news_df.copy()
     news_df_copy['label'] = labels_out
+    news_df_copy['keywords'] = keywords_out
     return news_df_copy.dropna(subset=['label']).reset_index(drop=True)
 
 def _merge_parquet_safely(df_new: pd.DataFrame, path: Path, key_cols: list[str]) -> pd.DataFrame:

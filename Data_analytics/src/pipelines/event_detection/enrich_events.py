@@ -30,7 +30,8 @@ from src.ingestion.dlcs import load_dlcs_for_game
 def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
                             game_name: str | None,
                             news_counts_df: pd.DataFrame | None = None,
-                            topics_labels_df: pd.DataFrame | None = None) -> pd.DataFrame:
+                            topics_labels_df: pd.DataFrame | None = None,
+                            news_kw_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Enriquece los eventos de un unico juego."""
     signals_cfg = cfg.get('signals', {})
     dlc_cfg = cfg.get('dlc', {})
@@ -53,6 +54,15 @@ def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
         news_counts_df=news_counts_df,
         topics_labels_df=topics_labels_df,
     )
+    # Adjuntar keywords de noticias si existen
+    if news_kw_df is not None and not news_kw_df.empty:
+        subkw = news_kw_df[news_kw_df['appid'].astype(str) == str(appid)].copy()
+        if not subkw.empty:
+            subkw['year_month'] = pd.to_datetime(subkw['year_month'])
+            ext_kw = subkw.set_index('year_month')
+            ext_kw = ext_kw[['news_keywords','news_patch_keywords']].copy()
+            external_data['news_kw'] = ext_kw
+
     explanations = enrich_group(group, external_data)
     return pd.DataFrame(explanations) if explanations else pd.DataFrame()
 
@@ -127,6 +137,13 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
     g = group.copy()
     g['year_month'] = pd.to_datetime(g['year_month'])
 
+    # Precalcular picos por variable para reglas causales simples
+    try:
+        players_peaks = set(pd.to_datetime(g[(g['variable'] == 'players') & (g['direction'] == 'peak')]['year_month']))
+        pos_peaks = set(pd.to_datetime(g[(g['variable'].isin(['pos', 'positive'])) & (g['direction'] == 'peak')]['year_month']))
+    except Exception:
+        players_peaks, pos_peaks = set(), set()
+
     for _, ev in g.iterrows():
         ym = ev['year_month']
         rec = {
@@ -168,6 +185,22 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
                     except Exception:
                         pass
 
+        # Palabras clave de noticias (top-k agregadas por mes)
+        news_kw = external_data.get('news_kw')
+        if news_kw is not None and ym in news_kw.index:
+            try:
+                kws = news_kw.loc[ym, 'news_keywords'] if 'news_keywords' in news_kw.columns else None
+                if isinstance(kws, list) and kws:
+                    rec['news_keywords'] = [str(x) for x in kws if str(x).strip()][:10]
+            except Exception:
+                pass
+            try:
+                pk = news_kw.loc[ym, 'news_patch_keywords'] if 'news_patch_keywords' in news_kw.columns else None
+                if isinstance(pk, list) and pk:
+                    rec['news_patch_keywords'] = [str(x) for x in pk if str(x).strip()][:10]
+            except Exception:
+                pass
+
         # Tópicos etiquetados (lista de etiquetas)
         tlabels = external_data.get('topics_labels')
         if tlabels is not None and ym in tlabels.index:
@@ -177,6 +210,20 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
             elif isinstance(val, str) and val:
                 # separar por coma si viene serializado
                 rec['topics_labels'] = [x.strip() for x in val.split(',') if x.strip()]
+
+        # Heurística causal: pico de players y pico de reseñas positivas con parche el mismo mes
+        try:
+            has_players_peak = ym in players_peaks
+            has_pos_peak = ym in pos_peaks
+            news_patch = int(rec.get('news_patch', 0)) if rec.get('news_patch') is not None else 0
+            if has_players_peak and has_pos_peak and news_patch > 0:
+                rec['possible_patch_cause'] = True
+                # Resumen breve usando keywords si están disponibles
+                kw = rec.get('news_patch_keywords') or rec.get('news_keywords') or []
+                if isinstance(kw, list) and kw:
+                    rec['patch_summary'] = ", ".join([str(x) for x in kw[:3]])
+        except Exception:
+            pass
 
         out.append(rec)
 
@@ -313,6 +360,46 @@ def main():
         except Exception as e:
             print(f"[WARN] No se pudo cargar/extraer topics etiquetados: {e}")
 
+        # --- Cargar keywords agregadas de noticias ---
+        news_kw_df = pd.DataFrame()
+        try:
+            news_path = outdir / 'news_classified.parquet'
+            if news_path.exists():
+                df_nc = read_parquet_any(news_path)
+                if not df_nc.empty and 'title' in df_nc.columns:
+                    tmp = df_nc.copy()
+                    tmp['appid'] = tmp['appid'].astype(str)
+                    if 'year_month' not in tmp.columns:
+                        if 'date' in tmp.columns:
+                            tmp['year_month'] = pd.to_datetime(tmp['date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
+                        else:
+                            tmp['year_month'] = pd.NaT
+                    # Explode keywords si existen
+                    if 'keywords' in tmp.columns:
+                        # Top-k por appid/mes y por etiqueta 'patch'
+                        def _topk(series, k=5):
+                            vc = series.value_counts()
+                            return [str(x) for x in vc.index.tolist()[:k]]
+                        # Todas
+                        all_kw = (tmp.explode('keywords')
+                                    .dropna(subset=['keywords'])
+                                    .groupby(['appid','year_month'])['keywords']
+                                    .apply(lambda s: _topk(s, 5))
+                                    .reset_index(name='news_keywords'))
+                        # Solo patch
+                        if 'label' in tmp.columns:
+                            patch_kw = (tmp[tmp['label'].astype(str).str.lower()=='patch']
+                                          .explode('keywords')
+                                          .dropna(subset=['keywords'])
+                                          .groupby(['appid','year_month'])['keywords']
+                                          .apply(lambda s: _topk(s, 5))
+                                          .reset_index(name='news_patch_keywords'))
+                        else:
+                            patch_kw = pd.DataFrame(columns=['appid','year_month','news_patch_keywords'])
+                        news_kw_df = pd.merge(all_kw, patch_kw, on=['appid','year_month'], how='left')
+        except Exception as e:
+            print(f"[WARN] No se pudieron agregar keywords de noticias: {e}")
+
         event_groups = events_df.groupby('appid')
         
         print(f"Enriqueciendo eventos para {len(event_groups)} juegos de forma paralela...")
@@ -323,7 +410,7 @@ def main():
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
                 game_name = metadata_lookup.get(app) if metadata_lookup else None
-                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app))
+                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app, news_kw_df))
             results = ray.get(futures)
             try:
                 ray.shutdown()
@@ -337,7 +424,7 @@ def main():
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
                 game_name = metadata_lookup.get(app) if metadata_lookup else None
-                results.append(_enrich_events_for_game(app, group, cfg, game_name, news_app, tlabels_app))
+                results.append(_enrich_events_for_game(app, group, cfg, game_name, news_app, tlabels_app, news_kw_df))
         
         all_explanations = [res for res in results if not res.empty]
         
