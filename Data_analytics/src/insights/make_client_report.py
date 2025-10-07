@@ -17,11 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, StatisticsError
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+import os
+import sys
 
 import numpy as np
 import pandas as pd
 import yaml
 import mlflow
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from src.utils.config_utils import expand_env_in_obj
 from src.utils.mlflow_utils import log_mlflow_params, log_mlflow_metrics
 from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
