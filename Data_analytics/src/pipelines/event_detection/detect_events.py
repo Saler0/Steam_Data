@@ -26,6 +26,7 @@ from multiprocessing.pool import Pool
 
 from src.utils.io import read_parquet_any, write_parquet_any, path_exists
 from src.utils.timeseries import dlog
+import re
 
 def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str, date_filter: dict | None = None) -> pd.DataFrame | None:
     try:
@@ -41,6 +42,8 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 if date_filter and date_filter.get('end'):
                     expr = expr & (ds.field('year_month') < pd.to_datetime(date_filter['end']))
                 rv = ds_rv.to_table(filter=expr).to_pandas()
+                if rv is None or rv.empty:
+                    raise ValueError("empty_after_arrow_filter")
             except Exception:
                 rv = read_parquet_any(reviews_path)
                 rv = rv[rv['appid'].astype(str) == str(appid)].copy()
@@ -57,6 +60,8 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 if date_filter and date_filter.get('end'):
                     expr = expr & (ds.field('year_month') < pd.to_datetime(date_filter['end']))
                 pl = ds_pl.to_table(filter=expr).to_pandas()
+                if pl is None or pl.empty:
+                    raise ValueError("empty_after_arrow_filter")
             except Exception:
                 pl = read_parquet_any(players_path)
                 pl = pl[pl['appid'].astype(str) == str(appid)].copy()
@@ -70,6 +75,25 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
         return out.sort_values('year_month').fillna(0)
     except Exception:
         return None
+
+_ENV_PATTERN = re.compile(r"^\$\{([^}:]+)(?::-(.*))?\}$")
+
+def _resolve_env_placeholder(value: str):
+    if not isinstance(value, str):
+        return value
+    m = _ENV_PATTERN.match(value.strip())
+    if not m:
+        return value
+    var, default = m.group(1), m.group(2)
+    env_val = os.environ.get(var)
+    return env_val if env_val not in (None, "") else (default or "")
+
+def _resolve_mongo_cfg(mongo_cfg: dict) -> dict:
+    cfg = dict(mongo_cfg or {})
+    cfg['uri'] = _resolve_env_placeholder(cfg.get('uri')) or cfg.get('uri')
+    cfg['database'] = _resolve_env_placeholder(cfg.get('database')) or cfg.get('database')
+    cfg['collection'] = _resolve_env_placeholder(cfg.get('collection')) or cfg.get('collection')
+    return cfg
 
 def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg: dict | None = None, date_filter: dict | None = None) -> pd.DataFrame:
     """
@@ -95,12 +119,18 @@ def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg
             players_df['year_month'] = players_df['date'].dt.to_period('M').dt.to_timestamp()
             players_df = players_df.groupby('year_month')['players'].sum().reset_index()
 
-    # Cargar reseñas desde MongoDB
-    client = MongoClient(cfg_reviews['uri'])
-    col = client[cfg_reviews['database']][cfg_reviews['collection']]
-    cur = col.find({"appid": {"$in": [appid, appid_int]}}, {"_id": 0, "timestamp_created": 1, "voted_up": 1})
-    rows = list(cur)
-    client.close()
+    # Cargar reseñas desde MongoDB (si la URI es válida)
+    rows = []
+    try:
+        uri = (cfg_reviews or {}).get('uri')
+        if isinstance(uri, str) and (uri.startswith('mongodb://') or uri.startswith('mongodb+srv://')):
+            client = MongoClient(uri)
+            col = client[cfg_reviews['database']][cfg_reviews['collection']]
+            cur = col.find({"appid": {"$in": [appid, appid_int]}}, {"_id": 0, "timestamp_created": 1, "voted_up": 1})
+            rows = list(cur)
+            client.close()
+    except Exception:
+        rows = []
     
     if not rows and players_df.empty:
         return pd.DataFrame()
@@ -156,7 +186,7 @@ def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
     appid, cfg_ref = args
     cfg = ray.get(cfg_ref)  # Deserializa el ObjectRef a un diccionario
     cfg_players = cfg.get('players_data', {})
-    cfg_reviews = cfg.get('mongo_connection', {})
+    cfg_reviews = _resolve_mongo_cfg(cfg.get('mongo_connection', {}))
     z_thresh = float(cfg['detection']['zscore_threshold'])
     
     df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'), date_filter=cfg.get('date_filter'))
