@@ -316,9 +316,25 @@ echo [ERROR] Faltan argumentos para RunStageWithAppid.
 exit /b 1
 
 :RunSingleStage
+rem Ejecuta un stage. Para reglas de decisión, llama directamente al script con --stage
+if /I "%~1"=="prepare" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage prepare --config configs/params.yaml"
+  exit /b %errorlevel%
+)
+if /I "%~1"=="apply_rules" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage apply_rules --config configs/params.yaml"
+  exit /b %errorlevel%
+)
+if /I "%~1"=="evaluate" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage evaluate --config configs/params.yaml"
+  exit /b %errorlevel%
+)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
-  exit /b %errorlevel%
+exit /b %errorlevel%
 
 :run_neighbors
 echo.
