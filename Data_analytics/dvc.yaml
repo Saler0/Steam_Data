@@ -174,58 +174,9 @@ stages:
     outs:
       - outputs/events/explanations.parquet
 
-  # --- Rama Paralela 2: Aplicación y Evaluación de Reglas de Decisión ---
-  prepare:
-    cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - src/pipelines/decision_rules/reglas_decision.py
-      - data/processed/clusters.parquet
-      - outputs/events/events.parquet
-      - outputs/events/explanations.parquet
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - mongo
-    outs:
-      - data/prepared/
-
-  apply_rules:
-    cmd: python src/pipelines/decision_rules/pipeline.py --stage apply_rules --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - src/pipelines/decision_rules/reglas_decision.py
-      - data/prepared/
-      - data/processed/clusters.parquet
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - regla_precio
-          - justificacion_precio
-          - saturacion_cluster_1
-          - saturacion_cluster_2
-          - saturacion_cluster_3
-          - justificacion_actividad
-          - experiencia_jugador
-          - deteccion_abandono
-          - limitaciones_tecnicas
-          - evaluacion_limitaciones
-          - publishers_estudios
-          - prioridad_idiomas
-    outs:
-      - data/with_rules/
-
-  evaluate:
-    cmd: python src/pipelines/decision_rules/pipeline.py --stage evaluate --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - data/with_rules/
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - mlflow
-    outs:
-      - outputs/reports/metrics.json
+  # --- Rama Paralela 2 (deshabilitada): Reglas de Decisión
+  # Nota: estos stages se han movido al backend y se ejecutan fuera del pipeline offline.
+  # prepare/apply_rules/evaluate eliminados del pipeline DVC.
 
   # --- Rama Paralela 3: Análisis de Correlación Cruzada (CCF) ---
   ccf:

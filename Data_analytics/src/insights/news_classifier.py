@@ -22,11 +22,47 @@ import requests
 from requests.exceptions import RequestException, ConnectionError as RequestsConnectionError
 from pymongo import MongoClient
 import joblib
+import numpy as np
 
 # Ensure project root is importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.utils.io import read_parquet_any, write_parquet_any
+
+_SVM_CACHE: Dict[str, joblib] = {}
+
+def _svm_predict_and_keywords(text: str, llm_cfg: Dict) -> Tuple[str | None, List[str]]:
+    path = llm_cfg.get("model_path", "models/news_svm.joblib")
+    pipe = _SVM_CACHE.get(path)
+    if pipe is None:
+        try:
+            pipe = joblib.load(path)
+            _SVM_CACHE[path] = pipe
+        except Exception as e:
+            print(f"  -> SVM model not available: {e}")
+            return None, []
+    try:
+        label = str(pipe.predict([text])[0])
+    except Exception as e:
+        print(f"  -> SVM inference failed: {e}")
+        return None, []
+    # Extraer top-n ngrams por TF-IDF del documento
+    kws: List[str] = []
+    try:
+        tfidf = pipe.named_steps.get('tfidf')
+        if tfidf is not None:
+            vec = tfidf.transform([text])
+            if hasattr(tfidf, 'get_feature_names_out'):
+                feats = tfidf.get_feature_names_out()
+            else:
+                feats = np.array([])
+            arr = vec.toarray().ravel()
+            topk = int(llm_cfg.get('keywords_max', 6))
+            idxs = np.argsort(arr)[::-1]
+            kws = [str(feats[i]) for i in idxs if i < len(feats) and arr[i] > 0][:topk]
+    except Exception:
+        pass
+    return label, kws
 
 def query_llm(prompt: str, llm_cfg: Dict) -> str:
     """Envía un prompt al LLM seleccionado y devuelve el texto.
@@ -185,9 +221,12 @@ def classify_single_news(title: str, llm_cfg: Dict, contents: str | None = None)
         extra = f"\nContenido: '{snippet}'"
 
     if str(llm_cfg.get("provider", "")).lower() == "svm":
-        # Clasificación local: usar el modelo SVM y no generar keywords
-        label_only = query_llm(title, llm_cfg)
-        return (label_only if label_only else None, [])
+        # Clasificación local: SVM + keywords por TF-IDF del documento
+        text = title
+        if use_contents and contents:
+            text = f"{title} \n {str(contents)[:500]}"
+        label_svm, kws = _svm_predict_and_keywords(text, llm_cfg)
+        return (label_svm if label_svm else None, kws)
 
     if want_kw:
         prompt = (

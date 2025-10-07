@@ -317,21 +317,7 @@ exit /b 1
 
 :RunSingleStage
 rem Ejecuta un stage. Para reglas de decisión, llama directamente al script con --stage
-if /I "%~1"=="prepare" (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage prepare --config configs/params.yaml"
-  exit /b %errorlevel%
-)
-if /I "%~1"=="apply_rules" (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage apply_rules --config configs/params.yaml"
-  exit /b %errorlevel%
-)
-if /I "%~1"=="evaluate" (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/decision_rules/pipeline.py --stage evaluate --config configs/params.yaml"
-  exit /b %errorlevel%
-)
+rem Las reglas de decisión han sido movidas al backend; no se ejecutan aquí
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
 exit /b %errorlevel%
@@ -440,14 +426,7 @@ if errorlevel 1 goto :neighbors_failed
 call :RunSingleStage review_segments
 if errorlevel 1 goto :neighbors_failed
 
-rem Reglas de decision (prepare/apply/evaluate)
-echo [INFO] Ejecutando reglas de decision...
-call :RunSingleStage prepare
-if errorlevel 1 goto :neighbors_failed
-call :RunSingleStage apply_rules
-if errorlevel 1 goto :neighbors_failed
-call :RunSingleStage evaluate
-if errorlevel 1 goto :neighbors_failed
+rem Reglas de decisión deshabilitadas en el pipeline offline
 
 rem Generar reporte de cliente (usa configs/params.yaml:client_report)
 echo [INFO] Generando client_report a partir de params...
