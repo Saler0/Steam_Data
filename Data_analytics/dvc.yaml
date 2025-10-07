@@ -41,7 +41,7 @@ stages:
       - configs/embeddings.yaml
     outs:
       - data/processed/embeddings/
-      - data/processed/embeddings/embeddings.parquet
+      - data/processed/embeddings.parquet
 
   # --- Etapa 2: Agrupación de Juegos (Clustering) ---
   clustering:
