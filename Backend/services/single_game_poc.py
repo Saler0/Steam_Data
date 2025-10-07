@@ -381,9 +381,8 @@ class SingleGamePoCService:
             query_cluster_id = None
 
         neighbors_list: List[Dict[str, Any]] = []
-        diagnostics: Dict[str, Any] = {}
         if self.embedding_index is not None:
-            neighbors_list, diagnostics = select_competitor_neighbors(
+            neighbors_list = select_competitor_neighbors(
                 query_vec=vector,
                 query_metadata=sample_metadata,
                 query_appid=None,
@@ -403,14 +402,11 @@ class SingleGamePoCService:
                 top_k=neighbors,
                 min_similarity=min_similarity,
             )
-            diagnostics = {"fallback": True}
-        else:
-            diagnostics.setdefault("fallback", False)
+
 
         return {
             "best_cluster_id": best_cluster,
             "best_cluster_similarity": best_similarity,
             "neighbors": neighbors_list[:neighbors],
-            "diagnostics": diagnostics,
         }
 
