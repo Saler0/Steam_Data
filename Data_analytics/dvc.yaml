@@ -145,6 +145,14 @@ stages:
     outs:
       - outputs/events/news_classified.parquet
 
+  news_train:
+    cmd: python src/insights/train_news_classifier.py --input outputs/events/news_classified.parquet --text-cols title,contents --model-out models/news_svm.joblib
+    deps:
+      - src/insights/train_news_classifier.py
+      - outputs/events/news_classified.parquet
+    outs:
+      - models/news_svm.joblib
+
   label_topics:
     cmd: python src/insights/label_topics.py --config configs/events.yaml
     deps:

@@ -178,6 +178,11 @@ llm:
   keywords_max: 6
   # Usar también el campo 'contents' como contexto (si existe)
   use_contents: false
+
+  # Alternativa sin tokens: clasificador local (SVM) entrenado con etiquetas del LLM
+  # Para usarlo, cambia provider: "svm" y asegúrate de entrenar el modelo (stage news_train)
+  # provider: "svm"
+  # model_path: models/news_svm.joblib
   # Nombre de la variable de entorno para el API key (por defecto OPENAI_API_KEY)
   api_key_env: ${LLM_API_KEY_ENV:-OPENAI_API_KEY}
   # Base URL opcional (permite proxys o pass-through). Por defecto api.openai.com/v1

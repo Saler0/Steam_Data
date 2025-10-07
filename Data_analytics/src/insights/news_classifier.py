@@ -10,7 +10,7 @@ import yaml
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import os
 import time
 import sys
@@ -21,6 +21,7 @@ import pandas as pd
 import requests
 from requests.exceptions import RequestException, ConnectionError as RequestsConnectionError
 from pymongo import MongoClient
+import joblib
 
 # Ensure project root is importable
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -39,8 +40,23 @@ def query_llm(prompt: str, llm_cfg: Dict) -> str:
     temperature = llm_cfg.get("temperature", 0.1)
     messages = [{"role": "user", "content": prompt}]
 
-    # 1) OpenAI (REST)
+    # 0) Clasificador local (SVM) opcional
     provider = str(llm_cfg.get("provider", "")).lower()
+    if provider == "svm":
+        model_path = llm_cfg.get("model_path", "models/news_svm.joblib")
+        try:
+            pipe = joblib.load(model_path)
+        except Exception as e:
+            print(f"  -> SVM model not available: {e}")
+            return ""
+        # Para SVM, el "prompt" aquí es realmente el texto a clasificar
+        try:
+            return str(pipe.predict([prompt])[0])
+        except Exception as e:
+            print(f"  -> SVM inference failed: {e}")
+            return ""
+
+    # 1) OpenAI (REST)
     api_key = llm_cfg.get("api_key") or os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"))
     base_url = llm_cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     if provider == "openai" or (provider == "" and api_key):
@@ -167,6 +183,11 @@ def classify_single_news(title: str, llm_cfg: Dict, contents: str | None = None)
     if use_contents and contents:
         snippet = str(contents)[:500]
         extra = f"\nContenido: '{snippet}'"
+
+    if str(llm_cfg.get("provider", "")).lower() == "svm":
+        # Clasificación local: usar el modelo SVM y no generar keywords
+        label_only = query_llm(title, llm_cfg)
+        return (label_only if label_only else None, [])
 
     if want_kw:
         prompt = (
