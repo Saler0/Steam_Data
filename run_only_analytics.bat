@@ -50,6 +50,7 @@ set "PG_TABLE="
 set "RUN_POC_CLIENT=0"
 set "CLIENT_ID="
 set "CLIENT_FILE="
+set "RUN_OFFLINE_ALL=0"
 
 set "APPID_BUILDING=0"
 for %%A in (%*) do (
@@ -63,6 +64,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="players-pg" set "RUN_PLAYERS_PG=1"
     if /I "!ARG:~0,9!"=="pg-table=" set "PG_TABLE=!ARG:~9!"
     if /I "!ARG!"=="poc-client" set "RUN_POC_CLIENT=1"
+    if /I "!ARG!"=="offline-all" set "RUN_OFFLINE_ALL=1"
     if /I "!ARG:~0,10!"=="client_id=" set "CLIENT_ID=!ARG:~10!"
     if /I "!ARG:~0,12!"=="client_file=" set "CLIENT_FILE=!ARG:~12!"
     if /I "!ARG!"=="preagg-only" (
@@ -97,6 +99,7 @@ if "!RUN_NEIGHBORS!"=="1" goto :run_neighbors
 if "!RUN_POC!"=="1" goto :run_poc
 if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 if "!RUN_POC_CLIENT!"=="1" goto :run_poc_client
+if "!RUN_OFFLINE_ALL!"=="1" goto :run_offline_all
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -428,17 +431,25 @@ if errorlevel 1 goto :neighbors_failed
 
 rem Reglas de decisión deshabilitadas en el pipeline offline
 
-rem Generar reporte de cliente (usa configs/params.yaml:client_report)
-echo [INFO] Generando client_report a partir de params...
-call :RunSingleStage client_report
+rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
+for %%I in (!APPID_LIST!) do (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/insights/build_game_report.py --config configs/events_subset.yaml --appid %%I --top_k 15
+  if errorlevel 1 goto :neighbors_failed
+)
+
+rem Persistir reportes de los vecinos en Mongo, eliminando 'provenance' y 'rules_analysis'
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "printf '%s\n' $APPIDS | tr ' ' '\n' > outputs/tmp_neighbors_appids.txt && set -a; source <(sed 's/\r$//' .env); set +a; python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --appids-file outputs/tmp_neighbors_appids.txt --mongo-uri \"${MONGO_URI:-mongodb://localhost:27017}\" --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis"
 if errorlevel 1 goto :neighbors_failed
 
 echo.
 echo ===============================================
-echo Subset (vecinos) ejecutado correctamente y reporte de cliente generado.
+echo Subset (vecinos) ejecutado correctamente y reportes por juego almacenados en Mongo.
 echo - Eventos/Topicos/Enrich: outputs/events/*
 echo - CCF: outputs/ccf_analysis/subset_neighbors/*
-echo - Reporte cliente: outputs/reports/client_*.json
+echo - Reportes por appid: outputs/reports/*.json
+echo - Mongo: analytics.app_reports (sin provenance ni rules_analysis)
 echo ===============================================
 pause
 endlocal
@@ -448,6 +459,67 @@ exit /b 0
 echo.
 echo ERROR: Fallo en la ejecucion del subset de vecinos.
 echo Revisa los logs en el contenedor 'analytics'.
+pause
+endlocal
+exit /b 1
+
+:run_offline_all
+echo.
+echo ============================
+echo Ejecutando analytics OFFLINE para TODOS los juegos (sin PoC)...
+echo ============================
+
+rem (Opcional) correr preagregados antes
+call :RunSingleStage preagg_reviews
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage preagg_players
+if errorlevel 1 goto :offline_failed
+
+rem Ejecutar stages base (SIN embeddings/clustering, se asume artefactos ya existen)
+call :RunSingleStage events
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage topics
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage topics_relevance
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage news_classifier
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage enrich
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage reviews_with_segments
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage review_segments
+if errorlevel 1 goto :offline_failed
+call :RunSingleStage ccf
+if errorlevel 1 goto :offline_failed
+
+rem Construir reportes por juego para TODOS los appids del clusters.parquet
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport pandas as pd\nfrom pathlib import Path\nimport sys\ndf = pd.read_parquet('data/processed/clusters.parquet')\napps = sorted(set(df['appid'].astype(str)))\nPath('outputs').mkdir(exist_ok=True)\nPath('outputs/tmp_all_appids.txt').write_text('\n'.join(apps), encoding='utf-8')\nprint(f'[OK] AppIDs totales: {len(apps)}')\nPY"
+if errorlevel 1 goto :offline_failed
+
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "set -e; while IFS= read -r A; do [ -z \"$A\" ] && continue; python src/insights/build_game_report.py --config configs/events.yaml --appid \"$A\" --top_k 15 || exit 1; done < outputs/tmp_all_appids.txt"
+if errorlevel 1 goto :offline_failed
+
+rem Persistir TODOS los reportes a Mongo (sin provenance ni rules_analysis)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --mongo-uri \"${MONGO_URI:-mongodb://localhost:27017}\" --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis"
+if errorlevel 1 goto :offline_failed
+
+echo.
+echo ===============================================
+echo Offline (todos los juegos) ejecutado y almacenado en Mongo.
+echo - Reportes: outputs/reports/*.json
+echo - Mongo: analytics.app_reports (sin provenance ni rules_analysis)
+echo ===============================================
+pause
+endlocal
+exit /b 0
+
+:offline_failed
+echo.
+echo ERROR: Fallo en la ejecucion offline para todos los juegos.
 pause
 endlocal
 exit /b 1
