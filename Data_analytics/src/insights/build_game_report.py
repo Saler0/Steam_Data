@@ -242,6 +242,8 @@ def build_report_for_appid(appid, cfg, data_dict):
               "metadata": metadata, "cluster": cluster_info, "neighbors": neigh,
               "ccf_granger": ccf_section, "events": events_section,
               "topics": topics_section, "explanations": explanations_section,
+              "review_segments": review_segments_section,
+              "abandonment": abandonment_summary,
               "alerts": negative_topic_alerts,
               "rules_analysis": rules_section, # <-- Añadido al reporte final
               "provenance": {k: str(v) for k, v in {
