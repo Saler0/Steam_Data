@@ -469,6 +469,13 @@ echo ============================
 echo Ejecutando analytics OFFLINE para TODOS los juegos (sin PoC)...
 echo ============================
 
+rem Si el usuario pasa APPIDs, reutilizamos el flujo de subset (neighbors)
+if defined APPID_LIST (
+  echo [INFO] Modo offline con subset de APPIDs: !APPID_LIST!
+  set "RUN_NEIGHBORS=1"
+  goto :run_neighbors
+)
+
 rem (Opcional) correr preagregados antes
 call :RunSingleStage preagg_reviews
 if errorlevel 1 goto :offline_failed

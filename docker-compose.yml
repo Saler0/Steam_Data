@@ -105,6 +105,8 @@ services:
       - gcp_secrets:/secrets:ro
       - mlflow_data:/mlruns
     command: ["/bin/bash", "-lc", "sleep infinity"]
+    # Aumentar memoria compartida para Ray (/dev/shm) y evitar que use /tmp
+    shm_size: "4g"
 
 volumes:
   mongo_data:
