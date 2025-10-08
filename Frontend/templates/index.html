@@ -1,156 +1,158 @@
 {% extends "base.html" %}
 {% block title %}Inicio - Gamebooster{% endblock %}
-
 {% block content %}
 <section class="banner">
     <div class="banner-slide">
-        <img src="{{ url_for('static', filename='img/banner1.jpg') }}" alt="Juego 1">
+        <img src="{{ url_for('static', filename='img/banner1.jpg') }}" alt="Game 1">
         <div class="banner-text">
-            <h1>Experiencia Gamebooster</h1>
-            <p>La mejor herramienta para un videojuego exitoso</p>
-            <a href="#membresias" class="btn-primary">Empieza Ahora</a>
+            <h1>Gamebooster Experience</h1>
+            <p>The best tool for a successful video game</p>
+            <a href="#membresias" class="btn-primary">Start Now</a>
         </div>
     </div>
 </section>
 
 <section class="features">
-    <h2>Lo que encontraras</h2>
+    <h2>What you will find</h2>
     <div class="features-grid">
         <div class="feature-card">
             <img src="{{ url_for('static', filename='img/feature1.png') }}" alt="Feature 1">
-            <h3>Tipologia de juegos</h3>
-            <p>Realiza comparativas con catalogos similares en el mercado.</p>
+            <h3>Game Typology</h3>
+            <p>Compare your game with similar catalogs in the market.</p>
         </div>
         <div class="feature-card">
             <img src="{{ url_for('static', filename='img/feature2.png') }}" alt="Feature 2">
-            <h3>Analisis de sentimiento</h3>
-            <p>Entiende a tu comunidad a traves de sus reseñas y valoraciones.</p>
+            <h3>Sentiment Analysis</h3>
+            <p>Understand your community through their reviews and feedback.</p>
         </div>
         <div class="feature-card">
             <img src="{{ url_for('static', filename='img/feature3.png') }}" alt="Feature 3">
-            <h3>Estadisticas actuales</h3>
-            <p>Obten insights relevantes para la toma de decisiones.</p>
+            <h3>Current Statistics</h3>
+            <p>Gain relevant insights for better decision-making.</p>
         </div>
     </div>
 </section>
 
-
-<!-- Título fuera del banner, igual que en Features -->
-<h2 class="section-title section-title-facil">Práctico y eficiente </h2>
+<!-- Title outside the banner, same as in Features -->
+<h2 class="section-title section-title-facil">Practical and Efficient</h2>
 <section id="Inpulsojuego" class="Inpulsojuego-banner">
     <div class="Inpulsojuego-content">
         <div class="Inpulsojuego-left">
-            <h2><span class="sombra-palabra">Dashboard interactivo</span></h2>
-            <h3><span>Impulsa tu juego al siguiente nivel</span></h3>
-            <p class="texto-sombra">Explora el segmento de videojuegos que más te interesa y obten una vision clara que te permita alcanzar el éxito comercial.</p>
-            <a href="#" class="btn-primary">Unete Gratis</a>
+            <h2><span class="sombra-palabra">Interactive Dashboard</span></h2>
+            <h3><span>Take your game to the next level</span></h3>
+            <p class="texto-sombra">Explore the video game segment that interests you the most and get a clear vision to help you achieve commercial success.</p>
+            <a href="#" class="btn-primary">Join for Free</a>
         </div>
         <div class="Inpulsojuego-right">
-            <img src="{{ url_for('static', filename='img/dashboard.png') }}" alt="Impulso Juego">
+            <img src="{{ url_for('static', filename='img/dashboard.png') }}" alt="Boost Your Game">
         </div>
     </div>
 </section>
 
-<!-- Como funciona -->
+<!-- How it works -->
 
 <section id="flujo-proceso" class="flujo-proceso">
-    <h2>¿Cómo funciona?</h2>
+    <h2>How does it work?</h2>
     <div class="flujo-container">
-        <!-- Paso 1 -->
+        <!-- Step 1 -->
         <div class="flujo-nodo">
             <div class="flujo-numero">1</div>
             <div class="flujo-contenido">
-                <h3>Ingresas las caracteristicas</h3>
-                <p class="flujo-ejemplo">Ej :<span>Juego multijugador de lucha ... </span></p>
+                <h3>You enter the features</h3>
+                <p class="flujo-ejemplo">Ex: <span>Multiplayer fighting game ...</span></p>
             </div>
         </div>
-        <!-- Paso 2 -->
+        <!-- Step 2 -->
         <div class="flujo-nodo">
             <div class="flujo-numero">2</div>
             <div class="flujo-contenido">
-                <h3>Analizamos su similaridad</h3>
+                <h3>We analyze similarity</h3>
                 <div class="flujo-cargando">
                     <span class="loader"></span>
-                    <p class="flujo-ejemplo"></spanclass>Comparando con +200k videojuegos...</span></p>
+                    <p class="flujo-ejemplo"><span>Comparing with 200k+ video games...</span></p>
                 </div>
             </div>
         </div>
-        <!-- Paso 3 -->
+        <!-- Step 3 -->
         <div class="flujo-nodo">
             <div class="flujo-numero">3</div>
             <div class="flujo-contenido">
-                <h3>Generamos insights</h3>
+                <h3>We generate insights</h3>
                 <div class="flujo-cargando">
                     <span class="loader"></span>        
-                    <p class="flujo-ejemplo"></spanclass>Exportando metricas y gráficos ...</span></p>
-                </div>
+                    <p class="flujo-ejemplo"><span>Exporting metrics and charts...</span></p>
                 </div>
             </div>
         </div>
     </div>
 </section>
 
-<!-- Membresias -->
+<!-- Memberships -->
 
 <section id="membresias" class="memberships">
-    <h2>Tipos de Membresia</h2>
+    <h2>Membership Plans</h2>
     <div class="membership-grid">
         <div class="membership-card">
             <h3>Free</h3>
-            <p>Exploracion basica y limitada de menos de 200K videojuegos.</p>
-            <a href="#" class="btn-secondary">Unete Gratis</a>
+            <p>Basic and limited exploration of fewer than 200K video games.</p>
+            <a href="#" class="btn-secondary">Join for Free</a>
         </div>
         <div class="membership-card popular">
             <h3>Premium</h3>
-            <p>Exploracion profunda e ilimitada con beneficios exclusivos.</p>
-            <a href="#" class="btn-primary">Suscribirse</a>
+            <p>Unlimited in-depth exploration with exclusive benefits.</p>
+            <a href="#" class="btn-primary">Subscribe</a>
         </div>
         <!-- <div class="membership-card">
             <h3>Ultimate</h3>
-            <p>Incluye el plan premium y soporte 24/7.</p>
-            <a href="#" class="btn-secondary">Ver mas</a> -->
+            <p>Includes the Premium plan plus 24/7 support.</p>
+            <a href="#" class="btn-secondary">Learn More</a> -->
         </div>
     </div>
 </section>
+
+<!-- News -->
 
 <section id="noticias" class="news-section">
-    <h2>Ultimas Noticias</h2>
+    <h2>Latest News</h2>
     <div class="news-grid">
         <div class="news-card">
-            <img src="{{ url_for('static', filename='img/news1.png') }}" alt="Noticia 1">
+            <img src="{{ url_for('static', filename='img/news1.png') }}" alt="News 1">
             <div class="news-content">
-                <h3>Lanzamientos en contexto desafiante</h3>
-                <p>Nuestra herramienta de analisis te alerta de posibles fracasos.</p>
-                <span class="news-date">23 de septiembre de 2025</span>
+                <h3>Launches in a challenging context</h3>
+                <p>Our analysis tool alerts you about potential failures.</p>
+                <span class="news-date">September 23, 2025</span>
             </div>
         </div>
         <div class="news-card">
-            <img src="{{ url_for('static', filename='img/news2.png') }}" alt="Noticia 2">
+            <img src="{{ url_for('static', filename='img/news2.png') }}" alt="News 2">
             <div class="news-content">
-                <h3>Gamebooster supera los 200K juegos registrados</h3>
-                <p>Alcanza el exito con un analisis profundo del sentir de tu comunidad.</p>
-                <span class="news-date">20 de septiembre de 2025</span>
+                <h3>Gamebooster surpasses 200K registered games</h3>
+                <p>Achieve success with in-depth analysis of your community’s sentiment.</p>
+                <span class="news-date">September 20, 2025</span>
             </div>
         </div>
         <div class="news-card">
-            <img src="{{ url_for('static', filename='img/news3.png') }}" alt="Noticia 3">
+            <img src="{{ url_for('static', filename='img/news3.png') }}" alt="News 3">
             <div class="news-content">
-                <h3>Metricas precisas, mejores resultados</h3>
-                <p>Toma decisiones con informes estadisticos actualizados.</p>
-                <span class="news-date">15 de septiembre de 2025</span>
+                <h3>Accurate metrics, better results</h3>
+                <p>Make decisions with up-to-date statistical reports.</p>
+                <span class="news-date">September 15, 2025</span>
             </div>
         </div>
     </div>
 </section>
 
+<!-- Contact -->
+
 <section id="contacto" class="contact">
-    <h2>Contactanos</h2>
+    <h2>Contact Us</h2>
     <form>
-        <input type="text" placeholder="Tu nombre" required>
-        <input type="email" placeholder="Tu correo" required>
-        <textarea placeholder="Tu mensaje"></textarea>
-        <button type="submit" class="btn-primary">Enviar</button>
+        <input type="text" placeholder="Your Name" required>
+        <input type="email" placeholder="Your Email" required>
+        <textarea placeholder="Your Message"></textarea>
+        <button type="submit" class="btn-primary">Send</button>
     </form>
 </section>
+
 
 {% endblock %}

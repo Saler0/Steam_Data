@@ -1087,6 +1087,14 @@ body {
 .dropdown-search:focus {
   outline: none;
   border-color: #00d9ff;
+
+}
+
+.dropdown-search::placeholder {
+  color: #999;   /* gris tenue */
+  font-style: italic;
+  font-size: 12px;
+
 }
 
 /* ===== Opciones ===== */
@@ -1158,7 +1166,7 @@ body {
 }
 
 /* Mostrar cuando está activo */
-.dropdown.show .dropdown-content {
+.dropdown:hover .dropdown-content {
   display: block;
 }
 
