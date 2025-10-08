@@ -85,6 +85,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
         detailed_description = payload.get("detailed_description", "").strip()
         genres = payload.get("genres", [])
         categories = payload.get("categories", [])
+        full_content_included = payload.get("full_content_included", False)
 
         document = {
             "nombre": payload["nombre"].strip(),
@@ -96,6 +97,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "platforms": platforms,
             "install_size_gb": install_size,
             "ram_gb": ram_required,
+            "full_content_included": full_content_included,
             "created_at": datetime.utcnow(),
         }
 
@@ -252,6 +254,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "platforms": document["platforms"],
             "install_size_gb": document["install_size_gb"],
             "ram_gb": document["ram_gb"],
+            "full_content_included": document["full_content_included"],
             "created_at": document["created_at"].isoformat() + "Z",
             "platforms_rule": platform_rule,
             "poc_assignment": {
@@ -325,6 +328,31 @@ def validate_game_payload(payload: Dict[str, Any]) -> Dict[str, str]:
                     errors["platforms"] = "Plataformas no validas: " + ", ".join(sorted(set(invalid)))
                 else:
                     payload["platforms"] = normalized
+
+    raw_full_content = payload.get("full_content_included")
+    if isinstance(raw_full_content, (list, tuple, set)):
+        raw_values = list(raw_full_content)
+        raw_full_content = raw_values[0] if raw_values else None
+
+    truthy_values = {"yes", "true", "1", "on", "si"}
+    falsy_values = {"no", "false", "0", "off"}
+
+    if raw_full_content in (None, ""):
+        errors["full_content_included"] = "Debes indicar si el contenido completo esta incluido"
+    elif isinstance(raw_full_content, bool):
+        payload["full_content_included"] = raw_full_content
+    elif isinstance(raw_full_content, (int, float)) and not isinstance(raw_full_content, bool):
+        payload["full_content_included"] = bool(raw_full_content)
+    elif isinstance(raw_full_content, str):
+        normalized_full_content = raw_full_content.strip().lower()
+        if normalized_full_content in truthy_values:
+            payload["full_content_included"] = True
+        elif normalized_full_content in falsy_values:
+            payload["full_content_included"] = False
+        else:
+            errors["full_content_included"] = "Valor de contenido completo no valido"
+    else:
+        errors["full_content_included"] = "Valor de contenido completo no valido"
 
     def _normalize_list(field: str) -> None:
         raw = payload.get(field)

@@ -211,7 +211,6 @@ def create_app() -> Flask:
         if not form_data:
             return jsonify({"status": "error", "message": "No hay datos de formulario"}), 400
 
-        # Validaciones
         try:
             nombre = form_data.get("nombre", [""])[0].strip()
             short_description = form_data.get("short_description", [""])[0].strip()
@@ -220,25 +219,37 @@ def create_app() -> Flask:
             install_size = float(form_data.get("install_size_gb", ["0"])[0])
             ram_gb = float(form_data.get("ram_gb", ["0"])[0])
         except (ValueError, IndexError):
-            return jsonify({"status": "error", "message": "Campos numéricos inválidos"}), 400
+            return jsonify({"status": "error", "message": "Campos numericos invalidos"}), 400
 
         genres = form_data.get("genres", [])
         categories = form_data.get("categories", [])
         platforms = form_data.get("platforms", [])
+        full_content_values = form_data.get("full_content_included", [])
 
-        # Validaciones obligatorias
         if not nombre or not short_description or not detailed_description:
             return jsonify({"status": "error", "message": "Faltan campos obligatorios"}), 400
 
         if not platforms:
             return jsonify({"status": "error", "message": "Debes seleccionar al menos una plataforma"}), 400
 
-        # Validaciones numéricas
+        if not full_content_values:
+            return jsonify({"status": "error", "message": "Debes indicar si el contenido completo esta incluido"}), 400
+
+        raw_full_content = str(full_content_values[0]).strip().lower()
+        truthy_values = {"yes", "true", "1", "on", "si"}
+        falsy_values = {"no", "false", "0", "off"}
+        if raw_full_content in truthy_values:
+            full_content_included = True
+        elif raw_full_content in falsy_values:
+            full_content_included = False
+        else:
+            return jsonify({"status": "error", "message": "Valor de contenido completo no valido"}), 400
+
         if precio < 0:
             return jsonify({"status": "error", "message": "El precio no puede ser negativo"}), 400
 
         if install_size <= 0:
-            return jsonify({"status": "error", "message": "El tamaño de instalación debe ser mayor que 0"}), 400
+            return jsonify({"status": "error", "message": "El tamano de instalacion debe ser mayor que 0"}), 400
 
         if ram_gb <= 0:
             return jsonify({"status": "error", "message": "La RAM recomendada debe ser mayor que 0"}), 400
@@ -252,7 +263,8 @@ def create_app() -> Flask:
             "categories": categories,
             "platforms": platforms,
             "install_size_gb": install_size,
-            "ram_gb": ram_gb
+            "ram_gb": ram_gb,
+            "full_content_included": full_content_included,
         }
 
         try:
@@ -267,7 +279,6 @@ def create_app() -> Flask:
         except requests.RequestException:
             return jsonify({"status": "error", "message": "No se pudo comunicar con el backend"}), 500
 
-        # Limpiamos la sesión
         session.pop("form_data", None)
         return jsonify({"status": "success"}), 200
 

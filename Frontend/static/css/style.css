@@ -1234,3 +1234,17 @@ body {
     gap: 0.5rem;           /* espacio entre checkbox y texto */
 }
 
+
+.radio-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
