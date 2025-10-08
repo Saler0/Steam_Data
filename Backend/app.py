@@ -211,7 +211,6 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "best_cluster_id": poc_result.get("best_cluster_id") if isinstance(poc_result, dict) else None,
             "best_cluster_similarity": best_similarity_val,
             "neighbors": normalized_neighbors,
-            "diagnostics": poc_result.get("diagnostics", {}) if isinstance(poc_result, dict) else {},
             "generated_at": datetime.utcnow()
         }
 
@@ -249,7 +248,6 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],
                 "neighbors": normalized_neighbors,
-                "diagnostics": poc_record["diagnostics"],
                 "generated_at": poc_record["generated_at"].isoformat() + "Z",
             },
             "price_rule": price_rule
