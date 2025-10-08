@@ -165,6 +165,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             )
 
         raw_neighbors = poc_result.get("neighbors", []) if isinstance(poc_result, dict) else []
+        diagnostics = poc_result.get("diagnostics", {}) if isinstance(poc_result, dict) else {}
         normalized_neighbors = []
         for item in raw_neighbors:
             if not isinstance(item, dict):
@@ -198,8 +199,14 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate price rule: %s", exc)
                 price_rule = {"label": "error", "details": str(exc)}
+            try:
+                platform_rule = decision_rules_service.evaluate_platform_rule(document.get("platforms"), raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate platform rule: %s", exc)
+                platform_rule = "error"
         else:
             price_rule = {"label": "sin_servicio"}
+            platform_rule = "sin_servicio"
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -211,13 +218,15 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "best_cluster_id": poc_result.get("best_cluster_id") if isinstance(poc_result, dict) else None,
             "best_cluster_similarity": best_similarity_val,
             "neighbors": normalized_neighbors,
-            "generated_at": datetime.utcnow()
+            "diagnostics": diagnostics,
+            "generated_at": datetime.utcnow(),
+            "platforms_rule": platform_rule,
         }
 
         try:
             collection.update_one(
                 {"_id": insert_result.inserted_id},
-                {"$set": {"poc_assignment": poc_record, "price_rule": price_rule}},
+                {"$set": {"poc_assignment": poc_record, "price_rule": price_rule, "platforms_rule": platform_rule}},
             )
         except PyMongoError as exc:
             collection.delete_one({"_id": insert_result.inserted_id})
@@ -244,11 +253,14 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "install_size_gb": document["install_size_gb"],
             "ram_gb": document["ram_gb"],
             "created_at": document["created_at"].isoformat() + "Z",
+            "platforms_rule": platform_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],
                 "neighbors": normalized_neighbors,
+                "diagnostics": poc_record["diagnostics"],
                 "generated_at": poc_record["generated_at"].isoformat() + "Z",
+                "platforms_rule": platform_rule,
             },
             "price_rule": price_rule
         }

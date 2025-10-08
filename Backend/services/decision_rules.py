@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from statistics import median
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from pymongo.errors import PyMongoError
 
@@ -16,6 +16,7 @@ class DecisionRulesService:
 
     def __init__(self, mongo_client: MongoDBClient) -> None:
         self.mongo_client = mongo_client
+        self._allowed_platforms = {"windows", "mac", "linux"}
 
     def evaluate_price_rule(
         self,
@@ -67,6 +68,21 @@ class DecisionRulesService:
             }
         )
         return result
+
+    def evaluate_platform_rule(
+        self,
+        client_platforms: Any,
+        neighbor_appids: Sequence[Any],
+    ) -> str:
+        """Return qualitative label comparing platform support to neighbors."""
+        client_count = self._count_platforms(client_platforms)
+        neighbor_counts = self._fetch_neighbor_platform_counts(neighbor_appids)
+        if not neighbor_counts:
+            return "sin_datos"
+        richer_neighbors = sum(1 for count in neighbor_counts if count > client_count)
+        if richer_neighbors > (len(neighbor_counts) / 2):
+            return "soporte limitado"
+        return "soporte bueno"
 
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
@@ -124,3 +140,63 @@ class DecisionRulesService:
             except (TypeError, ValueError):
                 continue
         return prices
+
+    def _fetch_neighbor_platform_counts(self, neighbor_appids: Sequence[Any]) -> List[int]:
+        counts: List[int] = []
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+        if not unique_ids:
+            return counts
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+        if not query_clauses:
+            return counts
+        query: Dict[str, Any]
+        if len(query_clauses) == 1:
+            query = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+        projection = {"platforms": 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return counts
+        for doc in cursor:
+            counts.append(self._count_platforms(doc.get("platforms")))
+        return [count for count in counts if count is not None]
+
+    def _count_platforms(self, platforms: Any) -> int:
+        if not platforms:
+            return 0
+        if isinstance(platforms, dict):
+            return sum(1 for value in platforms.values() if bool(value))
+        if isinstance(platforms, (list, set, tuple)):
+            normalized = {
+                str(item).strip().lower()
+                for item in platforms
+                if item is not None and str(item).strip()
+            }
+            return sum(1 for plat in normalized if plat in self._allowed_platforms)
+        if isinstance(platforms, str):
+            tokens = {token.strip().lower() for token in platforms.split(",")}
+            return sum(1 for token in tokens if token in self._allowed_platforms)
+        return 0
