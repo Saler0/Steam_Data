@@ -3,30 +3,41 @@
 
 {% block content %}
 <div class="form-container">
-  <h2>Describe tu juego</h2>
-  <form id="gameForm" method="post" action="{{ url_for('agregar_juego') }}">
+  <h2>Game's description</h2>
+  <!-- <form id="gameForm" method="post" action="{{ url_for('agregar_juego') }}"> -->
+  <form id="gameForm" method="POST" action="{{ url_for('agregar_juego') }}">
+
       
       <div class="form-group">
-          <label for="nombre">Nombre del juego:</label>
+          <label for="nombre">Game's name:</label>
           <input type="text" id="nombre" name="nombre" required placeholder="Ej: Steam Adventure">
       </div>
 
       <div class="form-group">
-          <label for="short_description">Descripción corta:</label>
-          <input type="text" id="short_description" name="short_description" required placeholder="Resume tu propuesta en una frase">
+          <label for="short_description">Short description:</label>
+          <input type="text" id="short_description" name="short_description" required placeholder="Propose a brief description in one sentence...">
       </div>
 
       <div class="form-group">
-          <label for="detailed_description">Descripción detallada:</label>
-          <textarea id="detailed_description" name="detailed_description" rows="4" required placeholder="Describe brevemente el juego..."></textarea>
+          <label for="detailed_description">Detail description:</label>
+          <textarea id="detailed_description" name="detailed_description" rows="4" required placeholder="More detailes about your game..."></textarea>
       </div>
 
       <!-- Dropdowns lado a lado -->
-      <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+      <!-- <div style="display:flex; gap:2rem; flex-wrap:wrap;"> -->
         <!-- Géneros -->
-        <div class="form-group dropdown" data-field="genres" style="flex:1;">
+        <!-- <div class="form-group dropdown" data-field="genres" style="flex:1;">
           <label>Géneros: <span class="selected-summary"></span></label>
+          <div class="dropdown-content"> -->
+
+        <div class="form-group dropdown" data-field="genres">
+          <button type="button" class="dropdown-toggle">
+            Genres : <span class="selected-summary"></span>
+          </button>
           <div class="dropdown-content">
+            <input type="text" class="dropdown-search" placeholder="Select Genres...">
+            <div class="dropdown-options">        
+
                 <label><span>360 Video</span></label>
                 <label><span>Accounting</span></label>
                 <label><span>Action</span></label>
@@ -60,13 +71,22 @@
                 <label><span>Video Production</span></label>
                 <label><span>Violentr</span></label>
                 <label><span>Web Publishing</span></label>
+            </div>
           </div>
         </div>
 
         <!-- Categorías -->
-        <div class="form-group dropdown" data-field="categories" style="flex:1;">
+        <!-- <div class="form-group dropdown" data-field="categories" style="flex:1;">
           <label>Categorías: <span class="selected-summary"></span></label>
+          <div class="dropdown-content">             -->
+        <div class="form-group dropdown" data-field="categories">
+          <button type="button" class="dropdown-toggle">
+            Categories : <span class="selected-summary"></span>
+          </button>
           <div class="dropdown-content">
+            <input type="text" class="dropdown-search" placeholder="Select category...">
+            <div class="dropdown-options">
+       
                 <label><span>Adjustable Difficulty</span></label>
                 <label><span>Adjustable Text Size</span></label>
                 <label><span>Camera Comfort</span></label>
@@ -125,90 +145,155 @@
                 <label><span>VR Support</span></label>
                 <label><span>VR Supported</span></label>
                 <label><span>Valve Anti-Cheat enabled</span></label>
+            </div>
           </div>
         </div>
-      </div>
 
       <div class="form-group">
-          <label>Plataformas disponibles:</label>
+          <label>Available platforms:</label>
           <div class="checkbox-group">
               <label><input type="checkbox" name="platforms" value="windows"> Windows</label>
               <label><input type="checkbox" name="platforms" value="mac"> Mac</label>
               <label><input type="checkbox" name="platforms" value="linux"> Linux</label>
           </div>
-      </div>
+      </div>   
+            
 
       <div class="form-group">
-          <label for="install_size_gb">Tamaño de instalación (GB):</label>
+          <label for="install_size_gb">Size (GB):</label>
           <input type="number" id="install_size_gb" name="install_size_gb" step="0.1" min="0" required placeholder="Ej: 20">
       </div>
 
       <div class="form-group">
-          <label for="ram_gb">RAM recomendada (GB):</label>
+          <label for="ram_gb">RAM recomended (GB):</label>
           <input type="number" id="ram_gb" name="ram_gb" step="0.1" min="0" required placeholder="Ej: 8">
       </div>
 
       <div class="form-group">
-          <label for="precio">Precio:</label>
-          <input type="number" id="precio" name="precio" step="0.01" min="0" required placeholder="Ej: 19.99">
+          <label for="precio">Price:</label>
+          <input type="number" id="precio" name="precio" step="0.01" min="0" required placeholder="Ej: 19.99 EUR">
+      <div class="form-group">
+          <button type="submit" class="btn-primary">Submit</button>
       </div>
-      <h2>
-      <button type="submit" class="btn-primary">Agregar</button> 
-      </h2>
       </form> 
   </form>
 </div>
 
-<!-- JS Dropdown y selección de chips -->
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.dropdown').forEach(dropdown => {
-      const headerLabel = dropdown.querySelector('label');
-      const content = dropdown.querySelector('.dropdown-content');
-      const summary = headerLabel ? headerLabel.querySelector('.selected-summary') : null;
-      const fieldName = dropdown.dataset.field;
-      if (!content || !summary || !fieldName) {
-        return;
-      }
+document.addEventListener('DOMContentLoaded', () => {
+  // --- Dropdowns con checkboxes ---
+  document.querySelectorAll('.dropdown').forEach(dropdown => {
+    const button = dropdown.querySelector('.dropdown-toggle');
+    const content = dropdown.querySelector('.dropdown-content');
+    const summary = button ? button.querySelector('.selected-summary') : null;
+    const fieldName = dropdown.dataset.field;
+    if (!content || !summary || !fieldName) return;
 
-      const updateSummary = () => {
-        const selectedValues = Array.from(content.querySelectorAll('input[type="checkbox"]:checked'))
-          .map(input => input.value);
-        summary.textContent = selectedValues.join(', ');
-      };
+    const selectionOrder = [];
 
-      content.querySelectorAll('label').forEach(optionLabel => {
-        const value = optionLabel.textContent.trim();
-        optionLabel.textContent = '';
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.name = fieldName;
-        checkbox.value = value;
-        const span = document.createElement('span');
-        span.textContent = value;
-        optionLabel.appendChild(checkbox);
-        optionLabel.appendChild(span);
+    const updateSummary = () => {
+      summary.textContent = selectionOrder.map((v, i) => `${i+1}. ${v}`).join(', ');
+    };
+
+    content.querySelectorAll('label').forEach(optionLabel => {
+      const value = optionLabel.textContent.trim();
+      optionLabel.textContent = '';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.name = fieldName;
+      checkbox.value = value;
+      const span = document.createElement('span');
+      span.textContent = value;
+      optionLabel.appendChild(checkbox);
+      optionLabel.appendChild(span);
+
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!selectionOrder.includes(checkbox.value)) selectionOrder.push(checkbox.value);
+        } else {
+          const idx = selectionOrder.indexOf(checkbox.value);
+          if (idx > -1) selectionOrder.splice(idx, 1);
+        }
         optionLabel.classList.toggle('selected', checkbox.checked);
-        checkbox.addEventListener('change', () => {
-          optionLabel.classList.toggle('selected', checkbox.checked);
-          updateSummary();
+        updateSummary();
+      });
+    });
+
+    content.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+      if (!selectionOrder.includes(cb.value)) selectionOrder.push(cb.value);
+    });
+    updateSummary();
+
+    const search = content.querySelector('.dropdown-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        content.querySelectorAll('label').forEach(label => {
+          const txt = label.querySelector('span')?.textContent?.toLowerCase() || '';
+          label.style.display = txt.includes(term) ? 'block' : 'none';
         });
       });
+    }
 
-      headerLabel.addEventListener('click', event => {
-        event.preventDefault();
-        content.classList.toggle('show');
+    if (button) {
+      button.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropdown.classList.toggle('show');
       });
+    }
 
-      document.addEventListener('click', event => {
-        if (!dropdown.contains(event.target)) {
-          content.classList.remove('show');
-        }
-      });
-
-      updateSummary();
+    document.addEventListener('click', e => {
+      if (!dropdown.contains(e.target)) dropdown.classList.remove('show');
     });
   });
+
+  // --- Envío del formulario como JSON ---
+  // const form = document.getElementById("gameForm");
+  // form.addEventListener("submit", async function(event) {
+  //   event.preventDefault();
+
+  //   const formData = new FormData(this);
+  //   const payload = {};
+
+  //   formData.forEach((value, key) => {
+  //     if (payload[key]) {
+  //       if (Array.isArray(payload[key])) payload[key].push(value);
+  //       else payload[key] = [payload[key], value];
+  //     } else {
+  //       payload[key] = value;
+  //     }
+  //   });
+
+  //   // Validación mínima antes de enviar
+  //   if (!payload.nombre || !payload.short_description || !payload.detailed_description ||
+  //       !payload.precio || !payload.install_size_gb || !payload.ram_gb ||
+  //       !payload.platforms || payload.platforms.length === 0) {
+  //     alert("Todos los campos obligatorios deben ser completados y al menos una plataforma seleccionada");
+  //     return;
+  //   }
+
+  //   try {
+  //     const response = await fetch("http://127.0.0.1:5001/api/games", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(payload)
+  //     });
+
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       sessionStorage.setItem("game_id", data.mongo_id);
+  //       window.location.href = "{{ url_for('loading') }}";
+  //     } else {
+  //       const data = await response.json();
+  //       alert(data.message || "Error al guardar el juego");
+  //     }
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("Error de conexión con el servidor");
+  //   }
+  // });
+});
 </script>
 
 

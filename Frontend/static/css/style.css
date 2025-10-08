@@ -840,8 +840,8 @@ body {
   grid-template-rows: repeat(5, auto); /* Máximo 5 filas por columna */
   gap: 0.2rem;
   background-color: #2c3039;
-  padding: 0.4rem;
-  border-radius: 0px;
+  padding: 0.4em;
+  border-radius: 10px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   position: absolute;
   top: 100%;
@@ -862,16 +862,17 @@ body {
 .dropdown-content label {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0.2rem 0.4rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 0.75rem;
-  background-color: #1f1f29;
+  justify-content: flex-start; /* alinea a la izquierda */
+  gap: 0.5rem;
+  background: #2c3039;
   color: #f5f5f5;
-  user-select: none;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s, border 0.2s;
 }
+
 
 /* Hover */
 .dropdown-content label:hover {
@@ -891,7 +892,7 @@ body {
     font-weight: normal;    /* quita negrita */
     line-height: 1.1;       /* altura de línea / espaciado vertical entre filas */
     padding: 0px 0px;       /* margen interno de cada opción */
-    display: block;          /* asegura que se apilen verticalmente */
+    display: inline-block; /* ✅ CAMBIO AQUÍ */
     cursor: pointer;         /* para que cambie el cursor al pasar por encima */
     border-radius: 1px;      /* opcional: bordes redondeados tipo Steam */
     transition: background 0.2s;
@@ -963,6 +964,7 @@ body {
   display: block;
   margin-bottom: 0.4rem;
   font-weight: bold;
+
 }
 
 .form-group input,
@@ -979,9 +981,11 @@ body {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border: 2px solid #4CAF50;
-  background: #2c3039;
+  border: 1px solid #00d9ff;
+  background: #424752;
 }
+
+
 
 /* Botón */
 /* .btn-primary {
@@ -1002,26 +1006,223 @@ body {
   background: #43a047;
 } */
 
-/* Dropdown */
+
+/* 
+.dropdown-content label {
+  display: block;
+  margin: 0.1rem 0;
+  cursor: pointer;
+} */
+
+/* Contenedor general de dropdowns */
+/* ===== Dropdown base ===== */
 .dropdown {
   position: relative;
+  flex: 1;
+  min-width: 220px;
+  margin-bottom: 1rem;
 }
 
+/* Botón de apertura */
+.dropdown-toggle {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: 1px solid #3a3f4b;
+  border-radius: 8px;
+  background: #2c3039;
+  color: #f5f5f5;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.dropdown-toggle:hover {
+  background: #363b47;
+  border-color: #00d9ff;
+}
+
+/* ===== Contenido desplegable ===== */
 .dropdown-content {
   display: none;
   position: absolute;
-  background-color: #2c3039;
-  min-width: 220px;
-  padding: 1rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  z-index: 1;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  margin-top: 0.3rem;
+  background: #1f1f29;
+  border: 1px solid #3a3f4b;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  padding: 0.6rem;
+  z-index: 100;
+
+  /* Layout con filas fijas (máx 5 por columna) */
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(5, auto);
+  gap: 0.4rem;
+  max-height: 280px;
+  overflow-y: auto;
 }
 
+/* Mostrar cuando está activo */
+.dropdown.show .dropdown-content {
+  display: grid;
+}
 
+/* ===== Buscador dentro del dropdown ===== */
+.dropdown-search {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid #3a3f4b;
+  border-radius: 6px;
+  background: #2c3039;
+  color: #f5f5f5;
+  font-size: 0.9rem;
+}
 
+.dropdown-search:focus {
+  outline: none;
+  border-color: #00d9ff;
+}
+
+/* ===== Opciones ===== */
 .dropdown-content label {
-  display: block;
-  margin: 0.4rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #2c3039;
+  color: #f5f5f5;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
   cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s, border 0.2s;
 }
+
+.dropdown-content label:hover {
+  background: #00d9ff22;
+}
+
+/* Seleccionado */
+.dropdown-content label.selected {
+  border: 2px solid #00d9ff;
+  background: #2c3039;
+  color: #00d9ff;
+  font-weight: bold;
+}
+
+/* Ocultar checkboxes nativos */
+.dropdown-content label input[type="checkbox"] {
+  display: none;
+}
+
+/* ===== Resumen en el botón ===== */
+.selected-summary {
+  font-size: 0.85rem;
+  color: #00d9ff;
+  margin-left: 0.5rem;
+  font-weight: normal;
+}
+
+
+/* ################################################ */
+/* Botón */
+.dropdown-toggle {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #2c3039;
+  border-radius: 6px;
+  background: #2c3039;
+  cursor: pointer;
+  text-align: left;
+  color: #ffffff;
+}
+
+/* Contenido oculto por defecto */
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background: #2c3039;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-top: 0.2rem;
+  padding: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  width: 100%;
+}
+
+/* Mostrar cuando está activo */
+.dropdown.show .dropdown-content {
+  display: block;
+}
+
+/* Barra de búsqueda */
+.dropdown-search {
+  color: #ffffff;    
+  width: 100%;
+  padding: 0.4rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Opciones */
+.dropdown-options label {
+  display: block;
+  margin: 0.2rem 0;
+}
+
+
+/* Checkbox personalizado */
+
+
+.checkbox-group {
+    display: flex;          /* convierte el contenedor en flex */
+    flex-direction: row;    /* asegura que los hijos estén en fila */
+    gap: 5rem;              /* espacio entre checkboxes */
+    flex-wrap: nowrap;      /* evita que se rompan a la siguiente línea */
+    align-items: center;    /* centra verticalmente texto y checkbox */
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 5px;
+  height: 2px;
+  cursor: pointer;
+  appearance: none;           /* Quita el estilo nativo */
+  border: 2px solid #00d9ff; 
+  border-radius: 4px;         /* Bordes redondeados */
+  background-color: #2c3039;  /* Color de fondo inicial */
+  position: relative;
+}
+
+/* Cuando está marcado */
+.checkbox-group input[type="checkbox"]:checked {
+  background-color: #00d9ff;  /* Color del check */
+  border-color: #ffffff;
+}
+
+/* Opcional: marca ✓ */
+.checkbox-group input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: #000;                /* Color de la palomita */
+  font-size: 12px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.checkbox-group label {
+    font-size: 0.7rem;      /* tamaño del texto */
+    color: #f5f5f5;       /* color del texto */
+    display: flex;
+    align-items: center;   /* centra checkbox y texto */
+    gap: 0.5rem;           /* espacio entre checkbox y texto */
+}
+
