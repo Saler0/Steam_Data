@@ -16,16 +16,17 @@
         </div>
         <nav>
             <ul>
-                <li><a href="{{ url_for('home') }}">Inicio</a></li>
-                <li><a href="{{ url_for('about') }}">Quienes somos</a></li>
-                <!-- <li><a href="#membresias">Membresias</a></li> -->
-                <li><a href="{{ url_for('agregar_juego') }}">Analiza tu juego</a></li>
-                <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
-                <li><a href="#contacto">Contacto</a></li>
+                <li><a href="{{ url_for('home') }}">Home</a></li>
+                <li><a href="{{ url_for('about') }}">About us</a></li>
+                <!-- <li><a href="#membresias">Memberships</a></li> -->
+                <li><a href="{{ url_for('agregar_juego') }}">Analyze your game</a></li>
+                <!-- <li><a href="{{ url_for('dashboard') }}">Dashboard</a></li> -->
+                <li><a href="{{ url_for('home') }}#contacto">Contact</a></li>
 
             </ul>
         </nav>
     </header>
+
 
     <main>
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -41,7 +42,7 @@
     </main>
 
     <footer class="footer">
-        <p>&copy; 2025 Gamebooster. Todos los derechos reservados.</p>
+        <p>&copy; 2025 Gamebooster. Rights reserved.</p>
         <div class="socials">
             <a href="#">Facebook</a> |
             <a href="#">Twitter</a> |
