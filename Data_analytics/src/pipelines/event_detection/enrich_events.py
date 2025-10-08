@@ -37,14 +37,25 @@ def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
     dlc_cfg = cfg.get('dlc', {})
     months_raw = pd.to_datetime(group['year_month'], errors='coerce').dropna().tolist()
     target_months: list = []
+    # Contexto adicional alrededor de cada pico (por ej., ±1 mes)
+    ctx_cfg = (cfg.get('signals') or {}).get('context_months', 0)
+    try:
+        context_months = int(ctx_cfg) if ctx_cfg is not None else 0
+    except Exception:
+        context_months = 0
+    months_set = set()
     for ts in months_raw:
         ts = pd.Timestamp(ts)
-        # Normalizar a mes (naive, sin tz) para consistencia con el resto del pipeline
+        # Normalizar a mes (naive, sin tz) para consistencia
         if ts.tzinfo is not None:
-            # Convertir a UTC y quitar tz antes de pasar a Period
             ts = ts.tz_convert('UTC').tz_localize(None)
-        normalized = ts.to_period('M').to_timestamp()
-        target_months.append(normalized)
+        base = ts.to_period('M').to_timestamp()
+        months_set.add(base)
+        # Expandir margen ±N meses si está configurado
+        for k in range(1, max(0, context_months) + 1):
+            months_set.add((base - pd.DateOffset(months=k)).to_period('M').to_timestamp())
+            months_set.add((base + pd.DateOffset(months=k)).to_period('M').to_timestamp())
+    target_months = sorted(months_set)
     external_data = load_external_signals(
         appid,
         signals_cfg,

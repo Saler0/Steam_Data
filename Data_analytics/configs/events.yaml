@@ -202,6 +202,9 @@ llm:
 # los eventos detectados. Estos datos se gestionan por scripts como
 # `fetch_signals_for_event.py`.
 signals:
+  # Margen de meses alrededor de cada pico para consultar señales externas.
+  # Ej.: 1 incluye el mes anterior y el siguiente al evento.
+  context_months: 1
   # Configuración para los datos de la plataforma de streaming Twitch.
   twitch:
     # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
