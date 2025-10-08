@@ -197,7 +197,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
         decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
         if isinstance(decision_rules_service, DecisionRulesService):
             try:
-                price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors)
+                price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
             except Exception as exc:
                 app.logger.exception("Failed to evaluate price rule: %s", exc)
                 price_rule = {"label": "error", "details": str(exc)}

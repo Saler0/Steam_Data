@@ -22,6 +22,7 @@ class DecisionRulesService:
         self,
         client_price: Optional[float],
         neighbor_appids: Sequence[Any],
+        full_content_included: Any = False,
     ) -> PriceRuleResult:
         """Classify the client price compared to neighbor prices."""
         result: PriceRuleResult = {
@@ -51,12 +52,23 @@ class DecisionRulesService:
         cheap_threshold = neighbor_median + client_price * cheap_margin_pct
         normal_threshold = neighbor_median + client_price * normal_margin_pct
 
+        include_full_content = False
+        if isinstance(full_content_included, bool):
+            include_full_content = full_content_included
+        elif isinstance(full_content_included, str):
+            include_full_content = full_content_included.strip().lower() in {"true", "1", "yes", "si", "on"}
+        elif isinstance(full_content_included, (int, float)):
+            include_full_content = full_content_included != 0
+
         if client_price < cheap_threshold:
             label = "barato"
         elif client_price <= normal_threshold:
             label = "normal"
         else:
             label = "caro"
+
+        if label == "caro" and include_full_content:
+            label = "alto justificado"
 
         result.update(
             {
