@@ -499,6 +499,8 @@ call :RunSingleStage review_segments
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage ccf
 if errorlevel 1 goto :offline_failed
+call :RunSingleStage event_leadlag
+if errorlevel 1 goto :offline_failed
 
 rem Construir reportes por juego para TODOS los appids del clusters.parquet
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
