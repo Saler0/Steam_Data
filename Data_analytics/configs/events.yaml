@@ -209,7 +209,7 @@ signals:
   twitch:
     # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
     # 'api': Llama a la API de Twitch para obtener datos en tiempo real.
-    mode: "file"
+    mode: "api"
     # Credenciales para la API de Twitch. Se recomienda usar variables de entorno
     # para no exponer datos sensibles.
     client_id: ${TWITCH_CLIENT_ID}
@@ -221,7 +221,7 @@ signals:
   
   # Configuración para los datos de la plataforma de videos YouTube.
   youtube:
-    mode: "file"
+    mode: "api"
     # Clave de la API de YouTube. Se recomienda usar una variable de entorno.
     api_key: ${YOUTUBE_API_KEY}
     file: "data/external/youtube/monthly_{appid}.csv"

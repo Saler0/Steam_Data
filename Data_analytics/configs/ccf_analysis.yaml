@@ -121,3 +121,16 @@ mlflow:
   enabled: true
   experiment: "Steam Analytics"
   run_name_prefix: "ccf_analysis_"
+
+# -----------------------------------------------------------------------------
+# Modo de estudio de eventos (peaks/drops) para series cortas
+# -----------------------------------------------------------------------------
+event_mode:
+  enabled: true           # activa el análisis de lead–lag corto por eventos
+  z_threshold: 2.0        # umbral z para detectar picos de players (t0)
+  window_months: 2        # ventana ± meses alrededor de t0
+  max_lag_event: 2        # lags en [-max_lag_event, +max_lag_event]
+  permutations: 500       # permutaciones para p-value robusto en ventana
+  alpha_event: 0.10       # nivel para señales débiles
+  min_drop_1m: -0.15      # caída relativa mínima a 1 mes para marcar patrón
+  use_negative_pct: true  # usar % de reseñas negativas (en lugar de conteo)

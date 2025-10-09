@@ -189,6 +189,7 @@ stages:
     outs:
       # CCF summary es opcional para client_report; el script lo maneja si falta
       - outputs/ccf_analysis/consistency.parquet
+      - outputs/ccf_analysis/summary.parquet
 
   cluster_history:
     cmd: >
@@ -232,6 +233,7 @@ stages:
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
       - outputs/ccf_analysis/summary.parquet
+      - outputs/ccf_analysis/event_correlation.parquet
     params:
       - configs/params.yaml:report
     outs:
@@ -248,6 +250,17 @@ stages:
       - configs/params.yaml:report
     outs:
       - outputs/reports/${report.appid}_editor.json
+
+  # --- Estudio de eventos (lead–lag corto) para peaks/drops ---
+  event_leadlag:
+    cmd: python src/pipelines/ccf_analysis/event_leadlag.py --config configs/ccf_analysis.yaml
+    deps:
+      - src/pipelines/ccf_analysis/event_leadlag.py
+      - configs/ccf_analysis.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+    outs:
+      - outputs/ccf_analysis/event_correlation.parquet
 
   topics_relevance:
     cmd: >

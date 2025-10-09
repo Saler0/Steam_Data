@@ -346,10 +346,24 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict
         else:
             df_raw = pd.merge(df_raw, players_df, on='year_month', how='outer').sort_values('year_month').fillna(0)
     
-    if df_raw is None or df_raw.empty or len(df_raw) < 12:
+    if df_raw is None or df_raw.empty:
         return {"summary": [], "consistency": []}
         
     df_transformed = df_raw.copy()
+    # Re-muestreo trimestral para fallback cuando mensual es corto/degenerado
+    def _to_quarterly(df_monthly: pd.DataFrame) -> pd.DataFrame:
+        dfq = df_monthly.copy()
+        if 'year_month' in dfq.columns:
+            dfq['year_month'] = pd.to_datetime(dfq['year_month'])
+            dfq = dfq.set_index('year_month')
+        cols = [c for c in ['players','pos','neg','total_reviews'] if c in dfq.columns]
+        if not cols:
+            return pd.DataFrame()
+        agg = dfq[cols].resample('QS').sum(min_count=1)
+        agg = agg.reset_index()
+        agg = agg.rename(columns={'index': 'year_month'})
+        return agg
+    df_quarterly = _to_quarterly(df_transformed)
     
     for pair in cfg.get('ccf_pairs', []):
         predictor_name, target_name = pair['predictor'], pair['target']
@@ -360,7 +374,85 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict
         
         if predictor_name not in df_transformed.columns or target_name not in df_transformed.columns:
             continue
-        
+
+        # Nuevo flujo con fallback trimestral + consistencia
+        methods = cfg.get('stationarity', {}).get('transforms', ['dlog', 'diff', 'diff2', 'sqrt'])
+        # Intento mensual
+        transformed_predictor = _transform_to_stationary_new(df_transformed[predictor_name], methods, cfg)
+        transformed_target = _transform_to_stationary_new(df_transformed[target_name], methods, cfg)
+        freq_used = 'M'
+        df_analysis = None
+        if transformed_predictor is not None and transformed_target is not None:
+            df_analysis = pd.DataFrame({
+                'year_month': pd.to_datetime(df_transformed['year_month']),
+                predictor_name: transformed_predictor,
+                target_name: transformed_target
+            }).dropna(subset=[predictor_name, target_name])
+
+        maxlag = int((cfg.get('granger') or {}).get('maxlag', 3))
+        need_fallback = (df_analysis is None) or (len(df_analysis) < max(8, 8 * maxlag))
+        if need_fallback and df_quarterly is not None and not df_quarterly.empty:
+            tp_q = _transform_to_stationary_new(df_quarterly.get(predictor_name, pd.Series(dtype=float)), methods, cfg)
+            tt_q = _transform_to_stationary_new(df_quarterly.get(target_name, pd.Series(dtype=float)), methods, cfg)
+            if tp_q is not None and tt_q is not None:
+                df_analysis = pd.DataFrame({
+                    'year_month': pd.to_datetime(df_quarterly['year_month']),
+                    predictor_name: tp_q,
+                    target_name: tt_q
+                }).dropna(subset=[predictor_name, target_name])
+                freq_used = 'Q'
+
+        if df_analysis is None or len(df_analysis) < 8:
+            print(f"[WARN] {appid} par {predictor_name}->{target_name}: insuficiente tras fallback")
+            continue
+
+        analysis_results = analyze_pair(df_analysis, predictor_name, target_name, cfg)
+        if analysis_results:
+            analysis_results.update({
+                'appid': str(appid), 'pair_name': pair['name'], 'freq': freq_used, 'n_eff': int(len(df_analysis))
+            })
+            results_summary.append(analysis_results)
+
+            # --- Cálculo de consistencia mensual con el best_lag ---
+            try:
+                best_lag = int(analysis_results['best_lag'])
+                s_x = df_analysis.set_index('year_month')[predictor_name].astype(float)
+                s_y = df_analysis.set_index('year_month')[target_name].astype(float)
+                s_x_aligned = s_x.shift(best_lag)
+                aligned = (
+                    pd.DataFrame({'x_aligned': s_x_aligned, 'y': s_y})
+                    .dropna()
+                    .sort_index()
+                )
+                if not aligned.empty:
+                    win = int(((cfg.get('consistency') or {}).get('window') or 3))
+                    min_abs_corr = float(((cfg.get('consistency') or {}).get('min_abs_corr') or 0.2))
+                    sign_consistent = np.sign(aligned['x_aligned']) == np.sign(aligned['y'])
+                    local_corr = aligned['x_aligned'].rolling(win).corr(aligned['y'])
+                    lead_or_lag = (
+                        'predictor_leads' if best_lag > 0 else
+                        'predictor_lags' if best_lag < 0 else
+                        'simultaneous'
+                    )
+                    for ts, row in aligned.iterrows():
+                        lc = float(local_corr.get(ts)) if pd.notna(local_corr.get(ts)) else np.nan
+                        sc = bool(sign_consistent.get(ts)) if ts in sign_consistent.index else False
+                        ccf_consistent = sc and (not np.isnan(lc)) and (abs(lc) >= min_abs_corr)
+                        results_consistency.append({
+                            'appid': str(appid),
+                            'pair_name': pair['name'],
+                            'year_month': pd.to_datetime(ts),
+                            'best_lag': best_lag,
+                            'lead_or_lag': lead_or_lag,
+                            'local_corr_3m': lc,
+                            'sign_consistent': sc,
+                            'ccf_consistent': bool(ccf_consistent)
+                        })
+            except Exception:
+                pass
+
+        # Saltar el bloque legacy (ya procesado)
+        continue
         # Transformación del predictor
         methods = cfg.get('stationarity', {}).get('transforms', ['dlog', 'diff', 'diff2', 'sqrt'])
         transformed_predictor = _transform_to_stationary_new(df_transformed[predictor_name], methods, cfg)
@@ -538,6 +630,13 @@ def main():
             
             mlflow.log_metric("games_analyzed", games_analyzed)
             mlflow.log_metric("stationary_series_count", stationary_series_count)
+            try:
+                if 'freq' in df_summary.columns:
+                    mlflow.log_metric("used_quarterly_pct", float((df_summary['freq'] == 'Q').mean() * 100))
+                if 'n_eff' in df_summary.columns:
+                    mlflow.log_metric("median_effective_points", float(df_summary['n_eff'].median()))
+            except Exception:
+                pass
             mlflow.log_metric("significant_granger_xy_pct", df_summary['granger_xy_sig'].mean() * 100)
             mlflow.log_metric("significant_granger_yx_pct", df_summary['granger_yx_sig'].mean() * 100)
             # Métricas tras FDR

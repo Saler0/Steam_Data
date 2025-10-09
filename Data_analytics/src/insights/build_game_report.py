@@ -171,6 +171,7 @@ def build_report_for_appid(appid, cfg, data_dict):
     topics = data_dict['topics']
     expl = data_dict['expl']
     rules = data_dict['rules'] # <-- Nueva línea
+    evcorr = data_dict.get('event_corr', pd.DataFrame())
 
     report_dir = Path(cfg.get('report_output_dir', 'outputs/reports'))
     mrow = meta[meta['appid'].astype(str) == appid].head(1)
@@ -212,11 +213,12 @@ def build_report_for_appid(appid, cfg, data_dict):
         neigh = _neighbors(appid, emb, clu, meta, top_k=top_k, same_cluster_only=same_cluster_only, min_similarity=min_similarity)
 
     ccf_section = []
+    sub_ccf = pd.DataFrame()
     if not ccf.empty:
-        sub = ccf[ccf['appid'].astype(str) == appid].copy()
-        if not sub.empty:
-            keep = [c for c in ['pair_name', 'best_lag', 'best_ccf', 'best_pval', 'best_significant_fdr', 'lead_or_lag', 'granger_xy_pmin', 'granger_yx_pmin', 'granger_xy_sig', 'granger_yx_sig'] if c in sub.columns]
-            ccf_section = sub[keep].to_dict(orient='records')
+        sub_ccf = ccf[ccf['appid'].astype(str) == appid].copy()
+        if not sub_ccf.empty:
+            keep = [c for c in ['pair_name', 'best_lag', 'best_ccf', 'best_pval', 'best_significant_fdr', 'lead_or_lag', 'granger_xy_pmin', 'granger_yx_pmin', 'granger_xy_sig', 'granger_yx_sig'] if c in sub_ccf.columns]
+            ccf_section = sub_ccf[keep].to_dict(orient='records')
 
     events_section = []
     if not events.empty:
@@ -256,6 +258,57 @@ def build_report_for_appid(appid, cfg, data_dict):
         if not sub.empty:
             rules_section = sub.to_dict(orient='records')[0]
 
+    event_correlation_section = []
+    sub_evc = pd.DataFrame()
+    if isinstance(evcorr, pd.DataFrame) and not evcorr.empty:
+        sub_evc = evcorr[evcorr['appid'].astype(str) == appid].copy()
+        if not sub_evc.empty:
+            if 'event_t0' in sub_evc.columns:
+                sub_evc['event_t0'] = pd.to_datetime(sub_evc['event_t0']).dt.strftime('%Y-%m-%d')
+            keep_cols = [c for c in [
+                'event_t0','z_players_t0','players_t0','metric_y','lag_star','rho_star','p_perm',
+                'drop_1m','half_life_months','pre_players_mean_3m','post_players_mean_3m',
+                'pre_neg_mean_3m','post_neg_mean_3m','neg_delta_mean_3m','jaccard_overlap_peaks',
+                'pattern_launch_bad_reception'
+            ] if c in sub_evc.columns]
+            event_correlation_section = sub_evc[keep_cols].to_dict(orient='records')
+
+    # Hierarchical decision: prefer Granger if significant; else fallback to event-based
+    causal_decision = {"method": "none", "reason": "no data"}
+    chosen_granger = []
+    chosen_events = []
+    # Granger criteria: any significant flag present
+    if not sub_ccf.empty:
+        sig_cols = [c for c in ['best_significant_fdr','granger_xy_sig','granger_yx_sig'] if c in sub_ccf.columns]
+        granger_ok = False
+        if sig_cols:
+            granger_ok = bool(sub_ccf[sig_cols].fillna(False).any().any())
+        if granger_ok:
+            causal_decision = {"method": "granger", "reason": "significant pairs present"}
+            chosen_granger = ccf_section
+        else:
+            causal_decision = {"method": "event_fallback", "reason": "no significant granger pairs"}
+    elif isinstance(sub_evc, pd.DataFrame) and not sub_evc.empty:
+        causal_decision = {"method": "event_fallback", "reason": "no granger data"}
+    # Choose top event candidates for compact summary
+    if isinstance(sub_evc, pd.DataFrame) and not sub_evc.empty and causal_decision["method"] != "granger":
+        # prioritize p_perm <= 0.1, then by |rho_star|, else pattern flag
+        tmp = sub_evc.copy()
+        if 'p_perm' in tmp.columns:
+            tmp['p_ok'] = tmp['p_perm'] <= 0.10
+        else:
+            tmp['p_ok'] = False
+        if 'rho_star' in tmp.columns:
+            tmp['abs_rho'] = tmp['rho_star'].abs()
+        else:
+            tmp['abs_rho'] = 0.0
+        if 'pattern_launch_bad_reception' not in tmp.columns:
+            tmp['pattern_launch_bad_reception'] = False
+        tmp = tmp.sort_values(['p_ok','abs_rho','pattern_launch_bad_reception'], ascending=[False, False, False])
+        keep_cols_small = [c for c in ['event_t0','metric_y','lag_star','rho_star','p_perm','drop_1m','half_life_months','pattern_launch_bad_reception'] if c in tmp.columns]
+        chosen_events = tmp[keep_cols_small].head(5).to_dict(orient='records')
+    
+
     review_segments_section = []
     abandonment_summary = {}
 
@@ -267,6 +320,13 @@ def build_report_for_appid(appid, cfg, data_dict):
               "abandonment": abandonment_summary,
               "alerts": negative_topic_alerts,
               "rules_analysis": rules_section, # <-- Añadido al reporte final
+              "causal_inference": {
+                  "method": causal_decision.get('method'),
+                  "reason": causal_decision.get('reason'),
+                  "granger": chosen_granger if chosen_granger else [],
+                  "events": chosen_events if chosen_events else []
+              },
+              "event_correlation": event_correlation_section,
               "provenance": {k: str(v) for k, v in {
                   "metadata_parquet": cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet'),
                   "embeddings_parquet": cfg.get('embeddings_parquet', 'data/processed/embeddings.parquet'),
@@ -275,6 +335,7 @@ def build_report_for_appid(appid, cfg, data_dict):
                   "events_parquet": cfg.get('events_parquet', 'outputs/events/events.parquet'),
                   "topics_parquet": cfg.get('topics_parquet', 'outputs/events/topics.parquet'),
                   "explanations_parquet": cfg.get('explanations_parquet', 'outputs/events/explanations.parquet'),
+                  "event_correlation_parquet": 'outputs/ccf_analysis/event_correlation.parquet',
               "rules_parquet": 'data/with_rules/with_rules.parquet'
               }.items()}}
     _validate_app_report(report)
@@ -313,7 +374,8 @@ def main():
         'events': _load_df(cfg.get('events_parquet', 'outputs/events/events.parquet')),
         'topics': _load_df(cfg.get('topics_parquet', 'outputs/events/topics.parquet')),
         'expl': _load_df(cfg.get('explanations_parquet', 'outputs/events/explanations.parquet')),
-        'rules': _load_df('data/with_rules/with_rules.parquet')
+        'rules': _load_df('data/with_rules/with_rules.parquet'),
+        'event_corr': _load_df('outputs/ccf_analysis/event_correlation.parquet')
     }
 
     if data_dict['emb'].empty:

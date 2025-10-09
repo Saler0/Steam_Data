@@ -17,6 +17,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import mlflow
+from src.utils.config_utils import expand_env_in_obj
 try:
     import ray
     RAY_AVAILABLE = True
@@ -245,7 +246,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
-    cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = expand_env_in_obj(yaml.safe_load(open(args.config, 'r')))
     
     parallel_mode = (cfg.get('parallelization', {}) or {}).get('mode', 'ray')
     if parallel_mode == 'ray' and RAY_AVAILABLE and not ray.is_initialized():
