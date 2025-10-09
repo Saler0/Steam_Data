@@ -440,7 +440,7 @@ for %%I in (!APPID_LIST!) do (
 
 rem Persistir reportes de los vecinos en Mongo, eliminando 'provenance' y 'rules_analysis'
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "printf '%s\n' $APPIDS | tr ' ' '\n' > outputs/tmp_neighbors_appids.txt && set -a; source <(sed 's/\r$//' .env); set +a; python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --appids-file outputs/tmp_neighbors_appids.txt --mongo-uri \"${MONGO_URI:-mongodb://localhost:27017}\" --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis"
+  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "for id in $APPIDS; do echo $id; done > outputs/tmp_neighbors_appids.txt && python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --appids-file outputs/tmp_neighbors_appids.txt --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis"
 if errorlevel 1 goto :neighbors_failed
 
 echo.
@@ -511,7 +511,7 @@ if errorlevel 1 goto :offline_failed
 
 rem Persistir TODOS los reportes a Mongo (sin provenance ni rules_analysis)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --mongo-uri \"${MONGO_URI:-mongodb://localhost:27017}\" --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis"
+  exec -w /app/Data_analytics analytics python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --mongo-db analytics --mongo-coll app_reports --drop-fields provenance,rules_analysis
 if errorlevel 1 goto :offline_failed
 
 echo.

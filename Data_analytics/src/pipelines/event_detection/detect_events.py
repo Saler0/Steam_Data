@@ -194,6 +194,10 @@ def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
     if df_ts is None or df_ts.empty or len(df_ts) < 12:
         return pd.DataFrame()
     
+    if 'year_month' in df_ts.columns and df_ts['year_month'].duplicated().any():
+        numeric_cols = [c for c in df_ts.columns if pd.api.types.is_numeric_dtype(df_ts[c]) and c != 'year_month']
+        df_ts = df_ts.groupby('year_month')[numeric_cols].sum().reset_index()
+
     all_events = []
     variables = ['players', 'pos', 'neg', 'total_reviews']
     for var in variables:

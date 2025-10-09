@@ -341,7 +341,10 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict
     df_raw = _read_reviews(cfg['mongo_connection'], appid, pre.get('reviews_monthly'))
     players_df = _read_players(cfg['players_data'], appid, pre.get('players_monthly'))
     if players_df is not None and not players_df.empty:
-        df_raw = pd.merge(df_raw, players_df, on='year_month', how='outer').sort_values('year_month').fillna(0)
+        if df_raw.empty:
+            df_raw = players_df.fillna(0)
+        else:
+            df_raw = pd.merge(df_raw, players_df, on='year_month', how='outer').sort_values('year_month').fillna(0)
     
     if df_raw is None or df_raw.empty or len(df_raw) < 12:
         return {"summary": [], "consistency": []}

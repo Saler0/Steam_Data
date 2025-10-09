@@ -11,6 +11,24 @@ import numpy as np
 import pandas as pd
 from functools import partial
 import multiprocessing
+import sys
+import os
+
+# Add project root to Python path to allow imports from src
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
+
 from src.utils.config_utils import expand_env_in_obj
 try:
     import ray
@@ -238,6 +256,9 @@ def build_report_for_appid(appid, cfg, data_dict):
         if not sub.empty:
             rules_section = sub.to_dict(orient='records')[0]
 
+    review_segments_section = []
+    abandonment_summary = {}
+
     report = {"appid": appid, "generated_at": datetime.utcnow().isoformat() + "Z",
               "metadata": metadata, "cluster": cluster_info, "neighbors": neigh,
               "ccf_granger": ccf_section, "events": events_section,
@@ -260,7 +281,7 @@ def build_report_for_appid(appid, cfg, data_dict):
 
     outp = Path(cfg.get('report_output_dir', 'outputs/reports')) / f"{appid}.json"
     outp.parent.mkdir(parents=True, exist_ok=True)
-    outp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    outp.write_text(json.dumps(report, ensure_ascii=False, indent=2, cls=NumpyEncoder), encoding="utf-8")
 
     return f"[OK] Reporte -> {outp}"
 

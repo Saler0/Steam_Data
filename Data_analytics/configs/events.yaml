@@ -1,4 +1,4 @@
-﻿# ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Fichero de Configuración para la Detección y Análisis de Eventos de Videojuegos
 #
 # Este archivo centraliza los parámetros para los diferentes scripts del pipeline.
@@ -167,10 +167,10 @@ topics_scoring:
 # Esta sección es usada por el script `news_classifier.py`.
 llm:
   enabled: true
-  # Proveedor del LLM: "openai" usa la REST API de OpenAI (requiere OPENAI_API_KEY)
-  provider: "openai"
-  # Modelo a usar con OpenAI
-  model_id: "gpt-4.1-mini"
+  # Proveedor del LLM: "deepseek" usa la REST API de DeepSeek (requiere DEEPSEEK_API_KEY)
+  provider: "deepseek"
+  # Modelo a usar con DeepSeek
+  model_id: "deepseek-chat"
   # Clasificación en lotes para reducir coste/latencia
   batch_size: 20
   # Extraer palabras clave por noticia
@@ -183,10 +183,10 @@ llm:
   # Para usarlo, cambia provider: "svm" y asegúrate de entrenar el modelo (stage news_train)
   # provider: "svm"
   # model_path: models/news_svm.joblib
-  # Nombre de la variable de entorno para el API key (por defecto OPENAI_API_KEY)
-  api_key_env: ${LLM_API_KEY_ENV:-OPENAI_API_KEY}
-  # Base URL opcional (permite proxys o pass-through). Por defecto api.openai.com/v1
-  base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  # Nombre de la variable de entorno para el API key (por defecto DEEPSEEK_API_KEY)
+  api_key_env: ${LLM_API_KEY_ENV:-DEEPSEEK_API_KEY}
+  # Base URL opcional (permite proxys o pass-through). Por defecto api.deepseek.com/v1
+  base_url: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
   # Alternativamente, si quieres usar un servidor local, especifica server_url y quita provider/api_key
   # server_url: "http://localhost:8000/v1/chat/completions"
   max_new_tokens: 128

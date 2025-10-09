@@ -26,11 +26,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
 
+from dotenv import load_dotenv
+
 # Ensure project root imports
 import sys
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
+
+load_dotenv(dotenv_path=ROOT.parent / '.env')
 
 from src.utils.mongo_utils import MongoWriter
 

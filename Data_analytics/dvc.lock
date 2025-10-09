@@ -161,8 +161,8 @@ stages:
     outs:
     - path: data/warehouse/players_monthly.parquet
       hash: md5
-      md5: b773a889714e913c948e37fd2d1d91c3
-      size: 1818
+      md5: 2f5901d608238c635ce5e93eae7f5234
+      size: 4771
   reviews_with_segments:
     cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py 
       --config configs/review_segments.yaml --output 
@@ -201,8 +201,8 @@ stages:
       size: 36426603
     - path: outputs/events/events.parquet
       hash: md5
-      md5: 51eac8178e5aef418fe228913bad6619
-      size: 7244
+      md5: ed3a768bc1dba92f40d0c44d54cb2e48
+      size: 7389
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: 14a8479db5ee9bb319c1909035e58045
@@ -260,3 +260,130 @@ stages:
       md5: 131c14547961571dc42080d67a40d96d.dir
       size: 244655489
       nfiles: 32
+  events:
+    cmd: python src/pipelines/event_detection/detect_events.py --config 
+      configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 59bc0ba6658bde7546997e6a6cf0acc3
+      size: 118031546
+    - path: data/warehouse/players_monthly.parquet
+      hash: md5
+      md5: 2f5901d608238c635ce5e93eae7f5234
+      size: 4771
+    - path: data/warehouse/reviews_monthly.parquet
+      hash: md5
+      md5: 4b69e98c1b9afbb11d1136c33b003b06
+      size: 8257
+    - path: src/pipelines/event_detection/detect_events.py
+      hash: md5
+      md5: 121662f0aaee834ef52d13d3207de1bb
+      size: 17608
+      isexec: true
+    outs:
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+  topics:
+    cmd: python src/insights/topic_motives.py --config configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: src/insights/topic_motives.py
+      hash: md5
+      md5: 9d51fc4ca3b3898413373e748be9fabf
+      size: 13814
+      isexec: true
+    outs:
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+  topics_relevance:
+    cmd: "python src/insights/score_topics_with_ccf.py --config configs/events.yaml\n"
+    deps:
+    - path: outputs/ccf_analysis/consistency.parquet
+      hash: md5
+      md5: cdf6e31ea4fce73e7f7df04b8313524f
+      size: 6839
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+    - path: src/insights/score_topics_with_ccf.py
+      hash: md5
+      md5: 98b6cbb8d94b60ee1580682a74e0eb84
+      size: 7690
+      isexec: true
+    outs:
+    - path: outputs/events/topics_scored.parquet
+      hash: md5
+      md5: 16976dfbec447347aff47d3e39d5c690
+      size: 201995
+  news_classifier:
+    cmd: python src/insights/news_classifier.py --config configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: src/insights/news_classifier.py
+      hash: md5
+      md5: fd347a4669765580767c015d1c69fcad
+      size: 23730
+      isexec: true
+    outs:
+    - path: outputs/events/news_classified.parquet
+      hash: md5
+      md5: 763864b1fb9d345dbc796d04cab51e1b
+      size: 2789285
+  enrich:
+    cmd: python src/pipelines/event_detection/enrich_events.py --config 
+      configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: outputs/events/news_classified.parquet
+      hash: md5
+      md5: 763864b1fb9d345dbc796d04cab51e1b
+      size: 2789285
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+    - path: src/pipelines/event_detection/enrich_events.py
+      hash: md5
+      md5: bad826505143b61c8496d8ec9bcbd288
+      size: 21596
+      isexec: true
+    outs:
+    - path: outputs/events/explanations.parquet
+      hash: md5
+      md5: 8f8ae92f9f2835d5ae4a1b4d2d408098
+      size: 7311
