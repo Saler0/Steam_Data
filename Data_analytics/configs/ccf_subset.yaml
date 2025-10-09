@@ -60,3 +60,12 @@ mlflow:
   enabled: true
   experiment: Steam Analytics
   run_name_prefix: ccf_analysis_
+event_mode:
+  enabled: true
+  z_threshold: 2.0
+  window_months: 2
+  max_lag_event: 2
+  permutations: 500
+  alpha_event: 0.1
+  min_drop_1m: -0.15
+  use_negative_pct: true

@@ -273,17 +273,6 @@ stages:
     outs:
       - outputs/ccf_analysis/event_correlation.parquet
 
-  topics_relevance:
-    cmd: >
-      python src/insights/score_topics_with_ccf.py --config configs/events.yaml
-    deps:
-      - src/insights/score_topics_with_ccf.py
-      - outputs/events/topics.parquet
-      - outputs/events/events.parquet
-      - outputs/ccf_analysis/consistency.parquet
-    outs:
-      - outputs/events/topics_scored.parquet
-
   client_report:
     cmd: >
       python src/insights/make_client_report.py

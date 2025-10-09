@@ -92,13 +92,13 @@ llm:
 signals:
   context_months: 1
   twitch:
-    mode: file
+    mode: api
     client_id: ${TWITCH_CLIENT_ID}
     client_secret: ${TWITCH_CLIENT_SECRET}
     file: data/external/twitch/monthly_{appid}.csv
     api_cache_dir: data/external/twitch/api_cache
   youtube:
-    mode: file
+    mode: api
     api_key: ${YOUTUBE_API_KEY}
     file: data/external/youtube/monthly_{appid}.csv
     api_cache_dir: data/external/youtube/api_cache

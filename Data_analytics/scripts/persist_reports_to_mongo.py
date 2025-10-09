@@ -75,7 +75,7 @@ def main() -> None:
     ap.add_argument('--reports-dir', default='outputs/reports')
     ap.add_argument('--appids-file', default=None, help='Archivo con appids (espacios/nuevas líneas/comas) para filtrar')
     ap.add_argument('--mongo-uri', default=os.getenv('MONGO_URI', 'mongodb://localhost:27017'))
-    ap.add_argument('--mongo-db', default=os.getenv('MONGO_DB_ANALYTICS', 'analytics'))
+    ap.add_argument('--mongo-db', default=os.getenv('MONGO_DB_ANALYTICS', 'exploitation_zone'))
     ap.add_argument('--mongo-coll', default=os.getenv('MONGO_COLL_APPREPORTS', 'app_reports'))
     ap.add_argument('--drop-fields', default='provenance', help='Campos a eliminar, separados por comas')
     args = ap.parse_args()
