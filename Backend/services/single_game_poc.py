@@ -6,6 +6,7 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,15 @@ if str(DATA_ANALYTICS_DIR) not in sys.path:
 from src.pipelines.generate_embeddings import _build_doc
 from src.utils.io import read_parquet_any
 from src.insights.neighbor_strategy import DEFAULT_CONFIG, EmbeddingIndex, select_competitor_neighbors
+
+SMART_PUNCT_TRANSLATION = str.maketrans({})
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKC", str(value))
+    return text.translate(SMART_PUNCT_TRANSLATION)
 
 
 class PoCExecutionError(RuntimeError):
@@ -194,7 +204,7 @@ def _canonicalize_sequence(values: Any) -> List[str]:
         items = list(values)
     else:
         items = [values]
-    cleaned: List[tuple[str, str]] = []
+    result: List[str] = []
     seen: set[str] = set()
     for item in items:
         if item is None:
@@ -206,9 +216,8 @@ def _canonicalize_sequence(values: Any) -> List[str]:
         if key in seen:
             continue
         seen.add(key)
-        cleaned.append((key, text))
-    cleaned.sort(key=lambda pair: pair[0])
-    return [text for _, text in cleaned]
+        result.append(text)
+    return result
 
 
 def _vector_from_value(value: Any) -> Optional[np.ndarray]:
@@ -379,6 +388,9 @@ class SingleGamePoCService:
         if not sample:
             raise PoCExecutionError("Sample payload is empty")
         enriched = dict(sample)
+        for field in ("name", "short_description", "detailed_description"):
+            if field in enriched:
+                enriched[field] = _normalize_text(enriched.get(field))
         for field in ("genres", "categories", "tags"):
             if field in enriched:
                 enriched[field] = _canonicalize_sequence(enriched.get(field))
