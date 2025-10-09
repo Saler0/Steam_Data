@@ -73,6 +73,7 @@
                 <label><span>Web Publishing</span></label>
             </div>
           </div>
+          <input type="hidden" name="genres_order" class="selection-order-input">
         </div>
 
         <!-- CategorÃ­as -->
@@ -147,6 +148,7 @@
                 <label><span>Valve Anti-Cheat enabled</span></label>
             </div>
           </div>
+          <input type="hidden" name="categories_order" class="selection-order-input">
         </div>
 
       <div class="form-group">
@@ -198,9 +200,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!content || !summary || !fieldName) return;
 
     const selectionOrder = [];
+    const orderInput = dropdown.querySelector('.selection-order-input');
 
     const updateSummary = () => {
       summary.textContent = selectionOrder.map((v, i) => `${i+1}. ${v}`).join(', ');
+      if (orderInput) {
+        orderInput.value = JSON.stringify(selectionOrder);
+      }
     };
 
     content.querySelectorAll('label').forEach(optionLabel => {

@@ -171,6 +171,7 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Any, Dict
 
 import requests
@@ -225,6 +226,33 @@ def create_app() -> Flask:
         categories = form_data.get("categories", [])
         platforms = form_data.get("platforms", [])
         full_content_values = form_data.get("full_content_included", [])
+
+        def restore_order(values, order_key):
+            if not values:
+                return values
+            raw_order = form_data.get(order_key, [])
+            if not raw_order:
+                return values
+            try:
+                desired = json.loads(raw_order[0])
+            except (ValueError, TypeError, json.JSONDecodeError):
+                return values
+            if not isinstance(desired, list):
+                return values
+            seen = set()
+            ordered = []
+            for entry in desired:
+                if entry in values and entry not in seen:
+                    ordered.append(entry)
+                    seen.add(entry)
+            for entry in values:
+                if entry not in seen:
+                    ordered.append(entry)
+                    seen.add(entry)
+            return ordered
+
+        genres = restore_order(genres, "genres_order")
+        categories = restore_order(categories, "categories_order")
 
         if not nombre or not short_description or not detailed_description:
             return jsonify({"status": "error", "message": "Faltan campos obligatorios"}), 400

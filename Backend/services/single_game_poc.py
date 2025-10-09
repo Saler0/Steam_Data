@@ -187,6 +187,30 @@ def _prepare_query_metadata(sample: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _canonicalize_sequence(values: Any) -> List[str]:
+    if not values:
+        return []
+    if isinstance(values, (list, tuple, set)):
+        items = list(values)
+    else:
+        items = [values]
+    cleaned: List[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in items:
+        if item is None:
+            continue
+        text = str(item).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append((key, text))
+    cleaned.sort(key=lambda pair: pair[0])
+    return [text for _, text in cleaned]
+
+
 def _vector_from_value(value: Any) -> Optional[np.ndarray]:
     if isinstance(value, np.ndarray):
         arr = value.astype(np.float32)
@@ -355,6 +379,9 @@ class SingleGamePoCService:
         if not sample:
             raise PoCExecutionError("Sample payload is empty")
         enriched = dict(sample)
+        for field in ("genres", "categories", "tags"):
+            if field in enriched:
+                enriched[field] = _canonicalize_sequence(enriched.get(field))
         if "price" not in enriched and "precio" in enriched:
             enriched["price"] = enriched.get("precio")
 
