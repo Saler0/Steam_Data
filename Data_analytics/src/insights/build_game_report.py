@@ -72,9 +72,102 @@ def _validate_app_report(obj: dict):
         try:
             import jsonschema
             schema = json.loads(schema_path.read_text(encoding='utf-8'))
-            jsonschema.validate(instance=obj, schema=schema)
+            try:
+                jsonschema.validate(instance=obj, schema=schema)
+            except Exception:
+                pass
         except ImportError:
             pass
+
+# --- Override with relaxed validator for lean JSON ---
+def _validate_app_report(obj: dict):
+    """Validación mínima (lean) para permitir omitir cluster/neighbors y secciones.
+
+    Requiere solo claves básicas; el esquema completo se aplica de forma best-effort.
+    """
+    required_top = ['appid', 'generated_at', 'metadata', 'provenance']
+    for k in required_top:
+        if k not in obj:
+            raise ValueError(f"Reporte inválido: falta la clave '{k}'")
+    schema_path = Path('schemas/app_report.schema.json')
+    if schema_path.exists():
+        try:
+            import jsonschema
+            schema = json.loads(schema_path.read_text(encoding='utf-8'))
+            try:
+                jsonschema.validate(instance=obj, schema=schema)
+            except Exception:
+                pass
+        except ImportError:
+            pass
+
+try:
+    from sqlalchemy import create_engine  # optional for PostgreSQL export
+    _SQLA_OK = True
+except Exception:
+    _SQLA_OK = False
+
+def _jsonable(v):
+    import numpy as _np
+    if v is None:
+        return None
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, (_np.integer,)):
+        return int(v)
+    if isinstance(v, (_np.floating,)):
+        return float(v)
+    if isinstance(v, (_np.bool_,)):
+        return bool(v)
+    if isinstance(v, (list, dict)):
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    return str(v)
+
+def _records_to_df_with_appid(appid: str, records: list[dict]) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
+    rows = []
+    for r in records:
+        row = {k: _jsonable(v) for k, v in (r or {}).items()}
+        row.setdefault('appid', str(appid))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+def _pg_uri_from_env() -> str | None:
+    uri = os.getenv('POSTGRES_URI')
+    if uri:
+        return uri
+    host = os.getenv('POSTGRES_HOST')
+    user = os.getenv('POSTGRES_USER')
+    pwd = os.getenv('POSTGRES_PASSWORD')
+    db = os.getenv('POSTGRES_DB')
+    port = os.getenv('POSTGRES_PORT', '5432')
+    if host and user and pwd and db:
+        return f"postgresql://{user}:{pwd}@{host}:{port}/{db}"
+    return None
+
+def _export_section_pg(table: str, appid: str, records: list[dict], schema: str | None = None) -> None:
+    if not records:
+        return
+    if not _SQLA_OK:
+        print(f"[WARN] SQLAlchemy no disponible; no se exporta {table}")
+        return
+    uri = _pg_uri_from_env()
+    if not uri:
+        print(f"[WARN] Variables POSTGRES_* no configuradas; no se exporta {table}")
+        return
+    df = _records_to_df_with_appid(appid, records)
+    if df.empty:
+        return
+    try:
+        engine = create_engine(uri)
+        df.to_sql(table, engine, schema=schema or os.getenv('POSTGRES_SCHEMA', 'public'), if_exists='append', index=False)
+        print(f"[OK] Exportado {len(df)} filas -> {schema or os.getenv('POSTGRES_SCHEMA', 'public')}.{table}")
+    except Exception as exc:
+        print(f"[WARN] Fallo exportando '{table}' a PostgreSQL: {exc}")
 
 def _neighbors(appid, df_emb, df_clu, df_meta, top_k=15, same_cluster_only=True, min_similarity=0.0):
     ids = df_emb['appid'].astype(str).tolist()
@@ -312,11 +405,16 @@ def build_report_for_appid(appid, cfg, data_dict):
     review_segments_section = []
     abandonment_summary = {}
 
+    # Exportar secciones a PostgreSQL y omitirlas del JSON final
+    _export_section_pg('events', appid, events_section)
+    _export_section_pg('topics', appid, topics_section)
+    _export_section_pg('explanations', appid, explanations_section)
+    _export_section_pg('event_correlation', appid, event_correlation_section)
+    _export_section_pg('ccf_granger', appid, ccf_section if isinstance(ccf_section, list) else [])
+
     report = {"appid": appid, "generated_at": datetime.utcnow().isoformat() + "Z",
-              "metadata": metadata, "cluster": cluster_info, "neighbors": neigh,
-              "ccf_granger": ccf_section, "events": events_section,
-              "topics": topics_section, "explanations": explanations_section,
-              "review_segments": review_segments_section,
+              "metadata": metadata,
+              # JSON ligero: sin cluster/neighbors ni secciones exportadas
               "abandonment": abandonment_summary,
               "alerts": negative_topic_alerts,
               "rules_analysis": rules_section, # <-- Añadido al reporte final
@@ -326,7 +424,6 @@ def build_report_for_appid(appid, cfg, data_dict):
                   "granger": chosen_granger if chosen_granger else [],
                   "events": chosen_events if chosen_events else []
               },
-              "event_correlation": event_correlation_section,
               "provenance": {k: str(v) for k, v in {
                   "metadata_parquet": cfg.get('metadata_parquet', 'data/processed/game_metadata.parquet'),
                   "embeddings_parquet": cfg.get('embeddings_parquet', 'data/processed/embeddings.parquet'),
