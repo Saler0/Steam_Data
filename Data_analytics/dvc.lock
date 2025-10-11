@@ -17,7 +17,7 @@ stages:
     outs:
     - path: data/processed/embeddings.parquet
       hash: md5
-      md5: d684bcc961736a94b4be942e0e06e259
+      md5: f284aaef034a826fd492fd30d57c3e49
       size: 217069027
     - path: data/processed/embeddings/
       hash: md5
@@ -45,24 +45,24 @@ stages:
     outs:
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 6f528584a0a18aa10642b7f5cec5e10b
-      size: 118057940
+      md5: b01893916ce45a95c5f442599f6d0cca
+      size: 118037790
     - path: data/processed/game_metadata.parquet
       hash: md5
       md5: d2234b2157a687d96fc055cbf76680a6
       size: 246805470
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 3a47b1e6549fdaf54fba7024dfadca2c
-      size: 34584286
+      md5: 2a0d95a172d54e2ee0262063424a315a
+      size: 34558590
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: a0adbfa6962cb81d7689406979875c74
-      size: 24036955
+      md5: 4b54a4062cd2895727037eef10eaa93c
+      size: 23947060
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: 59f17e11bec98e2e312bb8737e280b4c
-      size: 170601
+      md5: b62fbcdaaa81dd95d08b79974b13aa2e
+      size: 170415
   cluster_topics_profile:
     cmd: python src/pipelines/cluster_assignment/profile_clusters_topics.py 
       --clusters data/processed/clusters.parquet --metadata 
@@ -79,8 +79,8 @@ stages:
       isexec: true
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 6f528584a0a18aa10642b7f5cec5e10b
-      size: 118057940
+      md5: b01893916ce45a95c5f442599f6d0cca
+      size: 118037790
     - path: data/processed/game_metadata.parquet
       hash: md5
       md5: d2234b2157a687d96fc055cbf76680a6
@@ -93,8 +93,8 @@ stages:
     outs:
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: 766798bf23cd22328dece7e1a2896689
-      size: 17450
+      md5: e5d35fdb0eeb68b430ecf4479d0eb503
+      size: 16595
   cluster_topics_map:
     cmd: python scripts/plot_cluster_topics_umap.py --medoids 
       models/cluster_medoids.json --stats outputs/clustering/cluster_stats.csv 
@@ -104,20 +104,20 @@ stages:
     deps:
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 3a47b1e6549fdaf54fba7024dfadca2c
-      size: 34584286
+      md5: 2a0d95a172d54e2ee0262063424a315a
+      size: 34558590
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: a0adbfa6962cb81d7689406979875c74
-      size: 24036955
+      md5: 4b54a4062cd2895727037eef10eaa93c
+      size: 23947060
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: 59f17e11bec98e2e312bb8737e280b4c
-      size: 170601
+      md5: b62fbcdaaa81dd95d08b79974b13aa2e
+      size: 170415
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: 766798bf23cd22328dece7e1a2896689
-      size: 17450
+      md5: e5d35fdb0eeb68b430ecf4479d0eb503
+      size: 16595
     - path: scripts/plot_cluster_topics_umap.py
       hash: md5
       md5: 0819a4bc6cc8cced06236a63aa76eab9
@@ -126,8 +126,8 @@ stages:
     outs:
     - path: outputs/clustering/cluster_topics_umap.html
       hash: md5
-      md5: 208a7e5fee458ab73d7800bc7133051c
-      size: 6087443
+      md5: 14483b4733df5430e20673db066e6906
+      size: 6121423
   preagg_reviews:
     cmd: python src/pipelines/preaggregations/reviews_monthly.py --config 
       configs/ccf_analysis.yaml
@@ -201,8 +201,8 @@ stages:
       size: 36426603
     - path: outputs/events/events.parquet
       hash: md5
-      md5: 87f4d7fbd7cfcf9d29b1bdaacc1fdd15
-      size: 6069
+      md5: 99062da5a39540df3228f0832377c019
+      size: 10381
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: 14a8479db5ee9bb319c1909035e58045
@@ -271,8 +271,8 @@ stages:
       isexec: true
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 6f528584a0a18aa10642b7f5cec5e10b
-      size: 118057940
+      md5: b01893916ce45a95c5f442599f6d0cca
+      size: 118037790
     - path: data/warehouse/players_monthly.parquet
       hash: md5
       md5: 2f5901d608238c635ce5e93eae7f5234

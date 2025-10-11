@@ -47,8 +47,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Persistir tópicos por juego en MongoDB")
     ap.add_argument('--parquet', default='outputs/events/topics.parquet')
     ap.add_argument('--mongo-uri', default=os.getenv('MONGO_URI', 'mongodb://localhost:27017'))
-    ap.add_argument('--mongo-db', default=os.getenv('MONGO_DB_ANALYTICS', 'analytics'))
-    ap.add_argument('--mongo-coll', default=os.getenv('MONGO_COLL_TOPICS', 'analytics_topics'))
+    ap.add_argument('--mongo-db', default=os.getenv('MONGO_DB_ANALYTICS', 'exploitation_zone'))
+    ap.add_argument('--mongo-coll', default=os.getenv('MONGO_COLL_TOPICS', 'offline_topics'))
     ap.add_argument('--aggregate-by-app', action='store_true', help='Guardar 1 doc por appid agregando temas de todos los meses')
     args = ap.parse_args()
 

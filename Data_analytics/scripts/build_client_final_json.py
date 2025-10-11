@@ -119,7 +119,7 @@ def main() -> None:
     ap.add_argument('--mongo-coll', default=os.getenv('MONGO_COLL_CLIENTS', 'client_profiles'))
 
     # Mongo analytics (tópicos)
-    ap.add_argument('--analytics-db', default=os.getenv('MONGO_DB_ANALYTICS', 'analytics'))
+    ap.add_argument('--analytics-db', default=os.getenv('MONGO_DB_ANALYTICS', 'exploitation_zone'))
     ap.add_argument('--analytics-coll', default=os.getenv('MONGO_COLL_TOPICS', 'analytics_topics'))
 
     # Reglas precomputadas (opcional)
