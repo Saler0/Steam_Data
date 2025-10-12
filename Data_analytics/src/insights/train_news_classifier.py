@@ -18,7 +18,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import (
+    classification_report,
+    accuracy_score,
+    precision_recall_fscore_support,
+    confusion_matrix,
+)
 import joblib
 import mlflow
 
@@ -75,8 +80,59 @@ def main() -> None:
         acc = accuracy_score(y_test, y_pred)
         metrics['accuracy'] = float(acc)
         print(f"[OK] Accuracy test: {acc:.3f}")
+        # Detailed metrics
+        pr_macro, rc_macro, f1_macro, _ = precision_recall_fscore_support(y_test, y_pred, average='macro', zero_division=0)
+        pr_micro, rc_micro, f1_micro, _ = precision_recall_fscore_support(y_test, y_pred, average='micro', zero_division=0)
+        pr_weighted, rc_weighted, f1_weighted, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted', zero_division=0)
+        metrics.update({
+            'precision_macro': float(pr_macro),
+            'recall_macro': float(rc_macro),
+            'f1_macro': float(f1_macro),
+            'precision_micro': float(pr_micro),
+            'recall_micro': float(rc_micro),
+            'f1_micro': float(f1_micro),
+            'precision_weighted': float(pr_weighted),
+            'recall_weighted': float(rc_weighted),
+            'f1_weighted': float(f1_weighted),
+        })
+        # Text report
         report_txt = classification_report(y_test, y_pred)
         print(report_txt)
+        # Confusion matrix artifact
+        labels_sorted = sorted(set(y_test) | set(y_pred))
+        cm = confusion_matrix(y_test, y_pred, labels=labels_sorted)
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+            import numpy as np  # noqa: F401
+            fig, ax = plt.subplots(figsize=(6, 5))
+            im = ax.imshow(cm, cmap='Blues')
+            ax.set_title('Confusion Matrix (SVM)')
+            ax.set_xlabel('Predicted')
+            ax.set_ylabel('True')
+            ax.set_xticks(range(len(labels_sorted)))
+            ax.set_yticks(range(len(labels_sorted)))
+            ax.set_xticklabels(labels_sorted, rotation=45, ha='right')
+            ax.set_yticklabels(labels_sorted)
+            for i in range(cm.shape[0]):
+                for j in range(cm.shape[1]):
+                    ax.text(j, i, str(cm[i, j]), ha='center', va='center', color='black')
+            fig.tight_layout()
+            cm_png = Path('outputs/events') / 'news_svm_confusion_matrix.png'
+            cm_png.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(cm_png, dpi=150)
+            plt.close(fig)
+            cm_artifact_path = str(cm_png)
+        except Exception:
+            # Fallback to CSV artifact
+            import csv
+            cm_csv = Path('outputs/events') / 'news_svm_confusion_matrix.csv'
+            cm_csv.parent.mkdir(parents=True, exist_ok=True)
+            with cm_csv.open('w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([''] + labels_sorted)
+                for i, row in enumerate(cm):
+                    writer.writerow([labels_sorted[i]] + list(map(int, row)))
+            cm_artifact_path = str(cm_csv)
     else:
         pipe.fit(X, y)
 
@@ -109,6 +165,12 @@ def main() -> None:
                     rpt_path.parent.mkdir(parents=True, exist_ok=True)
                     rpt_path.write_text(report_txt, encoding='utf-8')
                     mlflow.log_artifact(str(rpt_path))
+                # Confusion matrix artifact if computed
+                if 'accuracy' in metrics and 'f1_macro' in metrics:
+                    try:
+                        mlflow.log_artifact(cm_artifact_path)
+                    except Exception:
+                        pass
                 # Log model
                 mlflow.log_artifact(str(out_path))
         except Exception as e:
