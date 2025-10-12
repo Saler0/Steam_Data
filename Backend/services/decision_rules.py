@@ -96,6 +96,40 @@ class DecisionRulesService:
             return "soporte limitado"
         return "soporte bueno"
 
+    def evaluate_ram_rule(
+        self,
+        client_ram_gb: Any,
+        neighbor_appids: Sequence[Any],
+    ) -> PriceRuleResult:
+        """Compare client RAM requirement against the neighbor median."""
+        result: PriceRuleResult = {
+            "label": "sin_datos",
+            "client_ram_gb": client_ram_gb,
+            "neighbor_median_ram_gb": None,
+            "neighbor_ram_values_count": 0,
+        }
+
+        if client_ram_gb in (None, ""):
+            return result
+
+        try:
+            client_ram_value = float(client_ram_gb)
+        except (TypeError, ValueError):
+            return result
+
+        result["client_ram_gb"] = client_ram_value
+
+        neighbor_ram_values = self._fetch_neighbor_ram_requirements(neighbor_appids)
+        result["neighbor_ram_values_count"] = len(neighbor_ram_values)
+        if not neighbor_ram_values:
+            return result
+
+        neighbor_median = median(neighbor_ram_values)
+        result["neighbor_median_ram_gb"] = neighbor_median
+        result["label"] = "barrera tecnica" if client_ram_value > neighbor_median else "sin barrera tecnica"
+
+        return result
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
@@ -152,6 +186,63 @@ class DecisionRulesService:
             except (TypeError, ValueError):
                 continue
         return prices
+
+    def _fetch_neighbor_ram_requirements(self, neighbor_appids: Sequence[Any]) -> List[float]:
+        ram_values: List[float] = []
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+
+        if not unique_ids:
+            return ram_values
+
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+
+        if not query_clauses:
+            return ram_values
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        ram_field = "RAM_req_GB"
+        projection = {ram_field: 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return ram_values
+
+        for doc in cursor:
+            value = doc.get(ram_field)
+            if value in (None, ""):
+                continue
+            try:
+                ram_values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+        return ram_values
 
     def _fetch_neighbor_platform_counts(self, neighbor_appids: Sequence[Any]) -> List[int]:
         counts: List[int] = []

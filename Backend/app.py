@@ -206,9 +206,15 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate platform rule: %s", exc)
                 platform_rule = "error"
+            try:
+                ram_rule = decision_rules_service.evaluate_ram_rule(document.get("ram_gb"), raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate RAM rule: %s", exc)
+                ram_rule = {"label": "error", "details": str(exc)}
         else:
             price_rule = {"label": "sin_servicio"}
             platform_rule = "sin_servicio"
+            ram_rule = {"label": "sin_servicio"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -222,13 +228,19 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "neighbors": normalized_neighbors,
             "diagnostics": diagnostics,
             "generated_at": datetime.utcnow(),
-            "platforms_rule": platform_rule,
         }
 
         try:
             collection.update_one(
                 {"_id": insert_result.inserted_id},
-                {"$set": {"poc_assignment": poc_record, "price_rule": price_rule, "platforms_rule": platform_rule}},
+                {
+                    "$set": {
+                        "poc_assignment": poc_record,
+                        "price_rule": price_rule,
+                        "platforms_rule": platform_rule,
+                        "RAM_rule": ram_rule,
+                    }
+                },
             )
         except PyMongoError as exc:
             collection.delete_one({"_id": insert_result.inserted_id})
@@ -257,6 +269,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "full_content_included": document["full_content_included"],
             "created_at": document["created_at"].isoformat() + "Z",
             "platforms_rule": platform_rule,
+            "RAM_rule": ram_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],
