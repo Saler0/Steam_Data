@@ -291,19 +291,14 @@ class PipelineLandingToTrustedSteam:
         df_clean = self.spark.createDataFrame(clean_rdd, schema)
         df_clean = df_clean.withColumn("updated_at", lit(fecha_formateada.replace("_", "-")))  # "YYYY-MM-DD"
 
-        # Obtén la lista de appid ya en trusted_zone
-        existing_appids = self.mongo.juegos.distinct("appid")
-        if existing_appids:
-            # Creamos un DataFrame con una única columna llamada "appid"
-            existing_df = (
-                self.spark
-                    .createDataFrame(
-                        [(aid,) for aid in existing_appids],  # datos
-                        ["appid"]                              # nombres de las columnas
-                    )
-            )
+        try:
+            existing_df = (self.spark.read
+                .format("mongo")
+                .option("uri", f"{self.mongo_uri}/{self.mongo_db}.{self.mongo.juegos.name}")
+                .load()
+                .select("appid"))
             df_to_insert = df_clean.join(existing_df, on="appid", how="left_anti")
-        else:
+        except Exception:
             df_to_insert = df_clean
 
 
@@ -384,17 +379,14 @@ class PipelineLandingToTrustedSteam:
         logging.info(f"Reseñas leídas: {count_raw} | Únicas por recommendationid: {count_unique}")
 
         # 4) Evitar insertar lo que ya existe en Mongo (dedupe por recommendationid)
-        coll = self.db[self.mongo.reviews.name]
-        total_in_mongo = coll.estimated_document_count()
-
-        if total_in_mongo > 0:
-            existing_ids = coll.distinct("recommendationid")
-            if existing_ids:
-                existing_df = self.spark.createDataFrame([(rid,) for rid in existing_ids], ["recommendationid"])
-                df_to_insert = df_unique.join(existing_df, on="recommendationid", how="left_anti")
-            else:
-                df_to_insert = df_unique
-        else:
+        try:
+            existing_df = (self.spark.read
+                .format("mongo")
+                .option("uri", f"{self.mongo_uri}/{self.mongo_db}.{self.mongo.reviews.name}")
+                .load()
+                .select("recommendationid"))
+            df_to_insert = df_unique.join(existing_df, on="recommendationid", how="left_anti")
+        except Exception:
             df_to_insert = df_unique
 
         count_new = df_to_insert.count()
@@ -514,20 +506,14 @@ class PipelineLandingToTrustedSteam:
         df_unique_batch = df_sel.dropDuplicates(["gid"])
 
         # 4) Evitar insertar lo que ya existe en Mongo (dedupe por gid)
-        coll = self.db[self.mongo.news_games.name]
-        total_in_mongo = coll.estimated_document_count()
-
-        if total_in_mongo > 0:
-            existing_gids = coll.distinct("gid")
-            if existing_gids:
-                existing_df = (
-                    self.spark
-                        .createDataFrame([(g,) for g in existing_gids], ["gid"])
-                )
-                df_to_insert = df_unique_batch.join(existing_df, on="gid", how="left_anti")
-            else:
-                df_to_insert = df_unique_batch
-        else:
+        try:
+            existing_df = (self.spark.read
+                .format("mongo")
+                .option("uri", f"{self.mongo_uri}/{self.mongo_db}.{self.mongo.news_games.name}")
+                .load()
+                .select("gid"))
+            df_to_insert = df_unique_batch.join(existing_df, on="gid", how="left_anti")
+        except Exception:
             df_to_insert = df_unique_batch
 
         count_new = df_to_insert.count()

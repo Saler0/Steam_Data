@@ -8,7 +8,7 @@ echo.
 echo ============================
 echo 0) Rebuild de imagenes (app, mlflow, analytics)...
 echo ============================
-docker compose build %BUILD_ARGS% app mlflow analytics
+docker compose build %BUILD_ARGS% app
 if errorlevel 1 (
   echo.
   echo *** ERROR: fallo el rebuild de imagenes. Abortando. ***
