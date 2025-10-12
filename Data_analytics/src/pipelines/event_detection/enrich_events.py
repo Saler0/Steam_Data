@@ -27,6 +27,7 @@ from src.utils.io import read_parquet_any, write_parquet_any
 from src.ingestion.twitch import load_twitch_monthly
 from src.ingestion.youtube import load_youtube_monthly
 from src.ingestion.dlcs import load_dlcs_for_game
+import os
 
 def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
                             game_name: str | None,
@@ -94,8 +95,9 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
     Retorna un dict con dataframes indexados por year_month cuando aplica.
     """
     ext: dict = {}
+    offline = os.getenv("ANALYTICS_OFFLINE", "0") == "1"
     # Twitch
-    tw_cfg = (signals_cfg or {}).get('twitch', {})
+    tw_cfg = (signals_cfg or {}).get('twitch', {}) if not offline else {}
     tw = load_twitch_monthly(appid, tw_cfg, target_months=target_months, game_name=game_name) if tw_cfg else None
     if tw is not None and not tw.empty:
         tw = tw.copy()
@@ -103,7 +105,7 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
         ext['twitch'] = tw.set_index('year_month')
 
     # YouTube
-    yt_cfg = (signals_cfg or {}).get('youtube', {})
+    yt_cfg = (signals_cfg or {}).get('youtube', {}) if not offline else {}
     yt = load_youtube_monthly(appid, yt_cfg, target_months=target_months, game_name=game_name) if yt_cfg else None
     if yt is not None and not yt.empty:
         yt = yt.copy()

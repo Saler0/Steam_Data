@@ -5,8 +5,11 @@ from typing import Iterable, Optional
 
 import pandas as pd
 import requests
+import os
 
 from src.utils.io import read_parquet_any, write_parquet_any
+import logging
+from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout
 
 _YT_ENDPOINT_SEARCH = "https://www.googleapis.com/youtube/v3/search"
 _YT_ENDPOINT_VIDEOS = "https://www.googleapis.com/youtube/v3/videos"
@@ -56,9 +59,13 @@ def _search_videos(query: str, api_key: str, start_iso: str, end_iso: str, max_r
     }
     items: list[dict] = []
     while True:
-        response = requests.get(_YT_ENDPOINT_SEARCH, params=params, timeout=30)
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = requests.get(_YT_ENDPOINT_SEARCH, params=params, timeout=30)
+            response.raise_for_status()
+            payload = response.json()
+        except (RequestException, ReadTimeout, ConnectTimeout) as e:
+            logging.warning("[youtube] search failed for query='%s': %s", query, e)
+            break
         items.extend(payload.get("items", []))
         if len(items) >= max_results:
             break
@@ -81,11 +88,15 @@ def _fetch_video_stats(video_ids: list[str], api_key: str) -> dict[str, dict]:
             "id": ",".join(chunk),
             "key": api_key,
         }
-        response = requests.get(_YT_ENDPOINT_VIDEOS, params=params, timeout=30)
-        response.raise_for_status()
-        for item in response.json().get("items", []):
-            vid = item.get("id")
-            stats[vid] = item.get("statistics", {})
+        try:
+            response = requests.get(_YT_ENDPOINT_VIDEOS, params=params, timeout=30)
+            response.raise_for_status()
+            for item in response.json().get("items", []):
+                vid = item.get("id")
+                stats[vid] = item.get("statistics", {})
+        except (RequestException, ReadTimeout, ConnectTimeout) as e:
+            logging.warning("[youtube] stats fetch failed for %d ids: %s", len(chunk), e)
+            continue
     return stats
 
 
@@ -135,6 +146,8 @@ def load_youtube_monthly(
     force_refresh: bool = False,
 ) -> pd.DataFrame | None:
     mode = (cfg or {}).get("mode", "file")
+    if os.getenv("ANALYTICS_OFFLINE", "0") == "1":
+        mode = "file"
     if mode == "file":
         path = Path(cfg.get("file", f"data/external/youtube/monthly_{appid}.csv"))
         if not path.exists():
@@ -208,6 +221,6 @@ def load_youtube_monthly(
 
     result = cache_df
     if months:
-        result = result[result["year_month"].isin(months)]
+        result = result[result["year_month"].isin(months)].copy()
     result["appid"] = str(appid)
     return result.reset_index(drop=True)

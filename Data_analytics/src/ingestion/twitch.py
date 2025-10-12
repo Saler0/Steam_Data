@@ -6,8 +6,11 @@ from typing import Iterable, Optional
 
 import pandas as pd
 import requests
+import os
 
 from src.utils.io import read_parquet_any, write_parquet_any
+import logging
+from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout
 
 _TOKEN_CACHE: dict[tuple[str, str], dict[str, float | str]] = {}
 
@@ -29,7 +32,7 @@ def _normalize_months(months: Optional[Iterable]) -> list[pd.Timestamp]:
     return sorted(set(out))
 
 
-def _ensure_token(client_id: str, client_secret: str) -> str:
+def _ensure_token(client_id: str, client_secret: str) -> str | None:
     cache_key = (client_id, client_secret)
     cached = _TOKEN_CACHE.get(cache_key)
     now = time.time()
@@ -37,9 +40,13 @@ def _ensure_token(client_id: str, client_secret: str) -> str:
         return str(cached["token"])
     url = "https://id.twitch.tv/oauth2/token"
     params = {"client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials"}
-    response = requests.post(url, params=params, timeout=30)
-    response.raise_for_status()
-    payload = response.json()
+    try:
+        response = requests.post(url, params=params, timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+    except (RequestException, ReadTimeout, ConnectTimeout) as e:
+        logging.warning("[twitch] Token request failed: %s", e)
+        return None
     expires_in = float(payload.get("expires_in", 3600))
     token = payload["access_token"]
     _TOKEN_CACHE[cache_key] = {"token": token, "expires_at": now + expires_in}
@@ -50,9 +57,13 @@ def _get_game_id(game_name: str, client_id: str, token: str) -> Optional[str]:
     url = "https://api.twitch.tv/helix/games"
     headers = {"Client-ID": client_id, "Authorization": f"Bearer {token}"}
     params = {"name": game_name}
-    response = requests.get(url, headers=headers, params=params, timeout=30)
-    response.raise_for_status()
-    data = response.json().get("data", [])
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+    except (RequestException, ReadTimeout, ConnectTimeout) as e:
+        logging.warning("[twitch] games lookup failed for '%s': %s", game_name, e)
+        return None
     if not data:
         return None
     return data[0].get("id")
@@ -70,9 +81,13 @@ def _fetch_videos(game_id: str, client_id: str, token: str, start_iso: str, end_
     }
     videos: list[dict] = []
     while True:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+            payload = response.json()
+        except (RequestException, ReadTimeout, ConnectTimeout) as e:
+            logging.warning("[twitch] videos fetch failed (game_id=%s): %s", game_id, e)
+            break
         videos.extend(payload.get("data", []))
         cursor = payload.get("pagination", {}).get("cursor")
         if not cursor:
@@ -125,6 +140,8 @@ def load_twitch_monthly(
     force_refresh: bool = False,
 ) -> pd.DataFrame | None:
     mode = (cfg or {}).get("mode", "file")
+    if os.getenv("ANALYTICS_OFFLINE", "0") == "1":
+        mode = "file"
     if mode == "file":
         path = Path(cfg.get("file", f"data/external/twitch/monthly_{appid}.csv"))
         if not path.exists():
@@ -178,6 +195,9 @@ def load_twitch_monthly(
 
     if need_fetch:
         token = _ensure_token(client_id, client_secret)
+        if not token:
+            logging.warning("[twitch] No token acquired; using cache if available")
+            return cache_df if not cache_df.empty else None
         game_id = _get_game_id(game_name, client_id, token)
         if not game_id:
             return cache_df if not cache_df.empty else None
@@ -197,6 +217,6 @@ def load_twitch_monthly(
         return result
 
     if months:
-        result = result[result["year_month"].isin(months)]
+        result = result[result["year_month"].isin(months)].copy()
     result["appid"] = str(appid)
     return result.reset_index(drop=True)
