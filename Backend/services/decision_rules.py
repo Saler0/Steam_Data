@@ -130,6 +130,31 @@ class DecisionRulesService:
 
         return result
 
+    def evaluate_size_rule(
+        self,
+        client_install_size_gb: Any,
+        neighbor_appids: Sequence[Any],
+    ) -> str:
+        """Classify the install size compared to neighbor requirements."""
+        if client_install_size_gb in (None, ""):
+            return "sin_datos"
+        try:
+            client_size_value = float(client_install_size_gb)
+        except (TypeError, ValueError):
+            return "sin_datos"
+
+        neighbor_sizes = self._fetch_neighbor_install_sizes(neighbor_appids)
+        if not neighbor_sizes:
+            return "sin_datos"
+
+        percentile_75 = self._compute_percentile(neighbor_sizes, 75.0)
+        if percentile_75 is None:
+            return "sin_datos"
+
+        if client_size_value > percentile_75:
+            return "juego muy pesado"
+        return "juego liviano"
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
@@ -244,6 +269,63 @@ class DecisionRulesService:
 
         return ram_values
 
+    def _fetch_neighbor_install_sizes(self, neighbor_appids: Sequence[Any]) -> List[float]:
+        install_sizes: List[float] = []
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+
+        if not unique_ids:
+            return install_sizes
+
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+
+        if not query_clauses:
+            return install_sizes
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        size_field = "almacenamiento_req_GB"
+        projection = {size_field: 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return install_sizes
+
+        for doc in cursor:
+            value = doc.get(size_field)
+            if value in (None, ""):
+                continue
+            try:
+                install_sizes.append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+        return install_sizes
+
     def _fetch_neighbor_platform_counts(self, neighbor_appids: Sequence[Any]) -> List[int]:
         counts: List[int] = []
         unique_ids: List[str] = []
@@ -303,3 +385,19 @@ class DecisionRulesService:
             tokens = {token.strip().lower() for token in platforms.split(",")}
             return sum(1 for token in tokens if token in self._allowed_platforms)
         return 0
+
+    def _compute_percentile(self, values: Sequence[float], percentile: float) -> Optional[float]:
+        if not values:
+            return None
+        if percentile < 0 or percentile > 100:
+            return None
+        sorted_values = sorted(values)
+        if len(sorted_values) == 1:
+            return sorted_values[0]
+        position = (len(sorted_values) - 1) * (percentile / 100.0)
+        lower_index = int(position)
+        upper_index = min(lower_index + 1, len(sorted_values) - 1)
+        interpolation = position - lower_index
+        lower_value = sorted_values[lower_index]
+        upper_value = sorted_values[upper_index]
+        return lower_value + (upper_value - lower_value) * interpolation

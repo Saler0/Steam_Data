@@ -211,10 +211,16 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate RAM rule: %s", exc)
                 ram_rule = {"label": "error", "details": str(exc)}
+            try:
+                size_rule = decision_rules_service.evaluate_size_rule(document.get("install_size_gb"), raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate size rule: %s", exc)
+                size_rule = "error"
         else:
             price_rule = {"label": "sin_servicio"}
             platform_rule = "sin_servicio"
             ram_rule = {"label": "sin_servicio"}
+            size_rule = "sin_servicio"
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -239,6 +245,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                         "price_rule": price_rule,
                         "platforms_rule": platform_rule,
                         "RAM_rule": ram_rule,
+                        "size_rule": size_rule,
                     }
                 },
             )
@@ -270,13 +277,13 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "created_at": document["created_at"].isoformat() + "Z",
             "platforms_rule": platform_rule,
             "RAM_rule": ram_rule,
+            "size_rule": size_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],
                 "neighbors": normalized_neighbors,
                 "diagnostics": poc_record["diagnostics"],
                 "generated_at": poc_record["generated_at"].isoformat() + "Z",
-                "platforms_rule": platform_rule,
             },
             "price_rule": price_rule
         }
