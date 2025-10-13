@@ -86,6 +86,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
         genres = payload.get("genres", [])
         categories = payload.get("categories", [])
         full_content_included = payload.get("full_content_included", False)
+        steam_deck_compatible = payload.get("steam_deck_compatible", False)
 
         document = {
             "nombre": payload["nombre"].strip(),
@@ -98,6 +99,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "install_size_gb": install_size,
             "ram_gb": ram_required,
             "full_content_included": full_content_included,
+            "steam_deck_compatible": steam_deck_compatible,
             "created_at": datetime.utcnow(),
         }
 
@@ -274,6 +276,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "install_size_gb": document["install_size_gb"],
             "ram_gb": document["ram_gb"],
             "full_content_included": document["full_content_included"],
+            "steam_deck_compatible": document["steam_deck_compatible"],
             "created_at": document["created_at"].isoformat() + "Z",
             "platforms_rule": platform_rule,
             "RAM_rule": ram_rule,
@@ -373,6 +376,28 @@ def validate_game_payload(payload: Dict[str, Any]) -> Dict[str, str]:
             errors["full_content_included"] = "Valor de contenido completo no valido"
     else:
         errors["full_content_included"] = "Valor de contenido completo no valido"
+
+    raw_steam_deck = payload.get("steam_deck_compatible")
+    if isinstance(raw_steam_deck, (list, tuple, set)):
+        raw_values = list(raw_steam_deck)
+        raw_steam_deck = raw_values[0] if raw_values else None
+
+    if raw_steam_deck in (None, ""):
+        payload["steam_deck_compatible"] = False
+    elif isinstance(raw_steam_deck, bool):
+        payload["steam_deck_compatible"] = raw_steam_deck
+    elif isinstance(raw_steam_deck, (int, float)) and not isinstance(raw_steam_deck, bool):
+        payload["steam_deck_compatible"] = raw_steam_deck != 0
+    elif isinstance(raw_steam_deck, str):
+        normalized_steam_deck = raw_steam_deck.strip().lower()
+        if normalized_steam_deck in truthy_values:
+            payload["steam_deck_compatible"] = True
+        elif normalized_steam_deck in falsy_values:
+            payload["steam_deck_compatible"] = False
+        else:
+            errors["steam_deck_compatible"] = "Valor de compatibilidad de Steam Deck no valido"
+    else:
+        errors["steam_deck_compatible"] = "Valor de compatibilidad de Steam Deck no valido"
 
     def _normalize_list(field: str) -> None:
         raw = payload.get(field)
