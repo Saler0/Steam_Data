@@ -732,6 +732,7 @@ if defined FEATURIZER set "TRAIN_ARGS=!TRAIN_ARGS! --featurizer !FEATURIZER!"
 if defined EMB_MODEL set "TRAIN_ARGS=!TRAIN_ARGS! --embedding-model !EMB_MODEL!"
 
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_train_auto
 if defined CV_K set "TRAIN_ARGS=!TRAIN_ARGS! --cv !CV_K!"
   exec -w /app/Data_analytics analytics python src/insights/train_news_classifier_auto.py !TRAIN_ARGS!
 if errorlevel 1 (
