@@ -383,20 +383,11 @@ rem Generar configs/events_subset.yaml apuntando al parquet temporal
   )
 
   rem Si se solicita USE_SVM, ajustar provider y model_path en events_subset.yaml (una vez)
-  if "!USE_SVM!"=="1" docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
-import os, yaml
-p='configs/events_subset.yaml'
-with open(p,'r',encoding='utf-8') as f:
-  cfg=yaml.safe_load(f) or {}
-llm=cfg.get('llm') or {}
-llm['provider']='svm'
-llm['model_path']='models/news_best.joblib' if os.path.exists('models/news_best.joblib') else 'models/news_svm.joblib'
-cfg['llm']=llm
-open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
-print('[OK] events_subset.yaml actualizado para SVM')
-PY"
-  if errorlevel 1 goto :neighbors_failed
+  if "!USE_SVM!"=="1" (
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics bash -lc "python -c \"import os,yaml;p='configs/events_subset.yaml';cfg=yaml.safe_load(open(p,'r',encoding='utf-8')) or {};llm=cfg.get('llm') or {};llm['provider']='svm';llm['model_path']='models/news_best.joblib' if os.path.exists('models/news_best.joblib') else 'models/news_svm.joblib';cfg['llm']=llm;open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True));print('[OK] events_subset.yaml actualizado para SVM')\""
+    if errorlevel 1 goto :neighbors_failed
+  )
 
 rem Generar configs/ccf_subset.yaml apuntando al parquet temporal
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
