@@ -1,4 +1,4 @@
-# Parámetros globales
+﻿# Parámetros globales
 mongo:
   # En Docker, usa el hostname del servicio en la red (p.ej., 'mongo').
   # En local, puedes sobrescribir con la variable de entorno MONGO_URI.
@@ -30,11 +30,11 @@ client_report:
 # Clustering params (for DVC cluster_assign)
 # ----------------------
 clustering:
-  # Si null, el script usará el mes actual (YYYYMM)
+  # Si null, el script usarÃ¡ el mes actual (YYYYMM)
   cluster_version: 202509
 
 # ----------------------
-# Parámetros de reglas
+# Parámetros globales
 # ----------------------
 
 regla_precio:
@@ -47,7 +47,7 @@ justificacion_precio:
 
 saturacion_cluster_1:
   vecinos_min: 20
-  edad_umbral: 6   # años
+  edad_umbral: 6   # aÃ±os
 
 saturacion_cluster_2:
   reviews_min: 1000
@@ -62,6 +62,9 @@ justificacion_actividad:
   cambio_actividad_min: 0.10
   correlacion_parches_umbral: 0.5
 
+# Etiquetado de experiencia por reseña usando horas relativas a la mediana
+# h <= horas_nuevo*mediana -> "Nuevo"; h <= horas_intermedio -> "Intermedio";
+# h <= horas_experto -> "Experto"; en otro caso -> "Veterano".
 experiencia_jugador:
   horas_nuevo: 0.1
   horas_intermedio: 0.5
@@ -110,6 +113,9 @@ cluster_history:
 
 
 neighbor_strategy:
+  # Estrategia de vecinos para subset/cliente. Si defines 'min_score',
+  # se prioriza el umbral de score sobre un top-k fijo y 'target_total'
+  # actúa como límite superior.
   target_total: 20
   allow_cross_cluster: true
   k_in: 25
@@ -121,6 +127,8 @@ neighbor_strategy:
   max_out_ratio: 0.3
   max_cross_clusters: 20
   rerank:
+    # Score final = alpha*cosine - beta*dist_cluster + gamma*overlap_tags
+    #               + delta*monetización + epsilon*modo - zeta*penalización_nombre
     alpha_cosine: 1.0
     beta_cluster_penalty: 0.15
     gamma_tag_overlap: 0.10
@@ -196,3 +204,4 @@ bertopic:
 social:
   analysis_mode: peak_micro_daily
   daily_window_days: 14
+

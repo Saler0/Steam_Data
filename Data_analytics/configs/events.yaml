@@ -129,6 +129,8 @@ pairing:
 
 # CONFIGURACIÓN DEL MODELADO DE TÓPICOS (BERTopic)
 # Parámetros para el script que realiza el modelado de tópicos.
+# Modelado de tópicos (BERTopic). La ponderación replica textos para entrenar,
+# pero los "top_docs" presentados se deduplican en topic_motives.py.
 bertopic:
   # El modelo de embedding usado para convertir texto en vectores.
   embedding_model: 'all-MiniLM-L6-v2'
@@ -165,6 +167,9 @@ topics_scoring:
 # CONFIGURACIÓN DEL CLASIFICADOR (LLM)
 # Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
 # Esta sección es usada por el script `news_classifier.py`.
+# Clasificador de noticias/tópicos. Si existe configs/llm_override.yaml
+# (generado por el stage news_model_select), se forzará provider/model_path
+# con el mejor modelo local entrenado; si no, se usa este provider.
 llm:
   enabled: true
   # Proveedor del LLM: "deepseek" usa la REST API de DeepSeek (requiere DEEPSEEK_API_KEY)
