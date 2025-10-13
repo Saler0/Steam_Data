@@ -53,7 +53,6 @@ set "CLIENT_ID="
 set "CLIENT_FILE="
 set "RUN_OFFLINE_ALL=0"
 set "RUN_NEWS_TRAIN=0"
-set "USE_SVM=0"
 set "FEATURIZER="
 set "EMB_MODEL="
 set "TRAIN_MODELS="
@@ -77,7 +76,6 @@ for %%A in (%*) do (
     if /I "!ARG!"=="offline-all" set "RUN_OFFLINE_ALL=1"
     if /I "!ARG!"=="news-train" set "RUN_NEWS_TRAIN=1"
     if /I "!ARG!"=="svm-train" set "RUN_NEWS_TRAIN=1"
-    if /I "!ARG!"=="use-svm" set "USE_SVM=1"
     if /I "!ARG!"=="from-news" set "RUN_FROM_NEWS=1"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
@@ -382,12 +380,10 @@ rem Generar configs/events_subset.yaml apuntando al parquet temporal
     exit /b 1
   )
 
-  rem Si se solicita USE_SVM, ajustar provider y model_path en events_subset.yaml (una vez)
-  if "!USE_SVM!"=="1" (
-    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics bash -lc "python -c \"import os,yaml;p='configs/events_subset.yaml';cfg=yaml.safe_load(open(p,'r',encoding='utf-8')) or {};llm=cfg.get('llm') or {};llm['provider']='svm';llm['model_path']='models/news_best.joblib' if os.path.exists('models/news_best.joblib') else 'models/news_svm.joblib';cfg['llm']=llm;open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True));print('[OK] events_subset.yaml actualizado para SVM')\""
-    if errorlevel 1 goto :neighbors_failed
-  )
+  rem Si existe un mejor modelo local, usarlo; si no, mantener LLM del config
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python -c \"import os,yaml;p='configs/events_subset.yaml';cfg=yaml.safe_load(open(p,'r',encoding='utf-8')) or {};\nfrom_path='models/news_best.joblib';\nif os.path.exists(from_path):\n  llm=cfg.get('llm') or {}; llm['provider']='svm'; llm['model_path']=from_path; cfg['llm']=llm; open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True)); print('[OK] events_subset.yaml: usando modelo local (news_best.joblib)');\nelse:\n  print('[INFO] Sin modelo local; se mantiene provider del YAML');\""
+  if errorlevel 1 goto :neighbors_failed
 
 rem Generar configs/ccf_subset.yaml apuntando al parquet temporal
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
