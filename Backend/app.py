@@ -218,11 +218,17 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate size rule: %s", exc)
                 size_rule = {"label": "error", "details": str(exc)}
+            try:
+                steam_deck_rule = decision_rules_service.evaluate_steam_deck_rule(document.get("steam_deck_compatible"), raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate steam deck rule: %s", exc)
+                steam_deck_rule = {"label": "error", "details": str(exc)}
         else:
             price_rule = {"label": "sin_servicio"}
             platform_rule = {"label": "sin_servicio"}
             ram_rule = {"label": "sin_servicio"}
             size_rule = {"label": "sin_servicio"}
+            steam_deck_rule = {"label": "sin_servicio"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -248,6 +254,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                         "platforms_rule": platform_rule,
                         "RAM_rule": ram_rule,
                         "size_rule": size_rule,
+                        "steam_deck_rule": steam_deck_rule,
                     }
                 },
             )
@@ -281,6 +288,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "platforms_rule": platform_rule,
             "RAM_rule": ram_rule,
             "size_rule": size_rule,
+            "steam_deck_rule": steam_deck_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],

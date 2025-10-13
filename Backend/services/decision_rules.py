@@ -191,6 +191,56 @@ class DecisionRulesService:
 
         return result
 
+    def evaluate_steam_deck_rule(
+        self,
+        client_steam_deck_compatible: Any,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Any]:
+        """Evaluate visibility advantage based on Steam Deck compatibility."""
+        result: Dict[str, Any] = {
+            "label": "sin_datos",
+            "client_steam_deck": None,
+            "neighbors_total": 0,
+            "neighbors_with_steam_deck": 0,
+        }
+
+        client_flag: Optional[bool] = None
+        if isinstance(client_steam_deck_compatible, bool):
+            client_flag = client_steam_deck_compatible
+        elif isinstance(client_steam_deck_compatible, (int, float)):
+            client_flag = bool(client_steam_deck_compatible)
+        elif isinstance(client_steam_deck_compatible, str):
+            text = client_steam_deck_compatible.strip().lower()
+            if text:
+                if text in {"true", "1", "yes", "on", "si"}:
+                    client_flag = True
+                elif text in {"false", "0", "no", "off"}:
+                    client_flag = False
+
+        if client_flag is None:
+            return result
+
+        result["client_steam_deck"] = client_flag
+        if client_flag:
+            result["label"] = "mayor visibilidad"
+            return result
+
+        neighbor_flags = self._fetch_neighbor_steam_deck_flags(neighbor_appids)
+        total_neighbors = len(neighbor_flags)
+        result["neighbors_total"] = total_neighbors
+        if total_neighbors == 0:
+            return result
+
+        with_steam_deck = sum(1 for flag in neighbor_flags if flag is True)
+        result["neighbors_with_steam_deck"] = with_steam_deck
+
+        if with_steam_deck > 0:
+            result["label"] = "menor visibilidad"
+        else:
+            result["label"] = "vecinos sin steam deck"
+
+        return result
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
@@ -437,3 +487,63 @@ class DecisionRulesService:
         lower_value = sorted_values[lower_index]
         upper_value = sorted_values[upper_index]
         return lower_value + (upper_value - lower_value) * interpolation
+
+    def _fetch_neighbor_steam_deck_flags(self, neighbor_appids: Sequence[Any]) -> List[bool]:
+        flags: List[bool] = []
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+
+        if not unique_ids:
+            return flags
+
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+
+        if not query_clauses:
+            return flags
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        projection = {"Steam_Deck": 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return flags
+
+        for doc in cursor:
+            value = doc.get("Steam_Deck")
+            if isinstance(value, bool):
+                flags.append(value)
+            elif isinstance(value, (int, float)):
+                flags.append(bool(value))
+            elif isinstance(value, str):
+                text = value.strip().lower()
+                if text in {"true", "1", "yes", "on", "si"}:
+                    flags.append(True)
+                elif text in {"false", "0", "no", "off"}:
+                    flags.append(False)
+
+        return flags
