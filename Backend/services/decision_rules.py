@@ -85,16 +85,38 @@ class DecisionRulesService:
         self,
         client_platforms: Any,
         neighbor_appids: Sequence[Any],
-    ) -> str:
-        """Return qualitative label comparing platform support to neighbors."""
+    ) -> Dict[str, Any]:
+        """Return qualitative label and context comparing platform support to neighbors."""
         client_count = self._count_platforms(client_platforms)
         neighbor_counts = self._fetch_neighbor_platform_counts(neighbor_appids)
+
+        result: Dict[str, Any] = {
+            "label": "sin_datos",
+            "client_platforms_count": client_count,
+            "total_neighbors": len(neighbor_counts),
+            "neighbors_with_more_platforms": 0,
+            "neighbors_with_equal_platforms": 0,
+            "neighbors_with_less_platforms": 0,
+            "neighbor_max_platforms": max(neighbor_counts) if neighbor_counts else None,
+        }
+
         if not neighbor_counts:
-            return "sin_datos"
-        richer_neighbors = sum(1 for count in neighbor_counts if count > client_count)
-        if richer_neighbors > (len(neighbor_counts) / 2):
-            return "soporte limitado"
-        return "soporte bueno"
+            return result
+
+        more = sum(1 for count in neighbor_counts if count > client_count)
+        equal = sum(1 for count in neighbor_counts if count == client_count)
+        less = sum(1 for count in neighbor_counts if count < client_count)
+
+        result["neighbors_with_more_platforms"] = more
+        result["neighbors_with_equal_platforms"] = equal
+        result["neighbors_with_less_platforms"] = less
+
+        if more > (len(neighbor_counts) / 2):
+            result["label"] = "soporte limitado"
+        else:
+            result["label"] = "soporte bueno"
+
+        return result
 
     def evaluate_ram_rule(
         self,
@@ -134,26 +156,40 @@ class DecisionRulesService:
         self,
         client_install_size_gb: Any,
         neighbor_appids: Sequence[Any],
-    ) -> str:
-        """Classify the install size compared to neighbor requirements."""
+    ) -> Dict[str, Any]:
+        """Classify the install size compared to neighbor requirements with context."""
+        result: Dict[str, Any] = {
+            "label": "sin_datos",
+            "client_install_size_gb": None,
+            "neighbor_percentile_75": None,
+            "neighbor_sizes_count": 0,
+        }
+
         if client_install_size_gb in (None, ""):
-            return "sin_datos"
+            return result
         try:
             client_size_value = float(client_install_size_gb)
         except (TypeError, ValueError):
-            return "sin_datos"
+            return result
+
+        result["client_install_size_gb"] = client_size_value
 
         neighbor_sizes = self._fetch_neighbor_install_sizes(neighbor_appids)
+        result["neighbor_sizes_count"] = len(neighbor_sizes)
         if not neighbor_sizes:
-            return "sin_datos"
+            return result
 
         percentile_75 = self._compute_percentile(neighbor_sizes, 75.0)
         if percentile_75 is None:
-            return "sin_datos"
+            return result
 
+        result["neighbor_percentile_75"] = percentile_75
         if client_size_value > percentile_75:
-            return "juego muy pesado"
-        return "juego liviano"
+            result["label"] = "juego muy pesado"
+        else:
+            result["label"] = "juego liviano"
+
+        return result
 
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []

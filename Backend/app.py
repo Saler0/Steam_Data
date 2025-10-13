@@ -205,7 +205,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 platform_rule = decision_rules_service.evaluate_platform_rule(document.get("platforms"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate platform rule: %s", exc)
-                platform_rule = "error"
+                platform_rule = {"label": "error", "details": str(exc)}
             try:
                 ram_rule = decision_rules_service.evaluate_ram_rule(document.get("ram_gb"), raw_neighbors)
             except Exception as exc:
@@ -215,12 +215,12 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 size_rule = decision_rules_service.evaluate_size_rule(document.get("install_size_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate size rule: %s", exc)
-                size_rule = "error"
+                size_rule = {"label": "error", "details": str(exc)}
         else:
             price_rule = {"label": "sin_servicio"}
-            platform_rule = "sin_servicio"
+            platform_rule = {"label": "sin_servicio"}
             ram_rule = {"label": "sin_servicio"}
-            size_rule = "sin_servicio"
+            size_rule = {"label": "sin_servicio"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
