@@ -60,6 +60,7 @@ set "TRAIN_MODELS="
 set "TRAIN_SCORING="
 set "NS_MIN_SCORE="
 set "CV_K="
+set "RUN_FROM_NEWS=0"
 
 set "APPID_BUILDING=0"
 for %%A in (%*) do (
@@ -77,6 +78,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="news-train" set "RUN_NEWS_TRAIN=1"
     if /I "!ARG!"=="svm-train" set "RUN_NEWS_TRAIN=1"
     if /I "!ARG!"=="use-svm" set "USE_SVM=1"
+    if /I "!ARG!"=="from-news" set "RUN_FROM_NEWS=1"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
     if /I "!ARG:~0,7!"=="models=" set "TRAIN_MODELS=!ARG:~7!"
@@ -371,14 +373,21 @@ if errorlevel 1 (
 )
 
 rem Generar configs/events_subset.yaml apuntando al parquet temporal
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/events.yaml','r',encoding='utf-8')); ip=cfg.get('input_paths') or {}; ip['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['input_paths']=ip; cfg['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
-if errorlevel 1 (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/events.yaml','r',encoding='utf-8')); ip=cfg.get('input_paths') or {}; ip['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['input_paths']=ip; cfg['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
+  if errorlevel 1 (
     echo [ERROR] No se pudo generar configs/events_subset.yaml.
     pause
     endlocal
     exit /b 1
-)
+  )
+
+  rem Si se solicita USE_SVM, ajustar provider y model_path en events_subset.yaml (una vez)
+  if "!USE_SVM!"=="1" (
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics bash -lc "python -c \"import os,yaml; p='configs/events_subset.yaml'; cfg=yaml.safe_load(open(p,'r',encoding='utf-8')); llm=cfg.get('llm') or {}; llm['provider']='svm'; llm['model_path']='models/news_best.joblib' if os.path.exists('models/news_best.joblib') else 'models/news_svm.joblib'; cfg['llm']=llm; open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
+    if errorlevel 1 goto :neighbors_failed
+  )
 
 rem Generar configs/ccf_subset.yaml apuntando al parquet temporal
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
@@ -411,36 +420,26 @@ if "!RUN_PREAGG_BEFORE!"=="1" (
     if errorlevel 1 goto :neighbors_failed
 )
 
-rem Ejecutar eventos -> topicos para el subset
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
-if errorlevel 1 goto :neighbors_failed
+rem Ejecutar eventos -> topicos para el subset (a menos que se pida continuar desde noticias)
+if not "!RUN_FROM_NEWS!"=="1" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+  if errorlevel 1 goto :neighbors_failed
 
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
-if errorlevel 1 goto :neighbors_failed
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
+  if errorlevel 1 goto :neighbors_failed
 
-rem Anotar topicos con CCF (topics_relevance)
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events_subset.yaml
-if errorlevel 1 goto :neighbors_failed
+  rem Anotar topicos con CCF (topics_relevance)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events_subset.yaml
+  if errorlevel 1 goto :neighbors_failed
+)
 
 rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
 for %%I in (!APPID_LIST!) do (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -e USE_SVM="!USE_SVM!" -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python - <<'PY' 
-import yaml, os
-cfg = yaml.safe_load(open('configs/events_subset.yaml','r',encoding='utf-8'))
-if os.getenv('USE_SVM','0') == '1':
-    llm = cfg.get('llm') or {}
-    llm['provider'] = 'svm'
-    # Preferir mejor modelo si existe
-    best = 'models/news_best.joblib'
-    llm['model_path'] = best if os.path.exists(best) else 'models/news_svm.joblib'
-    cfg['llm'] = llm
-    open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
-os.system(f"python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I")
-PY"
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
   if errorlevel 1 goto :neighbors_failed
 )
 
@@ -548,12 +547,14 @@ call :RunSingleStage preagg_players
 if errorlevel 1 goto :offline_failed
 
 rem Ejecutar stages base (SIN embeddings/clustering, se asume artefactos ya existen)
-call :RunSingleStage events
-if errorlevel 1 goto :offline_failed
-call :RunSingleStage topics
-if errorlevel 1 goto :offline_failed
-call :RunSingleStage topics_relevance
-if errorlevel 1 goto :offline_failed
+if not "!RUN_FROM_NEWS!"=="1" (
+  call :RunSingleStage events
+  if errorlevel 1 goto :offline_failed
+  call :RunSingleStage topics
+  if errorlevel 1 goto :offline_failed
+  call :RunSingleStage topics_relevance
+  if errorlevel 1 goto :offline_failed
+)
 call :RunSingleStage news_classifier
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage enrich
