@@ -100,14 +100,29 @@ for %%A in (%*) do (
         set "APPID_BUILDING=1"
         set "APPID_LIST="
     ) else if "!APPID_BUILDING!"=="1" (
-        if not "!ARG!"=="with-preagg" if not "!ARG!"=="players-pg" if not "!ARG!"=="pg-table=" if not "!ARG!"=="exploitation_zone" (
-            if defined APPID_LIST (
-                set "APPID_LIST=!APPID_LIST!,!ARG!"
+        rem Cortar modo appids si llega cualquier flag conocido
+        if /I "!ARG!"=="from-news"         (set "APPID_BUILDING=0") else ^
+        if /I "!ARG!"=="with-preagg"       (set "APPID_BUILDING=0") else ^
+        if /I "!ARG!"=="players-pg"        (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,8!"=="pg-table"      (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,10!"=="min-score="   (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,3!"=="cv="           (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,7!"=="models="       (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,11!"=="featurizer="   (set "APPID_BUILDING=0") else ^
+        if /I "!ARG:~0,10!"=="emb-model="   (set "APPID_BUILDING=0") else ^
+        if /I "!ARG!"=="exploitation_zone" (set "APPID_BUILDING=0") else (
+            rem Solo aceptar tokens numéricos como appids
+            set "NONNUM="
+            for /f "delims=0123456789" %%Z in ("!ARG!") do set "NONNUM=%%Z"
+            if not defined NONNUM (
+                if defined APPID_LIST (
+                    set "APPID_LIST=!APPID_LIST!,!ARG!"
+                ) else (
+                    set "APPID_LIST=!ARG!"
+                )
             ) else (
-                set "APPID_LIST=!ARG!"
+                set "APPID_BUILDING=0"
             )
-        ) else (
-            set "APPID_BUILDING=0"
         )
     )
 )
@@ -372,12 +387,12 @@ if errorlevel 1 (
 
   rem Generar configs subset via DVC
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics dvc repro --single-item subset_config
+    exec -w /app/Data_analytics analytics dvc repro -q --single-item subset_config
   if errorlevel 1 goto :neighbors_failed
 
   rem Seleccionar modelo local para noticias si existe (override)
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics dvc repro --single-item news_model_select
+    exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
   if errorlevel 1 goto :neighbors_failed
 
 rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
@@ -536,6 +551,10 @@ if not "!RUN_FROM_NEWS!"=="1" (
   call :RunSingleStage topics_relevance
   if errorlevel 1 goto :offline_failed
 )
+  rem Override de modelo local para noticias (vía DVC)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
+  if errorlevel 1 goto :offline_failed
 call :RunSingleStage news_classifier
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage enrich
@@ -747,3 +766,4 @@ echo Revisa la salida del contenedor analytics.
 pause
 endlocal
 exit /b 1
+
