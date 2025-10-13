@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal enabledelayedexpansion
 
 rem Ir a la carpeta del script (donde esta docker-compose.yml)
@@ -51,6 +51,14 @@ set "RUN_POC_CLIENT=0"
 set "CLIENT_ID="
 set "CLIENT_FILE="
 set "RUN_OFFLINE_ALL=0"
+set "RUN_NEWS_TRAIN=0"
+set "USE_SVM=0"
+set "FEATURIZER="
+set "EMB_MODEL="
+set "TRAIN_MODELS="
+set "TRAIN_SCORING="
+set "NS_MIN_SCORE="
+set "CV_K="
 
 set "APPID_BUILDING=0"
 for %%A in (%*) do (
@@ -65,6 +73,16 @@ for %%A in (%*) do (
     if /I "!ARG:~0,9!"=="pg-table=" set "PG_TABLE=!ARG:~9!"
     if /I "!ARG!"=="poc-client" set "RUN_POC_CLIENT=1"
     if /I "!ARG!"=="offline-all" set "RUN_OFFLINE_ALL=1"
+    if /I "!ARG!"=="news-train" set "RUN_NEWS_TRAIN=1"
+    if /I "!ARG!"=="svm-train" set "RUN_NEWS_TRAIN=1"
+    if /I "!ARG!"=="use-svm" set "USE_SVM=1"
+    if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
+    if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
+    if /I "!ARG:~0,7!"=="models=" set "TRAIN_MODELS=!ARG:~7!"
+    if /I "!ARG:~0,8!"=="scoring=" set "TRAIN_SCORING=!ARG:~8!"
+    if /I "!ARG:~0,6!"=="score=" set "TRAIN_SCORING=!ARG:~6!"
+    if /I "!ARG:~0,10!"=="min-score=" set "NS_MIN_SCORE=!ARG:~10!"
+    if /I "!ARG:~0,3!"=="cv=" set "CV_K=!ARG:~3!"
     if /I "!ARG:~0,10!"=="client_id=" set "CLIENT_ID=!ARG:~10!"
     if /I "!ARG:~0,12!"=="client_file=" set "CLIENT_FILE=!ARG:~12!"
     if /I "!ARG!"=="preagg-only" (
@@ -100,6 +118,7 @@ if "!RUN_POC!"=="1" goto :run_poc
 if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 if "!RUN_POC_CLIENT!"=="1" goto :run_poc_client
 if "!RUN_OFFLINE_ALL!"=="1" goto :run_offline_all
+if "!RUN_NEWS_TRAIN!"=="1" goto :run_news_train
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -319,8 +338,8 @@ echo [ERROR] Faltan argumentos para RunStageWithAppid.
 exit /b 1
 
 :RunSingleStage
-rem Ejecuta un stage. Para reglas de decisión, llama directamente al script con --stage
-rem Las reglas de decisión han sido movidas al backend; no se ejecutan aquí
+rem Ejecuta un stage. Para reglas de decisiÃ³n, llama directamente al script con --stage
+rem Las reglas de decisiÃ³n han sido movidas al backend; no se ejecutan aquÃ­
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
 exit /b %errorlevel%
@@ -408,7 +427,19 @@ if errorlevel 1 goto :neighbors_failed
 rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
 for %%I in (!APPID_LIST!) do (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
+    exec -e USE_SVM="!USE_SVM!" -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python - <<'PY' 
+import yaml, os
+cfg = yaml.safe_load(open('configs/events_subset.yaml','r',encoding='utf-8'))
+if os.getenv('USE_SVM','0') == '1':
+    llm = cfg.get('llm') or {}
+    llm['provider'] = 'svm'
+    # Preferir mejor modelo si existe
+    best = 'models/news_best.joblib'
+    llm['model_path'] = best if os.path.exists(best) else 'models/news_svm.joblib'
+    cfg['llm'] = llm
+    open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
+os.system(f"python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I")
+PY"
   if errorlevel 1 goto :neighbors_failed
 )
 
@@ -422,14 +453,14 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
 if errorlevel 1 goto :neighbors_failed
 
-rem Generar segmentos de reseñas (revisiones por experiencia) y aplicar al reporte
+rem Generar segmentos de reseÃ±as (revisiones por experiencia) y aplicar al reporte
 echo [INFO] Generando reviews_with_segments y review_segments...
 call :RunSingleStage reviews_with_segments
 if errorlevel 1 goto :neighbors_failed
 call :RunSingleStage review_segments
 if errorlevel 1 goto :neighbors_failed
 
-rem Reglas de decisión deshabilitadas en el pipeline offline
+rem Reglas de decisiÃ³n deshabilitadas en el pipeline offline
 
 rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
 for %%I in (!APPID_LIST!) do (
@@ -545,10 +576,16 @@ if not defined CLIENT_ID (
 
 rem Ejecuta pipeline de cliente para derivar vecinos
 if defined CLIENT_FILE (
+  rem Opcional: actualizar neighbor_strategy.min_score si se paso min-score=
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport os, yaml\np='configs/params.yaml'\nms=os.getenv('NS_MIN_SCORE')\nif ms:\n  with open(p,'r',encoding='utf-8') as f:\n    cfg=yaml.safe_load(f) or {}\n  ns = cfg.get('neighbor_strategy') or {}\n  try:\n    ns['min_score'] = float(ms)\n  except Exception:\n    ns['min_score'] = ms\n  cfg['neighbor_strategy']=ns\n  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\n  print(f"[OK] params.yaml actualizado: neighbor_strategy.min_score={ns['min_score']}")\nelse:\n  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuracion actual')\nPY"
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-file !CLIENT_FILE! --client-id !CLIENT_ID!
 ) else (
   echo [WARN] CLIENT_FILE no especificado; usando configs/clients/!CLIENT_ID!.json si existe.
+  rem Opcional: actualizar neighbor_strategy.min_score si se paso min-score=
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport os, yaml\np='configs/params.yaml'\nms=os.getenv('NS_MIN_SCORE')\nif ms:\n  with open(p,'r',encoding='utf-8') as f:\n    cfg=yaml.safe_load(f) or {}\n  ns = cfg.get('neighbor_strategy') or {}\n  try:\n    ns['min_score'] = float(ms)\n  except Exception:\n    ns['min_score'] = ms\n  cfg['neighbor_strategy']=ns\n  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\n  print(f"[OK] params.yaml actualizado: neighbor_strategy.min_score={ns['min_score']}")\nelse:\n  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuracion actual')\nPY"
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-id !CLIENT_ID!
 )
@@ -599,6 +636,49 @@ echo ERROR: No se pudieron generar las reviews desde MongoDB.
 pause
 endlocal
 exit /b 1
+
+:run_news_train
+echo.
+echo ============================
+echo Entrenando clasificadores de noticias (multi-modelo, seleccion automatica)...
+echo ============================
+rem Asegurar dataset de entrenamiento con etiquetas (si no existe, clasificar en batch con LLM actual)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nfrom pathlib import Path\nfrom subprocess import run\nimport sys\nif not Path('outputs/events/news_classified.parquet').exists():\n    print('[INFO] news_classified.parquet no existe. Ejecutando clasificacion batch con LLM para generarlo...')\n    rc = run(['python','src/insights/news_classifier.py','--config','configs/events.yaml']).returncode\n    sys.exit(rc)\nprint('[OK] Dataset de entrenamiento existente: outputs/events/news_classified.parquet')\nPY"
+if errorlevel 1 (
+if not defined CV_K set "CV_K=5"
+  echo [ERROR] No se pudo generar outputs/events/news_classified.parquet. Revisa credenciales del LLM o la config.
+  pause
+  endlocal
+  exit /b 1
+)
+
+set "TRAIN_ARGS=--input outputs/events/news_classified.parquet --text-cols title,contents"
+if defined TRAIN_MODELS set "TRAIN_ARGS=!TRAIN_ARGS! --models !TRAIN_MODELS!" & goto :_models_ok
+set "TRAIN_ARGS=!TRAIN_ARGS! --models all"
+:_models_ok
+if defined TRAIN_SCORING set "TRAIN_ARGS=!TRAIN_ARGS! --scoring !TRAIN_SCORING!" & goto :_scoring_ok
+set "TRAIN_ARGS=!TRAIN_ARGS! --scoring f1_macro"
+:_scoring_ok
+if defined FEATURIZER set "TRAIN_ARGS=!TRAIN_ARGS! --featurizer !FEATURIZER!"
+if defined EMB_MODEL set "TRAIN_ARGS=!TRAIN_ARGS! --embedding-model !EMB_MODEL!"
+
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+if defined CV_K set "TRAIN_ARGS=!TRAIN_ARGS! --cv !CV_K!"
+  exec -w /app/Data_analytics analytics python src/insights/train_news_classifier_auto.py !TRAIN_ARGS!
+if errorlevel 1 (
+  echo [ERROR] Fallo al entrenar el SVM de noticias. Asegurate de haber generado outputs/events/news_classified.parquet primero (news_classifier).
+  pause
+  endlocal
+  exit /b 1
+)
+echo [OK] Modelos entrenados. Mejor guardado en models/news_best.joblib
+if "%USE_SVM%"=="1" (
+  echo [INFO] Flag use-svm activo: el subset usara provider=svm con models/news_best.joblib
+)
+pause
+endlocal
+exit /b 0
 
 :reviews_mongo_success
 echo.

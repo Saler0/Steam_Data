@@ -95,7 +95,7 @@ def query_llm(prompt: str, llm_cfg: Dict) -> str:
     # 1) OpenAI (REST)
     api_key = llm_cfg.get("api_key") or os.environ.get(llm_cfg.get("api_key_env", "OPENAI_API_KEY"))
     base_url = llm_cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    if provider == "openai" or (provider == "" and api_key):
+    if provider in {"openai", "deepseek"} or (provider == "" and api_key):
         if not api_key:
             print("  -> LLM deshabilitado: falta OPENAI_API_KEY en entorno o llm.api_key en config.")
             return ""

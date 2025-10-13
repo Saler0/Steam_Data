@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Entrena un clasificador local (SVM lineal con TF-IDF) para noticias,
-usando como etiquetas las generadas por el LLM en outputs/events/news_classified.parquet.
+Entrena clasificadores locales para noticias (varios modelos) usando las
+etiquetas generadas por el LLM en outputs/events/news_classified.parquet.
 
-Guarda un Pipeline de scikit-learn (vectorizer + clasificador) en models/news_svm.joblib
-para inferencia posterior sin coste de tokens.
+Registra métricas en MLflow por modelo, elige el mejor (por f1_macro,
+configurable) y lo guarda en models/news_best.joblib para inferencia sin tokens.
+
+Compatibilidad: puede entrenar solo SVM (LinearSVC) y guardarlo en
+models/news_svm.joblib si así se solicita.
 """
 from __future__ import annotations
 
@@ -17,6 +20,13 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     classification_report,
