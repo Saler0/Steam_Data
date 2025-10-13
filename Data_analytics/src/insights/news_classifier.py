@@ -465,6 +465,18 @@ def main():
     
     with open(args.config, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
+
+    # Merge override para LLM si existe (configs/llm_override.yaml)
+    try:
+        override_path = Path('configs/llm_override.yaml')
+        if override_path.exists():
+            ov = yaml.safe_load(override_path.read_text(encoding='utf-8')) or {}
+            if isinstance(ov, dict) and ov:
+                llm_section = cfg.get('llm') or {}
+                llm_section.update(ov)
+                cfg['llm'] = llm_section
+    except Exception:
+        pass
     
     cfg = resolve_env_vars(cfg)
 

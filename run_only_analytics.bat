@@ -370,30 +370,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem Generar configs/events_subset.yaml apuntando al parquet temporal
+  rem Generar configs subset via DVC
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/events.yaml','r',encoding='utf-8')); ip=cfg.get('input_paths') or {}; ip['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['input_paths']=ip; cfg['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; open('configs/events_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
-  if errorlevel 1 (
-    echo [ERROR] No se pudo generar configs/events_subset.yaml.
-    pause
-    endlocal
-    exit /b 1
-  )
-
-  rem Si existe un mejor modelo local, usarlo; si no, mantener LLM del config
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python -c \"import os,yaml; p='configs/events_subset.yaml'; cfg=yaml.safe_load(open(p,'r',encoding='utf-8')) or {}; fp='models/news_best.joblib'; if os.path.exists(fp): llm=cfg.get('llm') or {}; llm['provider']='svm'; llm['model_path']=fp; cfg['llm']=llm; open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True)); print('[OK] events_subset.yaml: usando modelo local (news_best.joblib)'); else: print('[INFO] Sin modelo local; se mantiene provider del YAML')\""
+    exec -w /app/Data_analytics analytics dvc repro --single-item subset_config
   if errorlevel 1 goto :neighbors_failed
 
-rem Generar configs/ccf_subset.yaml apuntando al parquet temporal
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python -c \"import yaml,io; cfg=yaml.safe_load(open('configs/ccf_analysis.yaml','r',encoding='utf-8')); cfg['input_path']['clusters_parquet']='data/processed/_tmp_neighbors_clusters.parquet'; cfg['output_dir']='outputs/ccf_analysis/subset_neighbors'; open('configs/ccf_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\""
-if errorlevel 1 (
-    echo [ERROR] No se pudo generar configs/ccf_subset.yaml.
-    pause
-    endlocal
-    exit /b 1
-)
+  rem Seleccionar modelo local para noticias si existe (override)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics dvc repro --single-item news_model_select
+  if errorlevel 1 goto :neighbors_failed
 
 rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
 if "!RUN_PLAYERS_PG!"=="1" (
