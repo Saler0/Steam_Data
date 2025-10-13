@@ -202,33 +202,33 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
             except Exception as exc:
                 app.logger.exception("Failed to evaluate price rule: %s", exc)
-                price_rule = {"label": "error", "details": str(exc)}
+                price_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
             try:
                 platform_rule = decision_rules_service.evaluate_platform_rule(document.get("platforms"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate platform rule: %s", exc)
-                platform_rule = {"label": "error", "details": str(exc)}
+                platform_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
             try:
                 ram_rule = decision_rules_service.evaluate_ram_rule(document.get("ram_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate RAM rule: %s", exc)
-                ram_rule = {"label": "error", "details": str(exc)}
+                ram_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
             try:
                 size_rule = decision_rules_service.evaluate_size_rule(document.get("install_size_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate size rule: %s", exc)
-                size_rule = {"label": "error", "details": str(exc)}
+                size_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
             try:
                 steam_deck_rule = decision_rules_service.evaluate_steam_deck_rule(document.get("steam_deck_compatible"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate steam deck rule: %s", exc)
-                steam_deck_rule = {"label": "error", "details": str(exc)}
+                steam_deck_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
         else:
-            price_rule = {"label": "sin_servicio"}
-            platform_rule = {"label": "sin_servicio"}
-            ram_rule = {"label": "sin_servicio"}
-            size_rule = {"label": "sin_servicio"}
-            steam_deck_rule = {"label": "sin_servicio"}
+            price_rule = {"label": "sin_servicio", "tag": "neutro"}
+            platform_rule = {"label": "sin_servicio", "tag": "neutro"}
+            ram_rule = {"label": "sin_servicio", "tag": "neutro"}
+            size_rule = {"label": "sin_servicio", "tag": "neutro"}
+            steam_deck_rule = {"label": "sin_servicio", "tag": "neutro"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:

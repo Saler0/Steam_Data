@@ -30,6 +30,7 @@ class DecisionRulesService:
             "client_price": client_price,
             "neighbor_median_price": None,
             "neighbor_prices_count": 0,
+            "tag": "neutro",
         }
 
         if client_price is None:
@@ -79,6 +80,14 @@ class DecisionRulesService:
                 },
             }
         )
+        tag_by_label = {
+            "barato": "fortaleza",
+            "alto justificado": "fortaleza",
+            "caro": "debilidad",
+            "normal": "neutro",
+            "sin_datos": "neutro",
+        }
+        result["tag"] = tag_by_label.get(label, "neutro")
         return result
 
     def evaluate_platform_rule(
@@ -98,6 +107,7 @@ class DecisionRulesService:
             "neighbors_with_equal_platforms": 0,
             "neighbors_with_less_platforms": 0,
             "neighbor_max_platforms": max(neighbor_counts) if neighbor_counts else None,
+            "tag": "neutro",
         }
 
         if not neighbor_counts:
@@ -113,8 +123,10 @@ class DecisionRulesService:
 
         if more > (len(neighbor_counts) / 2):
             result["label"] = "soporte limitado"
+            result["tag"] = "debilidad"
         else:
             result["label"] = "soporte bueno"
+            result["tag"] = "fortaleza"
 
         return result
 
@@ -129,6 +141,7 @@ class DecisionRulesService:
             "client_ram_gb": client_ram_gb,
             "neighbor_median_ram_gb": None,
             "neighbor_ram_values_count": 0,
+            "tag": "neutro",
         }
 
         if client_ram_gb in (None, ""):
@@ -149,6 +162,7 @@ class DecisionRulesService:
         neighbor_median = median(neighbor_ram_values)
         result["neighbor_median_ram_gb"] = neighbor_median
         result["label"] = "barrera tecnica" if client_ram_value > neighbor_median else "sin barrera tecnica"
+        result["tag"] = "debilidad" if result["label"] == "barrera tecnica" else "fortaleza"
 
         return result
 
@@ -163,6 +177,7 @@ class DecisionRulesService:
             "client_install_size_gb": None,
             "neighbor_percentile_75": None,
             "neighbor_sizes_count": 0,
+            "tag": "neutro",
         }
 
         if client_install_size_gb in (None, ""):
@@ -186,8 +201,10 @@ class DecisionRulesService:
         result["neighbor_percentile_75"] = percentile_75
         if client_size_value > percentile_75:
             result["label"] = "juego muy pesado"
+            result["tag"] = "debilidad"
         else:
             result["label"] = "juego liviano"
+            result["tag"] = "fortaleza"
 
         return result
 
@@ -202,6 +219,7 @@ class DecisionRulesService:
             "client_steam_deck": None,
             "neighbors_total": 0,
             "neighbors_with_steam_deck": 0,
+            "tag": "neutro",
         }
 
         client_flag: Optional[bool] = None
@@ -223,6 +241,7 @@ class DecisionRulesService:
         result["client_steam_deck"] = client_flag
         if client_flag:
             result["label"] = "mayor visibilidad"
+            result["tag"] = "fortaleza"
             return result
 
         neighbor_flags = self._fetch_neighbor_steam_deck_flags(neighbor_appids)
@@ -236,8 +255,10 @@ class DecisionRulesService:
 
         if with_steam_deck > 0:
             result["label"] = "menor visibilidad"
+            result["tag"] = "debilidad"
         else:
             result["label"] = "vecinos sin steam deck"
+            result["tag"] = "neutro"
 
         return result
 
