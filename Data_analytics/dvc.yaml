@@ -119,6 +119,15 @@ stages:
   events:
     cmd: python src/pipelines/event_detection/detect_events.py --config configs/events.yaml
     deps:
+  news_train_auto:
+    cmd: python src/insights/train_news_classifier_auto.py --config configs/news_train.yaml
+    deps:
+      - src/insights/train_news_classifier_auto.py
+      - configs/news_train.yaml
+      - outputs/events/news_classified.parquet
+    outs:
+      - models/news_best.joblib
+      - models/news_best_meta.json
       - src/pipelines/event_detection/detect_events.py
       - configs/events.yaml
       - data/warehouse/reviews_monthly.parquet
