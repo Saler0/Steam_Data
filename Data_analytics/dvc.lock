@@ -145,8 +145,8 @@ stages:
     outs:
     - path: data/warehouse/reviews_monthly.parquet
       hash: md5
-      md5: 4b69e98c1b9afbb11d1136c33b003b06
-      size: 8257
+      md5: 3fbde1488d4d424a3e3c35660bc8962c
+      size: 15046
   preagg_players:
     cmd: "python src/pipelines/preaggregations/players_monthly.py --postgres-host
       $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER
