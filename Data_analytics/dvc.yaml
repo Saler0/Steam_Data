@@ -11,6 +11,13 @@ vars:
 
 stages:
   preagg_reviews:
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
+    deps:
+      - src/pipelines/preaggregations/reviews_monthly.py
+      - configs/ccf_analysis.yaml
+    outs:
+      - data/warehouse/reviews_monthly.parquet
+
   subset_config:
     cmd: python scripts/prepare_subset_config.py --events configs/events.yaml --ccf configs/ccf_analysis.yaml --clusters data/processed/_tmp_neighbors_clusters.parquet --out-events configs/events_subset.yaml --out-ccf configs/ccf_subset.yaml
     deps:
@@ -28,12 +35,6 @@ stages:
       - scripts/select_news_model.py
     outs:
       - configs/llm_override.yaml
-    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
-    deps:
-      - src/pipelines/preaggregations/reviews_monthly.py
-      - configs/ccf_analysis.yaml
-    outs:
-      - data/warehouse/reviews_monthly.parquet
 
   preagg_players:
     cmd: >
