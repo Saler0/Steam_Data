@@ -153,25 +153,44 @@ def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
         limit = None
 
     client = MongoClient(uri)
+    processed_chunks = []
     try:
-        cursor = client[database][collection].find(query, projection)
+        cursor = client[database][collection].find(query, projection, batch_size=5000)
         if limit:
             cursor = cursor.limit(limit)
-        rows = list(cursor)
+
+        rows_chunk = []
+        for row in cursor:
+            rows_chunk.append(row)
+            if len(rows_chunk) >= 5000:
+                df_chunk = pd.DataFrame(rows_chunk)
+                if "_id" in df_chunk.columns:
+                    df_chunk = df_chunk.drop(columns=["_id"])
+                if "author" in df_chunk.columns:
+                    author_df = pd.json_normalize(df_chunk["author"]).add_prefix("author_")
+                    df_chunk = df_chunk.drop(columns=["author"]).join(author_df)
+                processed_chunks.append(df_chunk)
+                rows_chunk = []
+
+        if rows_chunk:
+            df_chunk = pd.DataFrame(rows_chunk)
+            if "_id" in df_chunk.columns:
+                df_chunk = df_chunk.drop(columns=["_id"])
+            if "author" in df_chunk.columns:
+                author_df = pd.json_normalize(df_chunk["author"]).add_prefix("author_")
+                df_chunk = df_chunk.drop(columns=["author"]).join(author_df)
+            processed_chunks.append(df_chunk)
     finally:
         try:
             client.close()
         except Exception:
             pass
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    if "_id" in df.columns:
-        df = df.drop(columns=["_id"])
 
-    if "author" in df.columns:
-        author_df = pd.json_normalize(df["author"]).add_prefix("author_")
-        df = df.drop(columns=["author"]).join(author_df)
+    if not processed_chunks:
+        return pd.DataFrame()
+
+    df = pd.concat(processed_chunks, ignore_index=True)
+
 
     convert_numeric = [
         "timestamp_created",
