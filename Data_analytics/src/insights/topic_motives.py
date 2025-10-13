@@ -95,8 +95,36 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             top_n = topic_cfg.get('top_n_topics', 3)
             main_topics = topic_info[topic_info.Topic != -1].head(top_n)
 
+            # Opcional: adjuntar documentos representativos sin duplicados (por ponderación)
+            want_docs = bool(topic_cfg.get('attach_top_docs', True))
+            top_docs_k = int(topic_cfg.get('top_docs_per_topic', 3))
+
             # Calcular coherencia C_v si Gensim está disponible
             topic_rows = main_topics.to_dict(orient='records') if not main_topics.empty else []
+            if want_docs and topic_rows:
+                try:
+                    for row in topic_rows:
+                        tid = int(row.get('Topic')) if row.get('Topic') is not None else None
+                        if tid is None or tid < 0:
+                            row['top_docs'] = []
+                            continue
+                        reps = topic_model.get_representative_docs(tid) or []
+                        # Deduplicar preservando orden por contenido exacto
+                        seen = set()
+                        unique_docs = []
+                        for doc in reps:
+                            d = str(doc)
+                            if d in seen:
+                                continue
+                            seen.add(d)
+                            unique_docs.append(d)
+                            if len(unique_docs) >= top_docs_k:
+                                break
+                        row['top_docs'] = unique_docs
+                except Exception:
+                    # Si no se puede calcular representativos, omitir sin romper flujo
+                    for row in topic_rows:
+                        row.setdefault('top_docs', [])
             if GENSIM_AVAILABLE and topic_rows:
                 try:
                     analyzer = vectorizer_model.build_analyzer()
