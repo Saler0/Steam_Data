@@ -1,5 +1,6 @@
 ﻿@echo off
-setlocal enabledelayedexpansion
+chcp 65001 >nul
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem Ir a la carpeta del script (donde esta docker-compose.yml)
 cd /d %~dp0
@@ -455,10 +456,43 @@ if errorlevel 1 goto :neighbors_failed
 
 rem Generar segmentos de reseÃ±as (revisiones por experiencia) y aplicar al reporte
 echo [INFO] Generando reviews_with_segments y review_segments...
-call :RunSingleStage reviews_with_segments
-if errorlevel 1 goto :neighbors_failed
-call :RunSingleStage review_segments
-if errorlevel 1 goto :neighbors_failed
+  call :RunSingleStage reviews_with_segments
+  if errorlevel 1 goto :neighbors_failed
+  call :RunSingleStage review_segments
+  if errorlevel 1 goto :neighbors_failed
+  
+  rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import os, pandas as pd
+try:
+  from sqlalchemy import create_engine
+  SQLA=True
+except Exception:
+  SQLA=False
+uri=os.getenv('POSTGRES_URI')
+if not uri:
+  host=os.getenv('POSTGRES_HOST'); user=os.getenv('POSTGRES_USER'); pwd=os.getenv('POSTGRES_PASSWORD'); db=os.getenv('POSTGRES_DB'); port=os.getenv('POSTGRES_PORT','5432')
+  if host and user and pwd and db:
+    uri=f'postgresql://{user}:{pwd}@{host}:{port}/{db}'
+if not uri or not SQLA:
+  print('[INFO] Postgres no configurado; omitiendo export de abandon rates')
+  raise SystemExit(0)
+path_csv='outputs/events/abandon_rates_by_experience.csv'
+if not os.path.exists(path_csv):
+  print('[INFO] No existe CSV de abandon rates; omitiendo export')
+  raise SystemExit(0)
+df=pd.read_csv(path_csv)
+if df.empty:
+  print('[INFO] CSV vacío; omitiendo export')
+  raise SystemExit(0)
+schema=os.getenv('POSTGRES_SCHEMA','public')
+engine=create_engine(uri)
+df.to_sql('abandon_rates_by_experience', engine, schema=schema, if_exists='append', index=False)
+print('[OK] Exportado abandon_rates_by_experience a Postgres')
+PY"
 
 rem Reglas de decisiÃ³n deshabilitadas en el pipeline offline
 
@@ -526,8 +560,41 @@ call :RunSingleStage enrich
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage reviews_with_segments
 if errorlevel 1 goto :offline_failed
-call :RunSingleStage review_segments
-if errorlevel 1 goto :offline_failed
+  call :RunSingleStage review_segments
+  if errorlevel 1 goto :offline_failed
+  
+  rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres (offline-all)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import os, pandas as pd
+try:
+  from sqlalchemy import create_engine
+  SQLA=True
+except Exception:
+  SQLA=False
+uri=os.getenv('POSTGRES_URI')
+if not uri:
+  host=os.getenv('POSTGRES_HOST'); user=os.getenv('POSTGRES_USER'); pwd=os.getenv('POSTGRES_PASSWORD'); db=os.getenv('POSTGRES_DB'); port=os.getenv('POSTGRES_PORT','5432')
+  if host and user and pwd and db:
+    uri=f'postgresql://{user}:{pwd}@{host}:{port}/{db}'
+if not uri or not SQLA:
+  print('[INFO] Postgres no configurado; omitiendo export de abandon rates')
+  raise SystemExit(0)
+path_csv='outputs/events/abandon_rates_by_experience.csv'
+if not os.path.exists(path_csv):
+  print('[INFO] No existe CSV de abandon rates; omitiendo export')
+  raise SystemExit(0)
+df=pd.read_csv(path_csv)
+if df.empty:
+  print('[INFO] CSV vacío; omitiendo export')
+  raise SystemExit(0)
+schema=os.getenv('POSTGRES_SCHEMA','public')
+engine=create_engine(uri)
+df.to_sql('abandon_rates_by_experience', engine, schema=schema, if_exists='append', index=False)
+print('[OK] Exportado abandon_rates_by_experience a Postgres')
+PY"
 call :RunSingleStage ccf
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage event_leadlag
