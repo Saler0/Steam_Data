@@ -435,9 +435,9 @@ for %%I in (!APPID_LIST!) do (
     if errorlevel 1 goto :neighbors_failed
 )
 
-rem Enriquecer
+rem Enriquecer (solo si existen eventos)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/pipelines/event_detection/enrich_events.py --config configs/events_subset.yaml
+  exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/events.parquet ]; then python src/pipelines/event_detection/enrich_events.py --config configs/events_subset.yaml; else echo '[INFO] No existe outputs/events/events.parquet; omitiendo enrich para subset.'; fi"
 if errorlevel 1 goto :neighbors_failed
 
 rem CCF limitado al subset
