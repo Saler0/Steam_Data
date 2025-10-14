@@ -182,9 +182,22 @@ def detect_events_for_series(df: pd.DataFrame, variable: str, z_thresh: float) -
     return pd.DataFrame(results)
 
 def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
-    """Detecta y retorna eventos para un único appid (versión sincronizada)."""
+    """Detecta y retorna eventos para un único appid (versión sincronizada).
+
+    Acepta tanto un dict de config directo (modo multiprocessing) como un
+    ObjectRef de Ray (modo ray)."""
     appid, cfg_ref = args
-    cfg = ray.get(cfg_ref)  # Deserializa el ObjectRef a un diccionario
+    # Si estamos en modo Ray y recibimos un ObjectRef, deserializar; de lo contrario usar tal cual
+    cfg = cfg_ref
+    try:
+        if RAY_AVAILABLE:
+            import ray as _ray  # import local para evitar NameError cuando no está disponible
+            # En Ray moderno, ObjectRef es un tipo; evitamos dependencia directa si no existe
+            if hasattr(_ray, 'ObjectRef') and isinstance(cfg_ref, _ray.ObjectRef):
+                cfg = _ray.get(cfg_ref)
+    except Exception:
+        # En caso de cualquier problema con Ray, continuar con cfg_ref tal cual
+        cfg = cfg_ref
     cfg_players = cfg.get('players_data', {})
     cfg_reviews = _resolve_mongo_cfg(cfg.get('mongo_connection', {}))
     z_thresh = float(cfg['detection']['zscore_threshold'])

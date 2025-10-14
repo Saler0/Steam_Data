@@ -32,7 +32,8 @@ from src.utils.io import read_parquet_any, write_parquet_any
 _SVM_CACHE: Dict[str, joblib] = {}
 
 def _svm_predict_and_keywords(text: str, llm_cfg: Dict) -> Tuple[str | None, List[str]]:
-    path = llm_cfg.get("model_path", "models/news_svm.joblib")
+    # Por defecto usar el mejor modelo guardado si no se especifica
+    path = llm_cfg.get("model_path", "models/news_best.joblib")
     pipe = _SVM_CACHE.get(path)
     if pipe is None:
         try:
@@ -79,7 +80,8 @@ def query_llm(prompt: str, llm_cfg: Dict) -> str:
     # 0) Clasificador local (SVM) opcional
     provider = str(llm_cfg.get("provider", "")).lower()
     if provider == "svm":
-        model_path = llm_cfg.get("model_path", "models/news_svm.joblib")
+        # Por defecto, coherente con el entrenamiento automático
+        model_path = llm_cfg.get("model_path", "models/news_best.joblib")
         try:
             pipe = joblib.load(model_path)
         except Exception as e:
