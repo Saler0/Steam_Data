@@ -1,8 +1,8 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem Ir a la carpeta del script (donde esta docker-compose.yml)
+rem Ir a la carpeta del script (donde está docker-compose.yml)
 cd /d %~dp0
 
 rem Asegura nombre de proyecto consistente con tu compose (name: proyecto_steam)
@@ -10,14 +10,11 @@ set COMPOSE_PROJECT_NAME=proyecto_steam
 
 echo.
 echo ============================
-echo Limpiando contenedores previos con nombre estatico...
+echo Limpiando contenedores previos con nombre estático...
 echo ============================
-rem Borra si existen; ignora errores
 docker rm -f mongo 2>nul
-rem docker rm -f steam_mlflow 2>nul
 docker rm -f steam_analytics 2>nul
 docker rm -f data_management_pipeline 2>nul
-rem docker rm -f postgres_db 2>nul
 
 echo.
 echo ============================
@@ -101,16 +98,20 @@ for %%A in (%*) do (
         set "APPID_LIST="
     ) else if "!APPID_BUILDING!"=="1" (
         rem Cortar modo appids si llega cualquier flag conocido
-        if /I "!ARG!"=="from-news"         (set "APPID_BUILDING=0") else ^
-        if /I "!ARG!"=="with-preagg"       (set "APPID_BUILDING=0") else ^
-        if /I "!ARG!"=="players-pg"        (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,8!"=="pg-table"      (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,10!"=="min-score="   (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,3!"=="cv="           (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,7!"=="models="       (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,11!"=="featurizer="   (set "APPID_BUILDING=0") else ^
-        if /I "!ARG:~0,10!"=="emb-model="   (set "APPID_BUILDING=0") else ^
-        if /I "!ARG!"=="exploitation_zone" (set "APPID_BUILDING=0") else (
+        set "IS_STOPPER=0"
+        if /I "!ARG!"=="from-news"         set "IS_STOPPER=1"
+        if /I "!ARG!"=="with-preagg"       set "IS_STOPPER=1"
+        if /I "!ARG!"=="players-pg"        set "IS_STOPPER=1"
+        if /I "!ARG:~0,8!"=="pg-table"     set "IS_STOPPER=1"
+        if /I "!ARG:~0,10!"=="min-score="  set "IS_STOPPER=1"
+        if /I "!ARG:~0,3!"=="cv="          set "IS_STOPPER=1"
+        if /I "!ARG:~0,7!"=="models="      set "IS_STOPPER=1"
+        if /I "!ARG:~0,11!"=="featurizer=" set "IS_STOPPER=1"
+        if /I "!ARG:~0,10!"=="emb-model="  set "IS_STOPPER=1"
+        if /I "!ARG!"=="exploitation_zone" set "IS_STOPPER=1"
+        if "!IS_STOPPER!"=="1" (
+            set "APPID_BUILDING=0"
+        ) else (
             rem Solo aceptar tokens numéricos como appids
             set "NONNUM="
             for /f "delims=0123456789" %%Z in ("!ARG!") do set "NONNUM=%%Z"
@@ -144,12 +145,12 @@ if "!CUSTOM_MODE!"=="0" (
     if "!RUN_TOPICS_ONLY!"=="1" (
         set "DVC_TARGETS=cluster_topics_profile cluster_topics_map"
         set "DVC_FLAGS=--single-item"
-        echo [INFO] Ejecutando solo los stages de topicos; se reutilizaran artefactos previos de clustering.
+        echo [INFO] Ejecutando solo los stages de tópicos; se reutilizarán artefactos previos de clustering.
     ) else (
         if "!SKIP_EMB!"=="1" (
             set "DVC_TARGETS=clustering cluster_topics_profile cluster_topics_map"
             set "DVC_FLAGS=--single-item"
-            echo [INFO] Saltando regeneracion de embeddings; se usaran artefactos existentes.
+            echo [INFO] Saltando regeneración de embeddings; se usarán artefactos existentes.
         )
     )
 )
@@ -163,11 +164,11 @@ rem Marca /app como safe en Git (por si hay "dubious ownership")
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec analytics git config --global --add safe.directory /app
 
-rem Inicializa DVC en el subdirectorio si aun no existe .dvc en la raiz
+rem Inicializa DVC en el subdirectorio si aún no existe .dvc en la raíz
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
 
-rem Ejecuta el pipeline segun la configuracion seleccionada
+rem Ejecuta el pipeline según la configuración seleccionada
 if "!RUN_PREAGG_BEFORE!"=="1" (
     echo [INFO] Ejecutando preagg_reviews antes del pipeline principal...
     call :RunSingleStage preagg_reviews
@@ -240,7 +241,7 @@ if "%~2"=="" (
 set "APPID=%~2"
 
 echo [INFO] Preparando artefactos temporales dentro del contenedor...
-rem Crea parquet con un unico appid
+rem Crea parquet con un único appid
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "python -c \"import pandas as pd, pathlib; pathlib.Path('data/processed').mkdir(parents=True, exist_ok=True); pd.DataFrame({'appid':[str(%APPID%)],'cluster_id':[0]}).to_parquet('data/processed/_tmp_single_app_clusters.parquet')\""
 if errorlevel 1 (
@@ -275,7 +276,7 @@ exit /b 0
 :run_poc
 echo.
 echo ============================
-echo Ejecutando PoC de asignacion de juego...
+echo Ejecutando PoC de asignación de juego...
 echo ============================
 set "POC_ARGS=%*"
 set "POC_ARGS=!POC_ARGS:single-game-poc=!"
@@ -293,7 +294,7 @@ goto :poc_success
 
 :dvc_failed
 echo.
-echo ERROR: Fallo al ejecutar el pipeline de DVC.
+echo ERROR: Falló al ejecutar el pipeline de DVC.
 echo Revisa los logs del contenedor para ver el error.
 pause
 endlocal
@@ -302,9 +303,8 @@ exit /b 1
 :dvc_success
 echo.
 echo =======================================================
-echo Pipeline de analytics finalizado con exito.
+echo Pipeline de analytics finalizado con éxito.
 echo =======================================================
-
 echo Resultados del clustering:
 echo   - data/processed/clusters.parquet
 echo   - data/processed/game_metadata.parquet
@@ -312,18 +312,16 @@ echo   - models/cluster_medoids.json
 echo   - outputs/clustering/cluster_stats.csv
 echo   - outputs/clustering/cluster_topics.json
 echo   - outputs/clustering/cluster_topics_umap.html
-
 echo.
 echo Puedes apagar los contenedores con: docker compose down
 echo.
-
 pause
 endlocal
 exit /b 0
 
 :poc_failed
 echo.
-echo ERROR: La PoC de asignacion de juego fallo.
+echo ERROR: La PoC de asignación de juego falló.
 echo Revisa la salida del comando python dentro del contenedor analytics.
 pause
 endlocal
@@ -332,7 +330,7 @@ exit /b 1
 :poc_success
 echo.
 echo ===============================================
-echo PoC de asignacion ejecutada correctamente.
+echo PoC de asignación ejecutada correctamente.
 echo Puedes pasar argumentos extra tras 'single-game-poc' (ej. --scenario farm).
 echo ===============================================
 pause
@@ -347,15 +345,15 @@ if "%~2"=="" goto :RunStageWithAppid_Error
 echo [INFO] Ejecutando %~1 (report.appid=%~2) dentro de steam_analytics...
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro --single-item --set-param report.appid=%~2 %~1
-  exit /b %errorlevel%
+exit /b %errorlevel%
 
 :RunStageWithAppid_Error
 echo [ERROR] Faltan argumentos para RunStageWithAppid.
 exit /b 1
 
 :RunSingleStage
-rem Ejecuta un stage. Para reglas de decisiÃ³n, llama directamente al script con --stage
-rem Las reglas de decisiÃ³n han sido movidas al backend; no se ejecutan aquÃ­
+rem Ejecuta un stage. Para reglas de decisión, llama directamente al script con --stage
+rem Las reglas de decisión han sido movidas al backend; no se ejecutan aquí
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -c "set -a; source <(sed 's/\r$//' .env); set +a; dvc repro --single-item %1"
 exit /b %errorlevel%
@@ -385,29 +383,29 @@ if errorlevel 1 (
     exit /b 1
 )
 
-  rem Generar configs subset via DVC
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics dvc repro -q --single-item subset_config
-  if errorlevel 1 goto :neighbors_failed
+rem Generar configs subset via DVC
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item subset_config
+if errorlevel 1 goto :neighbors_failed
 
-  rem Seleccionar modelo local para noticias si existe (override)
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
-  if errorlevel 1 goto :neighbors_failed
+rem Seleccionar modelo local para noticias si existe (override)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
+if errorlevel 1 goto :neighbors_failed
 
 rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
 if "!RUN_PLAYERS_PG!"=="1" (
-  echo [INFO] Generando players_monthly desde Postgres...
-  set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
-  if defined PG_TABLE (
-    set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
-  )
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
-  if errorlevel 1 goto :neighbors_failed
+    echo [INFO] Generando players_monthly desde Postgres...
+    set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
+    if defined PG_TABLE (
+        set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
+    )
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+    if errorlevel 1 goto :neighbors_failed
 )
 
-rem Opcional: ejecutar preagregados antes si se pidio
+rem Opcional: ejecutar preagregados antes si se pidió
 if "!RUN_PREAGG_BEFORE!"=="1" (
     echo [INFO] Ejecutando preagg_reviews y preagg_players antes del subset...
     call :RunSingleStage preagg_reviews
@@ -416,27 +414,25 @@ if "!RUN_PREAGG_BEFORE!"=="1" (
     if errorlevel 1 goto :neighbors_failed
 )
 
-rem Ejecutar eventos -> topicos para el subset (a menos que se pida continuar desde noticias)
+rem Ejecutar eventos -> tópicos para el subset (a menos que se pida continuar desde noticias)
 if not "!RUN_FROM_NEWS!"=="1" (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
-  if errorlevel 1 goto :neighbors_failed
-
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
-  if errorlevel 1 goto :neighbors_failed
-
-  rem Anotar topicos con CCF (topics_relevance)
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events_subset.yaml
-  if errorlevel 1 goto :neighbors_failed
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+    if errorlevel 1 goto :neighbors_failed
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
+    if errorlevel 1 goto :neighbors_failed
+    rem Anotar tópicos con CCF (topics_relevance)
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events_subset.yaml
+    if errorlevel 1 goto :neighbors_failed
 )
 
 rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
 for %%I in (!APPID_LIST!) do (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
-  if errorlevel 1 goto :neighbors_failed
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
+    if errorlevel 1 goto :neighbors_failed
 )
 
 rem Enriquecer
@@ -449,18 +445,18 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
 if errorlevel 1 goto :neighbors_failed
 
-rem Generar segmentos de reseÃ±as (revisiones por experiencia) y aplicar al reporte
+rem Generar segmentos de reseñas (revisiones por experiencia) y aplicar al reporte
 echo [INFO] Generando reviews_with_segments y review_segments...
-  call :RunSingleStage reviews_with_segments
-  if errorlevel 1 goto :neighbors_failed
-  call :RunSingleStage review_segments
-  if errorlevel 1 goto :neighbors_failed
-  
-  rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+call :RunSingleStage reviews_with_segments
+if errorlevel 1 goto :neighbors_failed
+call :RunSingleStage review_segments
+if errorlevel 1 goto :neighbors_failed
+
+rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
 import os, pandas as pd
 try:
   from sqlalchemy import create_engine
@@ -489,13 +485,11 @@ df.to_sql('abandon_rates_by_experience', engine, schema=schema, if_exists='appen
 print('[OK] Exportado abandon_rates_by_experience a Postgres')
 PY"
 
-rem Reglas de decisiÃ³n deshabilitadas en el pipeline offline
-
 rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
 for %%I in (!APPID_LIST!) do (
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/insights/build_game_report.py --config configs/events_subset.yaml --appid %%I --top_k 15
-  if errorlevel 1 goto :neighbors_failed
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/insights/build_game_report.py --config configs/events_subset.yaml --appid %%I --top_k 15
+    if errorlevel 1 goto :neighbors_failed
 )
 
 rem Persistir reportes de los vecinos en Mongo, eliminando 'provenance' y 'rules_analysis'
@@ -506,7 +500,7 @@ if errorlevel 1 goto :neighbors_failed
 echo.
 echo ===============================================
 echo Subset (vecinos) ejecutado correctamente y reportes por juego almacenados en Mongo.
-echo - Eventos/Topicos/Enrich: outputs/events/*
+echo - Eventos/Tópicos/Enrich: outputs/events/*
 echo - CCF: outputs/ccf_analysis/subset_neighbors/*
 echo - Reportes por appid: outputs/reports/*.json
 echo - Mongo: analytics.app_reports (sin provenance ni rules_analysis)
@@ -517,7 +511,7 @@ exit /b 0
 
 :neighbors_failed
 echo.
-echo ERROR: Fallo en la ejecucion del subset de vecinos.
+echo ERROR: Falló en la ejecución del subset de vecinos.
 echo Revisa los logs en el contenedor 'analytics'.
 pause
 endlocal
@@ -531,9 +525,9 @@ echo ============================
 
 rem Si el usuario pasa APPIDs, reutilizamos el flujo de subset (neighbors)
 if defined APPID_LIST (
-  echo [INFO] Modo offline con subset de APPIDs: !APPID_LIST!
-  set "RUN_NEIGHBORS=1"
-  goto :run_neighbors
+    echo [INFO] Modo offline con subset de APPIDs: !APPID_LIST!
+    set "RUN_NEIGHBORS=1"
+    goto :run_neighbors
 )
 
 rem (Opcional) correr preagregados antes
@@ -544,31 +538,30 @@ if errorlevel 1 goto :offline_failed
 
 rem Ejecutar stages base (SIN embeddings/clustering, se asume artefactos ya existen)
 if not "!RUN_FROM_NEWS!"=="1" (
-  call :RunSingleStage events
-  if errorlevel 1 goto :offline_failed
-  call :RunSingleStage topics
-  if errorlevel 1 goto :offline_failed
-  call :RunSingleStage topics_relevance
-  if errorlevel 1 goto :offline_failed
+    call :RunSingleStage events
+    if errorlevel 1 goto :offline_failed
+    call :RunSingleStage topics
+    if errorlevel 1 goto :offline_failed
+    call :RunSingleStage topics_relevance
+    if errorlevel 1 goto :offline_failed
 )
-  rem Override de modelo local para noticias (vía DVC)
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
-  if errorlevel 1 goto :offline_failed
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
+if errorlevel 1 goto :offline_failed
 call :RunSingleStage news_classifier
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage enrich
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage reviews_with_segments
 if errorlevel 1 goto :offline_failed
-  call :RunSingleStage review_segments
-  if errorlevel 1 goto :offline_failed
-  
-  rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres (offline-all)
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+call :RunSingleStage review_segments
+if errorlevel 1 goto :offline_failed
+
+rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres (offline-all)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
 import os, pandas as pd
 try:
   from sqlalchemy import create_engine
@@ -603,7 +596,16 @@ if errorlevel 1 goto :offline_failed
 
 rem Construir reportes por juego para TODOS los appids del clusters.parquet
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport pandas as pd\nfrom pathlib import Path\nimport sys\ndf = pd.read_parquet('data/processed/clusters.parquet')\napps = sorted(set(df['appid'].astype(str)))\nPath('outputs').mkdir(exist_ok=True)\nPath('outputs/tmp_all_appids.txt').write_text('\n'.join(apps), encoding='utf-8')\nprint(f'[OK] AppIDs totales: {len(apps)}')\nPY"
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import pandas as pd
+from pathlib import Path
+import sys
+df = pd.read_parquet('data/processed/clusters.parquet')
+apps = sorted(set(df['appid'].astype(str)))
+Path('outputs').mkdir(exist_ok=True)
+Path('outputs/tmp_all_appids.txt').write_text('\n'.join(apps), encoding='utf-8')
+print(f'[OK] AppIDs totales: {len(apps)}')
+PY"
 if errorlevel 1 goto :offline_failed
 
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
@@ -627,7 +629,7 @@ exit /b 0
 
 :offline_failed
 echo.
-echo ERROR: Fallo en la ejecucion offline para todos los juegos.
+echo ERROR: Falló en la ejecución offline para todos los juegos.
 pause
 endlocal
 exit /b 1
@@ -639,49 +641,94 @@ echo Preparando cliente (vecinos y appids) y ejecutando subset...
 echo ============================
 
 if not defined CLIENT_ID (
-  set "CLIENT_ID=client-001"
+    set "CLIENT_ID=client-001"
 )
 
 rem Ejecuta pipeline de cliente para derivar vecinos
 if defined CLIENT_FILE (
-  rem Opcional: actualizar neighbor_strategy.min_score si se paso min-score=
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport os, yaml\np='configs/params.yaml'\nms=os.getenv('NS_MIN_SCORE')\nif ms:\n  with open(p,'r',encoding='utf-8') as f:\n    cfg=yaml.safe_load(f) or {}\n  ns = cfg.get('neighbor_strategy') or {}\n  try:\n    ns['min_score'] = float(ms)\n  except Exception:\n    ns['min_score'] = ms\n  cfg['neighbor_strategy']=ns\n  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\n  print(f"[OK] params.yaml actualizado: neighbor_strategy.min_score={ns['min_score']}")\nelse:\n  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuracion actual')\nPY"
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-file !CLIENT_FILE! --client-id !CLIENT_ID!
+    rem Opcional: actualizar neighbor_strategy.min_score si se pasó min-score=
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import os, yaml
+p='configs/params.yaml'
+ms=os.getenv('NS_MIN_SCORE')
+if ms:
+  with open(p,'r',encoding='utf-8') as f:
+    cfg=yaml.safe_load(f) or {}
+  ns = cfg.get('neighbor_strategy') or {}
+  try:
+    ns['min_score'] = float(ms)
+  except Exception:
+    ns['min_score'] = ms
+  cfg['neighbor_strategy']=ns
+  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
+  print(f'[OK] params.yaml actualizado: neighbor_strategy.min_score={ns["min_score"]}')
+else:
+  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuración actual')
+PY"
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-file !CLIENT_FILE! --client-id !CLIENT_ID!
 ) else (
-  echo [WARN] CLIENT_FILE no especificado; usando configs/clients/!CLIENT_ID!.json si existe.
-  rem Opcional: actualizar neighbor_strategy.min_score si se paso min-score=
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport os, yaml\np='configs/params.yaml'\nms=os.getenv('NS_MIN_SCORE')\nif ms:\n  with open(p,'r',encoding='utf-8') as f:\n    cfg=yaml.safe_load(f) or {}\n  ns = cfg.get('neighbor_strategy') or {}\n  try:\n    ns['min_score'] = float(ms)\n  except Exception:\n    ns['min_score'] = ms\n  cfg['neighbor_strategy']=ns\n  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\n  print(f"[OK] params.yaml actualizado: neighbor_strategy.min_score={ns['min_score']}")\nelse:\n  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuracion actual')\nPY"
-  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-id !CLIENT_ID!
+    echo [WARN] CLIENT_FILE no especificado; usando configs/clients/!CLIENT_ID!.json si existe.
+    rem Opcional: actualizar neighbor_strategy.min_score si se pasó min-score=
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -e NS_MIN_SCORE="!NS_MIN_SCORE!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import os, yaml
+p='configs/params.yaml'
+ms=os.getenv('NS_MIN_SCORE')
+if ms:
+  with open(p,'r',encoding='utf-8') as f:
+    cfg=yaml.safe_load(f) or {}
+  ns = cfg.get('neighbor_strategy') or {}
+  try:
+    ns['min_score'] = float(ms)
+  except Exception:
+    ns['min_score'] = ms
+  cfg['neighbor_strategy']=ns
+  open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
+  print(f'[OK] params.yaml actualizado: neighbor_strategy.min_score={ns["min_score"]}')
+else:
+  print('[INFO] NS_MIN_SCORE no definido; se mantiene configuración actual')
+PY"
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python scripts/poc_client_pipeline.py --client-id !CLIENT_ID!
 )
 if errorlevel 1 (
-  echo [ERROR] No se pudieron calcular vecinos del cliente.
-  pause
-  endlocal
-  exit /b 1
+    echo [ERROR] No se pudieron calcular vecinos del cliente.
+    pause
+    endlocal
+    exit /b 1
 )
 
 rem Actualiza params.yaml con client_id y client_file
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nimport yaml,sys,os\np='configs/params.yaml'\nwith open(p,'r',encoding='utf-8') as f:\n  cfg=yaml.safe_load(f) or {}\ncr=cfg.get('client_report') or {}\ncr['client_id']=os.environ.get('CID','client-001')\ncf=os.environ.get('CFILE') or f'configs/clients/{cr["client_id"]}.json'\ncr['client_file']=cf\ncfg['client_report']=cr\nopen(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))\nprint('[OK] params.yaml actualizado')\nPY" 
-  
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import yaml,sys,os
+p='configs/params.yaml'
+with open(p,'r',encoding='utf-8') as f:
+  cfg=yaml.safe_load(f) or {}
+cr=cfg.get('client_report') or {}
+cr['client_id']=os.environ.get('CID','client-001')
+cf=os.environ.get('CFILE') or f'configs/clients/{cr["client_id"]}.json'
+cr['client_file']=cf
+cfg['client_report']=cr
+open(p,'w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
+print('[OK] params.yaml actualizado')
+PY"
 if errorlevel 1 (
-  echo [ERROR] No se pudo actualizar configs/params.yaml.
-  pause
-  endlocal
-  exit /b 1
+    echo [ERROR] No se pudo actualizar configs/params.yaml.
+    pause
+    endlocal
+    exit /b 1
 )
 
 rem Leer appids desde outputs/clients/client_{id}_appids.txt
-for /f "usebackq tokens=*" %%L in ("Data_analytics\\outputs\\clients\\client_!CLIENT_ID!_appids.txt") do set "APPID_LIST=%%L"
+for /f "usebackq tokens=*" %%L in ("Data_analytics\outputs\clients\client_!CLIENT_ID!_appids.txt") do set "APPID_LIST=%%L"
 if not defined APPID_LIST (
-  echo [ERROR] No se encontraron appids de vecinos para el cliente !CLIENT_ID!.
-  pause
-  endlocal
-  exit /b 1
+    echo [ERROR] No se encontraron appids de vecinos para el cliente !CLIENT_ID!.
+    pause
+    endlocal
+    exit /b 1
 )
 
 rem Encadena al modo neighbors con los appids obtenidos
@@ -691,7 +738,7 @@ goto :run_neighbors
 :run_reviews_mongo
 echo.
 echo ============================
-echo Generando reviews y topicos desde MongoDB...
+echo Generando reviews y tópicos desde MongoDB...
 echo ============================
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --run-bertopic"
@@ -708,42 +755,48 @@ exit /b 1
 :run_news_train
 echo.
 echo ============================
-echo Entrenando clasificadores de noticias (multi-modelo, seleccion automatica)...
+echo Entrenando clasificadores de noticias (multi-modelo, selección automática)...
 echo ============================
 rem Asegurar dataset de entrenamiento con etiquetas (si no existe, clasificar en batch con LLM actual)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'\nfrom pathlib import Path\nfrom subprocess import run\nimport sys\nif not Path('outputs/events/news_classified.parquet').exists():\n    print('[INFO] news_classified.parquet no existe. Ejecutando clasificacion batch con LLM para generarlo...')\n    rc = run(['python','src/insights/news_classifier.py','--config','configs/events.yaml']).returncode\n    sys.exit(rc)\nprint('[OK] Dataset de entrenamiento existente: outputs/events/news_classified.parquet')\nPY"
+  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+from pathlib import Path
+from subprocess import run
+import sys
+if not Path('outputs/events/news_classified.parquet').exists():
+    print('[INFO] news_classified.parquet no existe. Ejecutando clasificación batch con LLM para generarlo...')
+    rc = run(['python','src/insights/news_classifier.py','--config','configs/events.yaml']).returncode
+    sys.exit(rc)
+print('[OK] Dataset de entrenamiento existente: outputs/events/news_classified.parquet')
+PY"
 if errorlevel 1 (
-if not defined CV_K set "CV_K=5"
-  echo [ERROR] No se pudo generar outputs/events/news_classified.parquet. Revisa credenciales del LLM o la config.
-  pause
-  endlocal
-  exit /b 1
+    if not defined CV_K set "CV_K=5"
+    echo [ERROR] No se pudo generar outputs/events/news_classified.parquet. Revisa credenciales del LLM o la config.
+    pause
+    endlocal
+    exit /b 1
 )
 
 set "TRAIN_ARGS=--input outputs/events/news_classified.parquet --text-cols title,contents"
-if defined TRAIN_MODELS set "TRAIN_ARGS=!TRAIN_ARGS! --models !TRAIN_MODELS!" & goto :_models_ok
-set "TRAIN_ARGS=!TRAIN_ARGS! --models all"
-:_models_ok
-if defined TRAIN_SCORING set "TRAIN_ARGS=!TRAIN_ARGS! --scoring !TRAIN_SCORING!" & goto :_scoring_ok
-set "TRAIN_ARGS=!TRAIN_ARGS! --scoring f1_macro"
-:_scoring_ok
+if defined TRAIN_MODELS set "TRAIN_ARGS=!TRAIN_ARGS! --models !TRAIN_MODELS!"
+if not defined TRAIN_MODELS set "TRAIN_ARGS=!TRAIN_ARGS! --models all"
+if defined TRAIN_SCORING set "TRAIN_ARGS=!TRAIN_ARGS! --scoring !TRAIN_SCORING!"
+if not defined TRAIN_SCORING set "TRAIN_ARGS=!TRAIN_ARGS! --scoring f1_macro"
 if defined FEATURIZER set "TRAIN_ARGS=!TRAIN_ARGS! --featurizer !FEATURIZER!"
 if defined EMB_MODEL set "TRAIN_ARGS=!TRAIN_ARGS! --embedding-model !EMB_MODEL!"
+if defined CV_K set "TRAIN_ARGS=!TRAIN_ARGS! --cv !CV_K!"
 
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_train_auto
-if defined CV_K set "TRAIN_ARGS=!TRAIN_ARGS! --cv !CV_K!"
   exec -w /app/Data_analytics analytics python src/insights/train_news_classifier_auto.py !TRAIN_ARGS!
 if errorlevel 1 (
-  echo [ERROR] Fallo al entrenar el SVM de noticias. Asegurate de haber generado outputs/events/news_classified.parquet primero (news_classifier).
-  pause
-  endlocal
-  exit /b 1
+    echo [ERROR] Falló al entrenar el SVM de noticias. Asegúrate de haber generado outputs/events/news_classified.parquet primero (news_classifier).
+    pause
+    endlocal
+    exit /b 1
 )
 echo [OK] Modelos entrenados. Mejor guardado en models/news_best.joblib
-if "%USE_SVM%"=="1" (
-  echo [INFO] Flag use-svm activo: el subset usara provider=svm con models/news_best.joblib
+if "!USE_SVM!"=="1" (
+    echo [INFO] Flag use-svm activo: el subset usará provider=svm con models/news_best.joblib
 )
 pause
 endlocal
@@ -752,7 +805,7 @@ exit /b 0
 :reviews_mongo_success
 echo.
 echo ===============================================
-echo Reviews segmentadas y topicos generados desde MongoDB.
+echo Reviews segmentadas y tópicos generados desde MongoDB.
 echo Revisar: data/warehouse/reviews_with_segments.parquet
 echo          outputs/events/reviews_topics.parquet
 echo ===============================================
@@ -762,9 +815,8 @@ exit /b 0
 
 :ccf_failed
 echo.
-echo ERROR: La ejecucion de CCF/Granger fallo.
+echo ERROR: La ejecución de CCF/Granger falló.
 echo Revisa la salida del contenedor analytics.
 pause
 endlocal
 exit /b 1
-
