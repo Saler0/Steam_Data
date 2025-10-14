@@ -476,7 +476,7 @@ echo Subset (vecinos) ejecutado correctamente y reportes por juego almacenados e
 echo - Eventos/Tópicos/Enrich: outputs/events/*
 echo - CCF: outputs/ccf_analysis/subset_neighbors/*
 echo - Reportes por appid: outputs/reports/*.json
-echo - Mongo: analytics.app_reports (sin provenance ni rules_analysis)
+echo - Mongo: exploitation_zone.app_reports (sin provenance ni rules_analysis)
 echo ===============================================
 pause
 endlocal
