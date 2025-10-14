@@ -456,34 +456,7 @@ rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python - <<'PY'
-import os, pandas as pd
-try:
-  from sqlalchemy import create_engine
-  SQLA=True
-except Exception:
-  SQLA=False
-uri=os.getenv('POSTGRES_URI')
-if not uri:
-  host=os.getenv('POSTGRES_HOST'); user=os.getenv('POSTGRES_USER'); pwd=os.getenv('POSTGRES_PASSWORD'); db=os.getenv('POSTGRES_DB'); port=os.getenv('POSTGRES_PORT','5432')
-  if host and user and pwd and db:
-    uri=f'postgresql://{user}:{pwd}@{host}:{port}/{db}'
-if not uri or not SQLA:
-  print('[INFO] Postgres no configurado; omitiendo export de abandon rates')
-  raise SystemExit(0)
-path_csv='outputs/events/abandon_rates_by_experience.csv'
-if not os.path.exists(path_csv):
-  print('[INFO] No existe CSV de abandon rates; omitiendo export')
-  raise SystemExit(0)
-df=pd.read_csv(path_csv)
-if df.empty:
-  print('[INFO] CSV vacío; omitiendo export')
-  raise SystemExit(0)
-schema=os.getenv('POSTGRES_SCHEMA','public')
-engine=create_engine(uri)
-df.to_sql('abandon_rates_by_experience', engine, schema=schema, if_exists='append', index=False)
-print('[OK] Exportado abandon_rates_by_experience a Postgres')
-PY"
+  exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_abandon_rates_to_postgres.py"
 
 rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
 for %%I in (!APPID_LIST!) do (

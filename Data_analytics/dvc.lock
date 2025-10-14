@@ -171,23 +171,23 @@ stages:
     deps:
     - path: configs/review_segments.yaml
       hash: md5
-      md5: b823adb4c5f99e77f0c2ccc04c712d3b
-      size: 985
+      md5: 6882507a149399ee9499112a1c1ef523
+      size: 1254
       isexec: true
     - path: src/pipelines/review_segments/prepare_reviews_with_segments.py
       hash: md5
-      md5: 17eb30b9b80e23d6336e13e45e4f0edd
-      size: 26841
+      md5: cb4befdf3f5424fd03bea6047fe6dd94
+      size: 27708
       isexec: true
     outs:
     - path: data/warehouse/reviews_with_segments.parquet
       hash: md5
-      md5: 4c46958bee760a27c14c2ac0f5f8d8c9
-      size: 36426603
+      md5: edecef5921f8fcba614f183f49e7e5ea
+      size: 365235749
     - path: outputs/events/reviews_topics.parquet
       hash: md5
-      md5: 14a8479db5ee9bb319c1909035e58045
-      size: 18483344
+      md5: c6872f25db343a47a4503045762d4d00
+      size: 92089123
   review_segments:
     cmd: python src/insights/build_review_segments.py --events 
       outputs/events/events.parquet --reviews 
@@ -197,16 +197,16 @@ stages:
     deps:
     - path: data/warehouse/reviews_with_segments.parquet
       hash: md5
-      md5: 4c46958bee760a27c14c2ac0f5f8d8c9
-      size: 36426603
+      md5: edecef5921f8fcba614f183f49e7e5ea
+      size: 365235749
     - path: outputs/events/events.parquet
       hash: md5
-      md5: 99062da5a39540df3228f0832377c019
-      size: 10381
+      md5: 4cab9483a2ea71d800c178a78712b20f
+      size: 7291
     - path: outputs/events/reviews_topics.parquet
       hash: md5
-      md5: 14a8479db5ee9bb319c1909035e58045
-      size: 18483344
+      md5: c6872f25db343a47a4503045762d4d00
+      size: 92089123
     - path: src/insights/build_review_segments.py
       hash: md5
       md5: 606a51600cea9cd19782d070a90ec793

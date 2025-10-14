@@ -505,9 +505,25 @@ def main():
             mlflow.log_params(safe_llm_params)
             
             news_df = load_news_from_mongo(args.appid, mongo_cfg)
+
+            # --- Exclude news that has already been classified ---
+            output_path = outdir / 'news_classified.parquet'
+            if not news_df.empty and output_path.exists():
+                try:
+                    classified_df = read_parquet_any(output_path)
+                    if not classified_df.empty and 'appid' in classified_df.columns and 'gid' in classified_df.columns:
+                        # Get GIDs already classified for this appid
+                        classified_gids = set(classified_df[classified_df['appid'].astype(str) == str(args.appid)]['gid'])
+                        if classified_gids:
+                            original_count = len(news_df)
+                            news_df = news_df[~news_df['gid'].isin(classified_gids)]
+                            if len(news_df) < original_count:
+                                print(f"Excluding {original_count - len(news_df)} already classified news items.")
+                except Exception as e:
+                    print(f"[WARN] Could not check for existing news, proceeding with all items. Error: {e}")
             
             if not news_df.empty:
-                print(f"Clasificando {len(news_df)} noticias para el appid {args.appid} en paralelo...")
+                print(f"Clasificando {len(news_df)} noticias nuevas para el appid {args.appid} en paralelo...")
                 classified_news = classify_news_parallel(news_df, llm_cfg)
                 
                 mlflow.log_metric("total_news_found", len(news_df))
@@ -520,9 +536,9 @@ def main():
                     mlflow.log_artifact(str(output_path))
                     print(f"{len(classified_news)} noticias clasificadas; consolidado total: {len(all_df)}. Registrado en MLflow.")
                 else:
-                    print("Ninguna noticia pudo ser clasificada.")
+                    print("Ninguna noticia nueva pudo ser clasificada.")
             else:
-                print(f"No se encontraron noticias para el appid {args.appid}.")
+                print(f"No se encontraron noticias para el appid {args.appid} o no hay noticias nuevas que clasificar.")
         else:
             # Modo batch: clasificar para todos los appids presentes en Mongo
             appids = distinct_appids(mongo_cfg)
