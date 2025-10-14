@@ -384,6 +384,11 @@ if errorlevel 1 (
 )
 
 rem Generar configs subset via DVC
+rem Asegurar git safe.directory y DVC inicializado en subdir antes de repro
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec analytics git config --global --add safe.directory /app
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics dvc repro -q --single-item subset_config
 if errorlevel 1 goto :neighbors_failed
