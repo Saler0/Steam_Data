@@ -383,19 +383,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem Generar configs subset via DVC
-rem Asegurar git safe.directory y DVC inicializado en subdir antes de repro
+rem Generar configs subset sin DVC (llamada directa)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec analytics git config --global --add safe.directory /app
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "test -d /app/.dvc || dvc init -f --subdir"
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics dvc repro -q --single-item subset_config
+  exec -w /app/Data_analytics analytics python scripts/prepare_subset_config.py --events configs/events.yaml --ccf configs/ccf_analysis.yaml --clusters data/processed/_tmp_neighbors_clusters.parquet --out-events configs/events_subset.yaml --out-ccf configs/ccf_subset.yaml
 if errorlevel 1 goto :neighbors_failed
 
-rem Seleccionar modelo local para noticias si existe (override)
+rem Seleccionar modelo local para noticias si existe (override) sin DVC
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_model_select
+  exec -w /app/Data_analytics analytics python scripts/select_news_model.py --out configs/llm_override.yaml
 if errorlevel 1 goto :neighbors_failed
 
 rem Si se solicita, generar players_monthly desde Postgres (sobrescribe parquet)
