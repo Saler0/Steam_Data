@@ -119,6 +119,14 @@ stages:
   events:
     cmd: python src/pipelines/event_detection/detect_events.py --config configs/events.yaml
     deps:
+      - src/pipelines/event_detection/detect_events.py
+      - configs/events.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+      - data/processed/clusters.parquet
+    outs:
+      - outputs/events/events.parquet
+
   news_train_auto:
     cmd: python src/insights/train_news_classifier_auto.py --config configs/news_train.yaml
     deps:
@@ -128,13 +136,6 @@ stages:
     outs:
       - models/news_best.joblib
       - models/news_best_meta.json
-      - src/pipelines/event_detection/detect_events.py
-      - configs/events.yaml
-      - data/warehouse/reviews_monthly.parquet
-      - data/warehouse/players_monthly.parquet
-      - data/processed/clusters.parquet
-    outs:
-      - outputs/events/events.parquet
 
   reviews_with_segments:
     cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --allow-empty
