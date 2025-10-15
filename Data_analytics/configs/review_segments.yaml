@@ -7,6 +7,7 @@ date_column: timestamp_created_date
 recommended_column: voted_up
 playtime_column: author_playtime_at_review
 playtime_30d_column: author_playtime_last_two_weeks
+time_units: minutes  # units for input playtime columns (minutes|hours). Pipeline normalizes to hours
 abandon_column: null
 gifted_column: received_for_free
 early_access_column: written_during_early_access
