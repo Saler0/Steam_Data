@@ -246,6 +246,16 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate segment rule: %s", exc)
                 segment_rule = {"label": "error"}
+            try:
+                competencia_rule = decision_rules_service.evaluate_competencia_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate competencia rule: %s", exc)
+                competencia_rule = "error"
+            try:
+                segm_satu_edad_rule = decision_rules_service.evaluate_segment_saturation_age_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate segm_satu_edad rule: %s", exc)
+                segm_satu_edad_rule = {"label": "error"}
         else:
             price_rule = {"label": "sin_servicio", "tag": "neutro"}
             platform_rule = {"label": "sin_servicio", "tag": "neutro"}
@@ -253,6 +263,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             size_rule = {"label": "sin_servicio", "tag": "neutro"}
             steam_deck_rule = {"label": "sin_servicio", "tag": "neutro"}
             segment_rule = {"label": "sin_servicio"}
+            competencia_rule = "sin_servicio"
+            segm_satu_edad_rule = {"label": "sin_servicio"}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -280,6 +292,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                         "size_rule": size_rule,
                         "steam_deck_rule": steam_deck_rule,
                         "segment_rule": segment_rule,
+                        "competencia_rule": competencia_rule,
+                        "segm_satu_edad_rule": segm_satu_edad_rule,
                     }
                 },
             )
@@ -315,6 +329,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "size_rule": size_rule,
             "steam_deck_rule": steam_deck_rule,
             "segment_rule": segment_rule,
+            "competencia_rule": competencia_rule,
+            "segm_satu_edad_rule": segm_satu_edad_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],

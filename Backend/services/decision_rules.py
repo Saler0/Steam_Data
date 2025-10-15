@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from statistics import median
+from datetime import datetime, date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Mapping
 
 from pymongo.errors import PyMongoError
@@ -314,6 +315,72 @@ class DecisionRulesService:
         result["label"] = "Alta exigencia del segmento"
         return result
 
+    def evaluate_competencia_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> str:
+        """Evaluate recent competitive activity based on neighbor release dates."""
+        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_dates:
+            return "Desinteres del mercado"
+
+        cutoff_date = date.today() - timedelta(days=365)
+        for rel_date in release_dates:
+            if rel_date and rel_date >= cutoff_date:
+                return "Alta competencia reciente"
+        return "Desinteres del mercado"
+
+    def evaluate_segment_saturation_age_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Any]:
+        """Evaluate saturation vs. age profile for a neighbor cluster."""
+        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_dates:
+            return {
+                "label": "Desinteres del mercado",
+                "average_age_years": None,
+                "neighbor_count": len(neighbor_appids),
+            }
+
+        valid_dates = [d for d in release_dates if isinstance(d, date)]
+        neighbor_count = len(neighbor_appids)
+
+        average_age_years: Optional[float]
+        if valid_dates:
+            today = date.today()
+            total_days = sum((today - rel_date).days for rel_date in valid_dates)
+            average_age_years = total_days / len(valid_dates) / 365.25
+        else:
+            average_age_years = None
+
+        result: Dict[str, Any] = {
+            "label": "",
+            "average_age_years": round(average_age_years, 2) if average_age_years is not None else None,
+            "neighbor_count": neighbor_count,
+        }
+
+        if average_age_years is None:
+            if neighbor_count >= 20:
+                result["label"] = "Segmento poco saturado y envejecido"
+            else:
+                result["label"] = "Segmento emergente"
+            return result
+
+        if neighbor_count >= 20:
+            if average_age_years >= 6:
+                result["label"] = "Segmento muy saturado y envejecido"
+            else:
+                result["label"] = "Segmento poco saturado y envejecido"
+            return result
+
+        if average_age_years >= 6:
+            result["label"] = "Segmento emergente"
+            return result
+
+        result["label"] = "Segmento muy saturado y reciente"
+        return result
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
@@ -528,6 +595,55 @@ class DecisionRulesService:
             counts.append(self._count_platforms(doc.get("platforms")))
         return [count for count in counts if count is not None]
 
+    def _fetch_neighbor_release_dates(self, neighbor_appids: Sequence[Any]) -> List[Optional[date]]:
+        releases: List[Optional[date]] = []
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+
+        if not unique_ids:
+            return releases
+
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+        if not query_clauses:
+            return releases
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        projection = {"release_date": 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return releases
+
+        for doc in cursor:
+            parsed = self._parse_release_date(doc.get("release_date"))
+            releases.append(parsed)
+        return releases
+
     def _count_platforms(self, platforms: Any) -> int:
         if not platforms:
             return 0
@@ -544,6 +660,48 @@ class DecisionRulesService:
             tokens = {token.strip().lower() for token in platforms.split(",")}
             return sum(1 for token in tokens if token in self._allowed_platforms)
         return 0
+
+    def _parse_release_date(self, value: Any) -> Optional[date]:
+        if value is None:
+            return None
+
+        if isinstance(value, dict):
+            # Steam API typically stores release_date as {"coming_soon": bool, "date": "May 1, 2024"}
+            possible = value.get("date")
+            return self._parse_release_date(possible)
+
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.utcfromtimestamp(float(value)).date()
+            except (OSError, OverflowError, ValueError):
+                return None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            normalized = text.replace("Z", "")
+            date_formats = [
+                "%Y-%m-%d",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y/%m/%d",
+                "%d/%m/%Y",
+                "%b %d, %Y",
+                "%B %d, %Y",
+                "%d %b %Y",
+                "%d %B %Y",
+            ]
+            for fmt in date_formats:
+                try:
+                    return datetime.strptime(normalized, fmt).date()
+                except ValueError:
+                    continue
+            try:
+                return datetime.fromisoformat(normalized).date()
+            except ValueError:
+                return None
+        return None
 
     def _compute_percentile(self, values: Sequence[float], percentile: float) -> Optional[float]:
         if not values:
