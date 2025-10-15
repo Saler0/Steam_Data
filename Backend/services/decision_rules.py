@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from statistics import median
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Mapping
 
 from pymongo.errors import PyMongoError
 
@@ -260,6 +260,58 @@ class DecisionRulesService:
             result["label"] = "vecinos sin steam deck"
             result["tag"] = "neutro"
 
+        return result
+
+    def evaluate_segment_rule(
+        self,
+        neighbors_with_ratings: Sequence[Mapping[str, Any]],
+    ) -> Dict[str, Any]:
+        """Classify segment reputation based on aggregated neighbor ratings."""
+        total_reviews = 0
+        weighted_positive_sum = 0.0
+
+        for neighbor in neighbors_with_ratings:
+            rating = neighbor.get("rating")
+            if not isinstance(rating, Mapping):
+                continue
+
+            total = rating.get("total_reviews")
+            if isinstance(total, (int, float)):
+                try:
+                    review_count = max(int(total), 0)
+                except (TypeError, ValueError):
+                    review_count = 0
+            else:
+                review_count = 0
+
+            total_reviews += review_count
+
+            pct = rating.get("positive_percentage")
+            if isinstance(pct, (int, float)):
+                weighted_positive_sum += float(pct) * review_count
+
+        average_pct: Optional[float]
+        if total_reviews > 0:
+            average_pct = weighted_positive_sum / total_reviews
+        else:
+            average_pct = None
+
+        result: Dict[str, Any] = {
+            "label": "",
+            "average_positive_percentage": round(average_pct, 2) if average_pct is not None else None,
+            "total_reviews": int(total_reviews),
+        }
+
+        if total_reviews < 1000:
+            result["label"] = "Tamaño de muestra bajo"
+            return result
+
+        avg_value = average_pct if average_pct is not None else 0.0
+        if avg_value < 70.0:
+            result["label"] = "Mala reputación histórica del segmento"
+            return result
+
+        result["label"] = "Alta exigencia del segmento"
         return result
 
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
