@@ -12,6 +12,7 @@ from db.mongodb import MongoDBClient
 from pymongo.errors import PyMongoError
 
 from services.decision_rules import DecisionRulesService
+from services.neighbor_ratings import NeighborRatingService
 from services.single_game_poc import (
     PoCConfigurationError,
     PoCExecutionError,
@@ -29,8 +30,10 @@ def create_app() -> Flask:
     mongo_db_name = os.environ.get("MONGO_DB", "exploitation_zone")
     mongo_client = MongoDBClient(uri=mongo_uri, db_name=mongo_db_name)
     decision_rules_service = DecisionRulesService(mongo_client)
+    neighbor_rating_service = NeighborRatingService(mongo_client)
     app.config["MONGO_CLIENT"] = mongo_client
     app.config["DECISION_RULES_SERVICE"] = decision_rules_service
+    app.config["NEIGHBOR_RATING_SERVICE"] = neighbor_rating_service
 
     try:
         poc_service = SingleGamePoCService()
@@ -196,6 +199,21 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             normalized_neighbors.append(neighbor)
             if len(normalized_neighbors) >= 20:
                 break
+        rating_service = app.config.get("NEIGHBOR_RATING_SERVICE")
+        ratings_map: Dict[str, Any] = {}
+        if isinstance(rating_service, NeighborRatingService) and normalized_neighbors:
+            try:
+                ratings_map = rating_service.compute_ratings(normalized_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to compute neighbor ratings: %s", exc)
+                ratings_map = {}
+        for neighbor in normalized_neighbors:
+            appid_key = neighbor.get("appid")
+            if appid_key is None:
+                neighbor["rating"] = None
+                continue
+            rating = ratings_map.get(str(appid_key)) or ratings_map.get(str(appid_key).strip())
+            neighbor["rating"] = rating
         decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
         if isinstance(decision_rules_service, DecisionRulesService):
             try:
