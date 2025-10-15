@@ -431,7 +431,7 @@ def _find_neighbors(sample_vec: np.ndarray,
                     emb_df: pd.DataFrame,
                     clusters_df: pd.DataFrame,
                     metadata_df: pd.DataFrame,
-                    top_k: int,
+                    top_k: Optional[int],
                     min_similarity: float) -> List[Dict[str, Any]]:
     if emb_df.empty or 'embedding' not in emb_df.columns:
         return []
@@ -469,7 +469,7 @@ def _find_neighbors(sample_vec: np.ndarray,
             'cluster_id': clusters_lookup.get(app),
             'name': names_lookup.get(app),
         })
-        if len(neighbors) >= top_k:
+        if top_k is not None and len(neighbors) >= top_k:
             break
     return neighbors
 def _format_similarity_table(scores: List[tuple[str, float]]) -> str:
