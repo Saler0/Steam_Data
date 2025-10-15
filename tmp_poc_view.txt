@@ -507,8 +507,8 @@ def main() -> None:
     parser.add_argument(
         "--min-similarity",
         type=float,
-        default=None,
-        help="Umbral mínimo de similitud coseno para mostrar vecinos. Si no se indica, se infiere de params.yaml (neighbor_strategy.min_score o min_similarity_in).",
+        default=0.0,
+        help="Umbral mínimo de similitud coseno para mostrar vecinos.",
     )
     parser.add_argument("--params-config", default="configs/params.yaml", help="YAML con neighbor_strategy para defaults y pesos del re-ranking.")
     parser.add_argument("--embeddings", default="data/processed/embeddings/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
@@ -590,14 +590,6 @@ def main() -> None:
     if args.min_sim_out is not None:
         strategy_cfg['min_similarity_out'] = float(args.min_sim_out)
     args.min_sim_out = float(strategy_cfg.get('min_similarity_out', DEFAULT_CONFIG.get('min_similarity_out', 0.78)))
-
-    # Inferir umbral de similitud desde YAML si no se pasa por flag
-    if args.min_similarity is None:
-        cfg_min_score = strategy_cfg.get('min_score')
-        try:
-            args.min_similarity = float(cfg_min_score) if cfg_min_score is not None else float(strategy_cfg.get('min_similarity_in', DEFAULT_CONFIG.get('min_similarity_in', 0.0)))
-        except Exception:
-            args.min_similarity = float(strategy_cfg.get('min_similarity_in', DEFAULT_CONFIG.get('min_similarity_in', 0.0)))
 
     if args.max_out_ratio is not None:
         strategy_cfg['max_out_ratio'] = float(args.max_out_ratio)
