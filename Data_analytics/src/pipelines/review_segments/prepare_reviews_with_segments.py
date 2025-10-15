@@ -293,6 +293,8 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     playtime_30d_col = next((col for col in playtime_30d_candidates if col and col in df.columns), None)
     if playtime_30d_col:
         df["playtime_since_review_30d"] = df[playtime_30d_col].apply(_safe_float)
+        if str(cfg.get("time_units", "minutes")).lower().startswith("min"):
+            df["playtime_since_review_30d"] = pd.to_numeric(df["playtime_since_review_30d"], errors="coerce") / 60.0
     else:
         df["playtime_since_review_30d"] = None
 
@@ -315,6 +317,8 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     author_forever = df.get("author_playtime_forever")
     author_forever = author_forever.apply(_safe_float) if author_forever is not None else None
+    if to_hours and author_forever is not None:
+        author_forever = pd.to_numeric(author_forever, errors="coerce") / 60.0
     playtime_at_review_series = df.get("playtime_at_review")
     if to_hours:
         if playtime_at_review_series is not None:
