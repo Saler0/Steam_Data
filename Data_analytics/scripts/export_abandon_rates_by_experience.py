@@ -32,6 +32,12 @@ def _prepare_dataframe(df: pd.DataFrame, freq: str, abandon_column: Optional[str
     df = df.dropna(subset=["review_date"])
     df["period_bucket"] = df["review_date"].dt.to_period(freq).dt.to_timestamp()
 
+    # Ensure appid exists as string for grouping/export
+    if "appid" in df.columns:
+        df["appid"] = df["appid"].astype(str)
+    else:
+        df["appid"] = "unknown"
+
     df["experience_group"] = df.get("experience_key")
     df["experience_group"] = df["experience_group"].fillna("unknown").replace("", "unknown").astype(str)
 
@@ -68,6 +74,7 @@ def _prepare_dataframe(df: pd.DataFrame, freq: str, abandon_column: Optional[str
 def _aggregate(df: pd.DataFrame, freq: str, window: Optional[int], min_samples: int) -> pd.DataFrame:
     if df.empty:
         columns = [
+            "appid",
             "period",
             "experience_group",
             "reviews_count",
@@ -87,7 +94,7 @@ def _aggregate(df: pd.DataFrame, freq: str, window: Optional[int], min_samples: 
     combined = pd.concat([base, all_df], ignore_index=True)
 
     grouped = (
-        combined.groupby(["period_bucket", "experience_group"], dropna=False)
+        combined.groupby(["appid", "period_bucket", "experience_group"], dropna=False)
         .agg(
             reviews_count=("review_id", "count"),
             abandon_count=("abandon_flag", "sum"),
@@ -112,7 +119,7 @@ def _aggregate(df: pd.DataFrame, freq: str, window: Optional[int], min_samples: 
         grouped["period"] = pd.NaT
         return grouped
 
-    grouped = grouped.sort_values(["experience_group", "period_bucket"]).reset_index(drop=True)
+    grouped = grouped.sort_values(["appid", "experience_group", "period_bucket"]).reset_index(drop=True)
 
     if window and window > 1:
         def _apply_window(sub: pd.DataFrame) -> pd.DataFrame:
@@ -134,7 +141,7 @@ def _aggregate(df: pd.DataFrame, freq: str, window: Optional[int], min_samples: 
             rolling["experience_group"] = sub["experience_group"].iloc[0]
             return rolling
 
-        rolled = grouped.groupby("experience_group", group_keys=False).apply(_apply_window).reset_index(drop=True)
+        rolled = grouped.groupby(["appid", "experience_group"], group_keys=False).apply(_apply_window).reset_index(drop=True)
         rolled["window_size"] = window
         result = rolled
     else:
@@ -145,6 +152,7 @@ def _aggregate(df: pd.DataFrame, freq: str, window: Optional[int], min_samples: 
     result["period"] = result["period"].dt.strftime("%Y-%m-%d")
 
     ordered_cols = [
+        "appid",
         "period",
         "experience_group",
         "reviews_count",

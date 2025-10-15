@@ -36,7 +36,7 @@ def _prepare_month(series: pd.Series) -> pd.Series:
 def _aggregate_topics(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=[
-            "month", "experience_group", "topic_id", "topic_name",
+            "appid", "month", "experience_group", "topic_id", "topic_name",
             "reviews_count", "group_total", "share_pct", "avg_share", "rank"
         ])
 
@@ -48,14 +48,14 @@ def _aggregate_topics(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
     combined = pd.concat([df, df_all], ignore_index=True)
 
     totals = (
-        combined.groupby(["year_month", "experience_group"], dropna=False)["review_id"]
+        combined.groupby(["appid", "year_month", "experience_group"], dropna=False)["review_id"]
         .nunique()
         .rename("group_total")
         .reset_index()
     )
 
     topic_counts = (
-        combined.groupby(["year_month", "experience_group", "topic_id", "topic_name"], dropna=False)
+        combined.groupby(["appid", "year_month", "experience_group", "topic_id", "topic_name"], dropna=False)
         .agg(
             reviews_count=("review_id", "nunique"),
             avg_share=("share", lambda s: float(np.nanmean(s)) if len(s) else np.nan),
@@ -63,7 +63,7 @@ def _aggregate_topics(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
         .reset_index()
     )
 
-    merged = topic_counts.merge(totals, on=["year_month", "experience_group"], how="left")
+    merged = topic_counts.merge(totals, on=["appid", "year_month", "experience_group"], how="left")
     merged["share_pct"] = np.where(
         merged["group_total"] > 0,
         merged["reviews_count"] / merged["group_total"],
@@ -77,16 +77,16 @@ def _aggregate_topics(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
         return head
 
     ranked = (
-        merged.groupby(["year_month", "experience_group"], group_keys=False)
+        merged.groupby(["appid", "year_month", "experience_group"], group_keys=False)
         .apply(_rank_block)
         .reset_index(drop=True)
     )
 
     ranked["month"] = ranked["year_month"].dt.strftime("%Y-%m")
     ranked = ranked[[
-        "month", "experience_group", "topic_id", "topic_name",
+        "appid", "month", "experience_group", "topic_id", "topic_name",
         "reviews_count", "group_total", "share_pct", "avg_share", "rank"
-    ]].sort_values(["month", "experience_group", "rank"])
+    ]].sort_values(["appid", "month", "experience_group", "rank"])
     return ranked
 
 

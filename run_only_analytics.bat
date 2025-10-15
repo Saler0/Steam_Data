@@ -44,12 +44,15 @@ set "POC_ARGS="
 set "RUN_CCF_ONE=0"
 set "RUN_NEIGHBORS=0"
 set "RUN_PLAYERS_PG=0"
+set "RUN_PG_RECREATE=0"
 set "PG_TABLE="
 set "RUN_POC_CLIENT=0"
 set "CLIENT_ID="
 set "CLIENT_FILE="
 set "RUN_OFFLINE_ALL=0"
 set "RUN_NEWS_TRAIN=0"
+set "RUN_TOPICS_SUMMARY=0"
+set "TOPICS_SUMMARY_PROVIDER=heuristic"
 set "FEATURIZER="
 set "EMB_MODEL="
 set "TRAIN_MODELS="
@@ -68,12 +71,15 @@ for %%A in (%*) do (
     if /I "!ARG!"=="ccf-one" set "RUN_CCF_ONE=1"
     if /I "!ARG!"=="neighbors" set "RUN_NEIGHBORS=1"
     if /I "!ARG!"=="players-pg" set "RUN_PLAYERS_PG=1"
+    if /I "!ARG!"=="pg-recreate" set "RUN_PG_RECREATE=1"
     if /I "!ARG:~0,9!"=="pg-table=" set "PG_TABLE=!ARG:~9!"
     if /I "!ARG!"=="poc-client" set "RUN_POC_CLIENT=1"
     if /I "!ARG!"=="offline-all" set "RUN_OFFLINE_ALL=1"
     if /I "!ARG!"=="news-train" set "RUN_NEWS_TRAIN=1"
     if /I "!ARG!"=="svm-train" set "RUN_NEWS_TRAIN=1"
     if /I "!ARG!"=="from-news" set "RUN_FROM_NEWS=1"
+    if /I "!ARG!"=="topics-summary" set "RUN_TOPICS_SUMMARY=1"
+    if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
     if /I "!ARG:~0,7!"=="models=" set "TRAIN_MODELS=!ARG:~7!"
@@ -440,6 +446,14 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/events.parquet ]; then python src/pipelines/event_detection/enrich_events.py --config configs/events_subset.yaml; else echo '[INFO] No existe outputs/events/events.parquet; omitiendo enrich para subset.'; fi"
 if errorlevel 1 goto :neighbors_failed
 
+rem (Opcional) Generar columna topics_summary legible a partir de 'topics'
+if "!RUN_TOPICS_SUMMARY!"=="1" (
+  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then set -a; source <(sed 's/\r$//' .env); set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
+  if errorlevel 1 goto :neighbors_failed
+)
+
 rem CCF limitado al subset
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
@@ -455,8 +469,24 @@ if errorlevel 1 goto :neighbors_failed
 rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+if "!RUN_PG_RECREATE!"=="1" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); export POSTGRES_RECREATE=1; set +a; python scripts/export_abandon_rates_to_postgres.py"
+) else (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_abandon_rates_to_postgres.py"
+)
+
+rem Exportar topicos por experiencia (CSV con appid) y opcional a Postgres
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_abandon_rates_to_postgres.py"
+  exec -w /app/Data_analytics analytics python scripts/export_topics_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --topics outputs/events/reviews_topics.parquet --out outputs/events/topics_by_experience.csv --top-n 5
+if "!RUN_PG_RECREATE!"=="1" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); export POSTGRES_RECREATE=1; set +a; python scripts/export_topics_by_experience_to_postgres.py"
+) else (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_topics_by_experience_to_postgres.py"
+)
 
 rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
 for %%I in (!APPID_LIST!) do (

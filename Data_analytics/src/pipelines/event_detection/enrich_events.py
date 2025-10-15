@@ -17,6 +17,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import mlflow
+from src.utils.mlflow_utils import make_standard_run_name, set_standard_tags
 from src.utils.config_utils import expand_env_in_obj
 try:
     import ray
@@ -275,8 +276,9 @@ def main():
         except Exception as e:
             print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
     run_name_prefix = ml_cfg.get('run_name_prefix', '')
-
-    with mlflow.start_run(run_name=f"{run_name_prefix}enrich_events"):
+    run_name = make_standard_run_name(prefix=run_name_prefix, script_path=__file__)
+    with mlflow.start_run(run_name=run_name):
+        set_standard_tags(script_path=__file__, extra={"parallel_mode": parallel_mode})
         try:
             mlflow.log_dict(cfg, "config.yaml")
         except Exception:

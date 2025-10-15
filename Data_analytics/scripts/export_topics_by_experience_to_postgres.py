@@ -1,12 +1,13 @@
-
 import os
-import pandas as pd
 import sys
+import pandas as pd
+
 
 def export_to_postgres():
     """
-    Lee un CSV de ratios de abandono y lo exporta a una tabla en PostgreSQL.
-    La configuración de la base de datos se lee de variables de entorno.
+    Exporta el CSV `outputs/events/topics_by_experience.csv` a una tabla en PostgreSQL.
+    Usa POSTGRES_URI o POSTGRES_HOST/USER/PASSWORD/DB (+ POSTGRES_PORT, POSTGRES_SCHEMA).
+    Controla recreación de tabla con POSTGRES_RECREATE=1 (replace) o append por defecto.
     """
     try:
         from sqlalchemy import create_engine
@@ -27,12 +28,12 @@ def export_to_postgres():
             uri = f'postgresql://{user}:{pwd}@{host}:{port}/{db}'
 
     if not uri or not SQLA:
-        print('[INFO] Postgres no configurado; omitiendo export de abandon rates')
+        print('[INFO] Postgres no configurado; omitiendo export de topics_by_experience')
         sys.exit(0)
 
-    path_csv = 'outputs/events/abandon_rates_by_experience.csv'
+    path_csv = 'outputs/events/topics_by_experience.csv'
     if not os.path.exists(path_csv):
-        print(f'[INFO] No existe CSV de abandon rates ({path_csv}); omitiendo export')
+        print(f'[INFO] No existe CSV de topics_by_experience ({path_csv}); omitiendo export')
         sys.exit(0)
 
     df = pd.read_csv(path_csv)
@@ -41,21 +42,22 @@ def export_to_postgres():
         sys.exit(0)
 
     schema = os.getenv('POSTGRES_SCHEMA', 'public')
-    table_name = 'abandon_rates_by_experience'
+    table_name = 'topics_by_experience'
     if_exists_mode = 'append'
     recreate = os.getenv('POSTGRES_RECREATE', '0').strip() in ('1', 'true', 'True', 'yes')
     if recreate:
         if_exists_mode = 'replace'
-    
+
     try:
         engine = create_engine(uri)
         with engine.connect() as connection:
-            # Permitir reemplazar la tabla si se solicita (para cambios de esquema como nueva columna appid)
             df.to_sql(table_name, connection, schema=schema, if_exists=if_exists_mode, index=False)
             print(f'[OK] Exportado {len(df)} filas a Postgres -> {schema}.{table_name}')
     except Exception as e:
         print(f"[ERROR] Falló la exportación a Postgres: {e}")
         sys.exit(1)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     export_to_postgres()
+

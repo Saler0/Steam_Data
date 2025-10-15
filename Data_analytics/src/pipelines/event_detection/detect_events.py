@@ -16,6 +16,8 @@ import re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import mlflow
+from datetime import datetime
+from src.utils.mlflow_utils import make_standard_run_name, set_standard_tags
 try:
     import ray
     RAY_AVAILABLE = True
@@ -278,8 +280,10 @@ def main():
         except Exception as e:
             print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
     run_name_prefix = ml_cfg.get('run_name_prefix', '')
-
-    with mlflow.start_run(run_name=f"{run_name_prefix}detect_events_{mode}"):
+    script_name = Path(__file__).stem
+    run_name = make_standard_run_name(prefix=run_name_prefix, script_path=__file__, suffix=mode)
+    with mlflow.start_run(run_name=run_name):
+        set_standard_tags(script_path=__file__, extra={"mode": mode})
         try:
             mlflow.log_dict(cfg, "config.yaml")
         except Exception:
@@ -296,6 +300,10 @@ def main():
         all_appids = clusters_df['appid'].astype(str).unique()
         
         print(f"Detectando eventos para {len(all_appids)} juegos de forma paralela con {mode}...")
+        try:
+            mlflow.set_tag("n_appids", int(len(all_appids)))
+        except Exception:
+            pass
         
         if mode == 'ray' and RAY_AVAILABLE:
             use_ray = True
