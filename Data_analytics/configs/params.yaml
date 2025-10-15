@@ -116,6 +116,7 @@ neighbor_strategy:
   # Estrategia de vecinos para subset/cliente. Si defines 'min_score',
   # se prioriza el umbral de score sobre un top-k fijo y 'target_total'
   # actúa como límite superior.
+  min_score: 0.5811
   target_total: 20
   allow_cross_cluster: true
   k_in: 25

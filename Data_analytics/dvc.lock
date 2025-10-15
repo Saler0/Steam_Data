@@ -201,8 +201,8 @@ stages:
       size: 365235749
     - path: outputs/events/events.parquet
       hash: md5
-      md5: 4cab9483a2ea71d800c178a78712b20f
-      size: 7291
+      md5: b5677ddc78e1843d901e53f9541ad8c4
+      size: 7375
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: c6872f25db343a47a4503045762d4d00
