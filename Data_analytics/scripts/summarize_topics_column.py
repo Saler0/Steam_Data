@@ -119,7 +119,7 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Your task is to create a concise, three-word topic name in English based on the provided data."},
+            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Produce exactly three words in English, Title Case, no punctuation."},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
@@ -136,15 +136,31 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
         return None
 
 
+def _to_three_word_title(s: str) -> str:
+    # Keep letters/numbers, split on whitespace, take first 3 tokens
+    tokens = [t for t in str(s).replace('\n', ' ').split(' ') if t.strip()]
+    if not tokens:
+        return ''
+    words = tokens[:3]
+    title = ' '.join(w.capitalize() for w in words)
+    # Remove stray punctuation and trim
+    return ''.join(ch for ch in title if ch.isalnum() or ch.isspace()).strip()
+
+
 def summarize_row(topics_raw: Any, provider: str = 'heuristic', max_items: int = 3) -> str:
     topics = _safe_parse_topics(topics_raw)
     if provider == 'deepseek':
-        # Prepare a compact prompt for the LLM
-        prompt = "Summarize these top topics into a compact phrase list (<= 20 words).\n" + json.dumps(topics)[:3000]
+        # Enforce a strict three-word, Title Case output for deepseek provider
+        prompt = (
+            "Create a three-word Title Case topic name summarizing these topics. "
+            "Return only the three words.\n" + json.dumps(topics)[:3000]
+        )
         out = _call_deepseek(prompt, api_key=os.getenv('DEEPSEEK_API_KEY'))
         if out:
-            return out
-        # Fallback to heuristic if LLM not available
+            return _to_three_word_title(out)
+        # Fallback to heuristic if LLM not available, but still enforce 3-word Title Case
+        return _to_three_word_title(_heuristic_summary(topics, max_items=max_items))
+    # Heuristic provider: keep original format
     return _heuristic_summary(topics, max_items=max_items)
 
 

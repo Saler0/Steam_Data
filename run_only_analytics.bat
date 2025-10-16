@@ -466,9 +466,53 @@ if errorlevel 1 goto :neighbors_failed
 call :RunSingleStage review_segments
 if errorlevel 1 goto :neighbors_failed
 
-rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres
+rem Filtrar datasets de reseñas y tópicos SOLO a los APPIDs del subset
+echo [INFO] Filtrando reviews/topics al subset de APPIDs: !APPID_LIST!
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
+  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'
+import os
+from pathlib import Path
+import pandas as pd
+
+apps = [a for a in (os.getenv('APPIDS') or '').split() if a]
+if not apps:
+  print('[INFO] Sin APPIDS para filtrar; se mantienen datasets completos')
+  raise SystemExit(0)
+
+apps_set = set(apps)
+
+rev_in = Path('data/warehouse/reviews_with_segments.parquet')
+rev_out = Path('data/warehouse/reviews_with_segments_subset.parquet')
+top_in = Path('outputs/events/reviews_topics.parquet')
+top_out = Path('outputs/events/reviews_topics_subset.parquet')
+
+if rev_in.exists():
+  df = pd.read_parquet(rev_in)
+  if 'appid' in df.columns:
+    df = df[df['appid'].astype(str).isin(apps_set)]
+  rev_out.parent.mkdir(parents=True, exist_ok=True)
+  df.to_parquet(rev_out, index=False)
+  print(f'[OK] reviews_with_segments subset -> {rev_out} ({len(df)})')
+else:
+  print('[INFO] No existe reviews_with_segments.parquet; nada que filtrar')
+
+if top_in.exists():
+  df2 = pd.read_parquet(top_in)
+  if 'review_id' in df2.columns:
+    # Intentar cruzar con reviews filtradas para restringir por appid
+    if 'review_id' in df.columns:
+      df2 = df2.merge(df[['review_id']], on='review_id', how='inner')
+  top_out.parent.mkdir(parents=True, exist_ok=True)
+  df2.to_parquet(top_out, index=False)
+  print(f'[OK] reviews_topics subset -> {top_out} ({len(df2)})')
+else:
+  print('[INFO] No existe reviews_topics.parquet; nada que filtrar')
+PY"
+if errorlevel 1 goto :neighbors_failed
+
+rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres (USANDO SUBSET)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments_subset.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
 if "!RUN_PG_RECREATE!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); export POSTGRES_RECREATE=1; set +a; python scripts/export_abandon_rates_to_postgres.py"
@@ -477,9 +521,9 @@ if "!RUN_PG_RECREATE!"=="1" (
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_abandon_rates_to_postgres.py"
 )
 
-rem Exportar topicos por experiencia (CSV con appid) y opcional a Postgres
+rem Exportar tópicos por experiencia (CSV con appid) y opcional a Postgres (USANDO SUBSET)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python scripts/export_topics_by_experience.py --reviews data/warehouse/reviews_with_segments.parquet --topics outputs/events/reviews_topics.parquet --out outputs/events/topics_by_experience.csv --top-n 5
+  exec -w /app/Data_analytics analytics python scripts/export_topics_by_experience.py --reviews data/warehouse/reviews_with_segments_subset.parquet --topics outputs/events/reviews_topics_subset.parquet --out outputs/events/topics_by_experience.csv --top-n 5
 if "!RUN_PG_RECREATE!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); export POSTGRES_RECREATE=1; set +a; python scripts/export_topics_by_experience_to_postgres.py"
