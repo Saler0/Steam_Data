@@ -469,45 +469,7 @@ if errorlevel 1 goto :neighbors_failed
 rem Filtrar datasets de reseñas y tópicos SOLO a los APPIDs del subset
 echo [INFO] Filtrando reviews/topics al subset de APPIDs: !APPID_LIST!
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'
-import os
-from pathlib import Path
-import pandas as pd
-
-apps = [a for a in (os.getenv('APPIDS') or '').split() if a]
-if not apps:
-  print('[INFO] Sin APPIDS para filtrar; se mantienen datasets completos')
-  raise SystemExit(0)
-
-apps_set = set(apps)
-
-rev_in = Path('data/warehouse/reviews_with_segments.parquet')
-rev_out = Path('data/warehouse/reviews_with_segments_subset.parquet')
-top_in = Path('outputs/events/reviews_topics.parquet')
-top_out = Path('outputs/events/reviews_topics_subset.parquet')
-
-if rev_in.exists():
-  df = pd.read_parquet(rev_in)
-  if 'appid' in df.columns:
-    df = df[df['appid'].astype(str).isin(apps_set)]
-  rev_out.parent.mkdir(parents=True, exist_ok=True)
-  df.to_parquet(rev_out, index=False)
-  print(f'[OK] reviews_with_segments subset -> {rev_out} ({len(df)})')
-else:
-  print('[INFO] No existe reviews_with_segments.parquet; nada que filtrar')
-
-if top_in.exists():
-  df2 = pd.read_parquet(top_in)
-  if 'review_id' in df2.columns:
-    # Intentar cruzar con reviews filtradas para restringir por appid
-    if 'review_id' in df.columns:
-      df2 = df2.merge(df[['review_id']], on='review_id', how='inner')
-  top_out.parent.mkdir(parents=True, exist_ok=True)
-  df2.to_parquet(top_out, index=False)
-  print(f'[OK] reviews_topics subset -> {top_out} ({len(df2)})')
-else:
-  print('[INFO] No existe reviews_topics.parquet; nada que filtrar')
-PY"
+  exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics python scripts/filter_subset_appids.py --reviews-in data/warehouse/reviews_with_segments.parquet --reviews-out data/warehouse/reviews_with_segments_subset.parquet --topics-in outputs/events/reviews_topics.parquet --topics-out outputs/events/reviews_topics_subset.parquet
 if errorlevel 1 goto :neighbors_failed
 
 rem Exportar ratios de abandono por experiencia (CSV) y opcional a Postgres (USANDO SUBSET)
