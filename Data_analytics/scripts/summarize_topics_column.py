@@ -119,7 +119,7 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You summarize topic lists into brief, readable phrases."},
+            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Your task is to create a concise, three-word topic name in English based on the provided data."},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
