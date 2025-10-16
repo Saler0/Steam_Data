@@ -53,6 +53,7 @@ set "RUN_OFFLINE_ALL=0"
 set "RUN_NEWS_TRAIN=0"
 set "RUN_TOPICS_SUMMARY=0"
 set "TOPICS_SUMMARY_PROVIDER=heuristic"
+set "RUN_SPARK_BACKEND=0"
 set "FEATURIZER="
 set "EMB_MODEL="
 set "TRAIN_MODELS="
@@ -80,6 +81,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="from-news" set "RUN_FROM_NEWS=1"
     if /I "!ARG!"=="topics-summary" set "RUN_TOPICS_SUMMARY=1"
     if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
+    if /I "!ARG!"=="spark-backend" set "RUN_SPARK_BACKEND=1"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
     if /I "!ARG:~0,7!"=="models=" set "TRAIN_MODELS=!ARG:~7!"
@@ -441,6 +443,22 @@ for %%I in (!APPID_LIST!) do (
     if errorlevel 1 goto :neighbors_failed
 )
 
+rem Generar eventos (subset) con Spark si se pide; fallback a local
+if "!RUN_SPARK_BACKEND!"=="1" (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/event_detection/events_spark.py --config configs/events_subset.yaml
+  if errorlevel 1 (
+    echo [WARN] events_spark fallo; usando backend local
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+    if errorlevel 1 goto :neighbors_failed
+  )
+) else (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+  if errorlevel 1 goto :neighbors_failed
+)
+
 rem Enriquecer (solo si existen eventos)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/events.parquet ]; then python src/pipelines/event_detection/enrich_events.py --config configs/events_subset.yaml; else echo '[INFO] No existe outputs/events/events.parquet; omitiendo enrich para subset.'; fi"
@@ -452,11 +470,28 @@ if "!RUN_TOPICS_SUMMARY!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then set -a; source <(sed 's/\r$//' .env); set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
   if errorlevel 1 goto :neighbors_failed
+  rem Exportar topics_summary a Postgres si existe y hay conexión
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_topics_summary_to_postgres.py"
+  if errorlevel 1 goto :neighbors_failed
 )
 
-rem CCF limitado al subset
-docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
+rem CCF limitado al subset (mantener backend local por compatibilidad de consistency)
+if "!RUN_SPARK_BACKEND!"=="1" (
+  rem Opcional: intentar Spark y caer a local si falla (local genera consistency requerido por topics_relevance)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/ccf_spark.py --config configs/ccf_subset.yaml
+  if errorlevel 1 (
+    echo [WARN] ccf_spark fallo; usando backend local con consistency
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
+    if errorlevel 1 goto :neighbors_failed
+  )
+) else (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_subset.yaml
+  if errorlevel 1 goto :neighbors_failed
+)
 if errorlevel 1 goto :neighbors_failed
 
 rem Generar segmentos de reseñas (revisiones por experiencia) y aplicar al reporte
@@ -465,6 +500,22 @@ call :RunSingleStage reviews_with_segments
 if errorlevel 1 goto :neighbors_failed
 call :RunSingleStage review_segments
 if errorlevel 1 goto :neighbors_failed
+
+rem Generar dashboards Altair (original vs estacionaria + métricas) por APPID del subset
+echo [INFO] Generando dashboards Altair por APPID del subset...
+for %%I in (!APPID_LIST!) do (
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python scripts/plot_ccf_altair.py --config configs/ccf_subset.yaml --appid %%I
+    if errorlevel 1 goto :neighbors_failed
+)
+
+rem Generar PNGs (series original vs estacionaria) por APPID del subset
+echo [INFO] Generando PNGs de series por APPID del subset...
+for %%I in (!APPID_LIST!) do (
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python scripts/plot_ccf_series.py --config configs/ccf_subset.yaml --appid %%I
+    if errorlevel 1 goto :neighbors_failed
+)
 
 rem Filtrar datasets de reseñas y tópicos SOLO a los APPIDs del subset
 echo [INFO] Filtrando reviews/topics al subset de APPIDs: !APPID_LIST!
@@ -547,8 +598,17 @@ if errorlevel 1 goto :offline_failed
 
 rem Ejecutar stages base (SIN embeddings/clustering, se asume artefactos ya existen)
 if not "!RUN_FROM_NEWS!"=="1" (
-    call :RunSingleStage events
-    if errorlevel 1 goto :offline_failed
+    if "!RUN_SPARK_BACKEND!"=="1" (
+        call :RunSingleStage events_spark
+        if errorlevel 1 (
+            echo [WARN] events_spark fallo; retrocediendo a events local
+            call :RunSingleStage events
+            if errorlevel 1 goto :offline_failed
+        )
+    ) else (
+        call :RunSingleStage events
+        if errorlevel 1 goto :offline_failed
+    )
     call :RunSingleStage topics
     if errorlevel 1 goto :offline_failed
     call :RunSingleStage topics_relevance
@@ -561,6 +621,17 @@ call :RunSingleStage news_classifier
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage enrich
 if errorlevel 1 goto :offline_failed
+
+rem (Opcional) Generar y exportar topics_summary en offline-all
+if "!RUN_TOPICS_SUMMARY!"=="1" (
+  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then set -a; source <(sed 's/\r$//' .env); set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
+  if errorlevel 1 goto :offline_failed
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_topics_summary_to_postgres.py"
+  if errorlevel 1 goto :offline_failed
+)
 call :RunSingleStage reviews_with_segments
 if errorlevel 1 goto :offline_failed
 call :RunSingleStage review_segments
@@ -598,8 +669,13 @@ engine=create_engine(uri)
 df.to_sql('abandon_rates_by_experience', engine, schema=schema, if_exists='append', index=False)
 print('[OK] Exportado abandon_rates_by_experience a Postgres')
 PY"
-call :RunSingleStage ccf
-if errorlevel 1 goto :offline_failed
+if "!RUN_SPARK_BACKEND!"=="1" (
+    call :RunSingleStage ccf
+    if errorlevel 1 goto :offline_failed
+) else (
+    call :RunSingleStage ccf
+    if errorlevel 1 goto :offline_failed
+)
 call :RunSingleStage event_leadlag
 if errorlevel 1 goto :offline_failed
 
@@ -624,6 +700,16 @@ if errorlevel 1 goto :offline_failed
 rem Persistir TODOS los reportes a Mongo (sin provenance ni rules_analysis)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --mongo-coll app_reports --drop-fields provenance,rules_analysis
+if errorlevel 1 goto :offline_failed
+
+rem Generar dashboards Altair para TODOS los appids
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "set -e; while IFS= read -r A; do [ -z \"$A\" ] && continue; python scripts/plot_ccf_altair.py --config configs/ccf_analysis.yaml --appid \"$A\" || exit 1; done < outputs/tmp_all_appids.txt"
+if errorlevel 1 goto :offline_failed
+
+rem Generar PNGs de series para TODOS los appids
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "set -e; while IFS= read -r A; do [ -z \"$A\" ] && continue; python scripts/plot_ccf_series.py --config configs/ccf_analysis.yaml --appid \"$A\" || exit 1; done < outputs/tmp_all_appids.txt"
 if errorlevel 1 goto :offline_failed
 
 echo.
