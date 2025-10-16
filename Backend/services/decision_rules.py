@@ -381,6 +381,79 @@ class DecisionRulesService:
         result["label"] = "Segmento muy saturado y reciente"
         return result
 
+
+    def evaluate_publisher_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Any]:
+        """Determine publisher concentration among neighbors."""
+        total_neighbors = len(neighbor_appids)
+        if total_neighbors == 0:
+            return {"label": "sin_datos", "top_publishers": [], "total_neighbors": 0}
+
+        publisher_counts = self._aggregate_company_counts(neighbor_appids, field="publishers")
+        top_publishers = sorted(
+            (
+                {
+                    "publisher": name,
+                    "neighbor_count": count,
+                    "share": count / total_neighbors,
+                }
+                for name, count in publisher_counts.items()
+            ),
+            key=lambda entry: entry["neighbor_count"],
+            reverse=True,
+        )
+
+        label = "sin_datos"
+        if top_publishers:
+            if top_publishers[0]["share"] >= 0.5:
+                label = f"Concentrado en {top_publishers[0]['publisher']}"
+            else:
+                label = "Diversificado"
+
+        return {
+            "label": label,
+            "top_publishers": top_publishers,
+            "total_neighbors": total_neighbors,
+        }
+
+    def evaluate_dev_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Any]:
+        """Determine developer concentration among neighbors."""
+        total_neighbors = len(neighbor_appids)
+        if total_neighbors == 0:
+            return {"label": "sin_datos", "top_developers": [], "total_neighbors": 0}
+
+        developer_counts = self._aggregate_company_counts(neighbor_appids, field="developers")
+        top_devs = sorted(
+            (
+                {
+                    "developer": name,
+                    "neighbor_count": count,
+                    "share": count / total_neighbors,
+                }
+                for name, count in developer_counts.items()
+            ),
+            key=lambda entry: entry["neighbor_count"],
+            reverse=True,
+        )
+
+        label = "sin_datos"
+        if top_devs:
+            if top_devs[0]["share"] >= 0.5:
+                label = f"Concentrado en {top_devs[0]['developer']}"
+            else:
+                label = "Diversificado"
+
+        return {
+            "label": label,
+            "top_developers": top_devs,
+            "total_neighbors": total_neighbors,
+        }
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
@@ -660,6 +733,73 @@ class DecisionRulesService:
             tokens = {token.strip().lower() for token in platforms.split(",")}
             return sum(1 for token in tokens if token in self._allowed_platforms)
         return 0
+
+
+    def _aggregate_company_counts(self, neighbor_appids: Sequence[Any], field: str) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        canonical_names: Dict[str, str] = {}
+        unique_ids: List[str] = []
+        for appid in neighbor_appids:
+            candidate = appid.get("appid") if isinstance(appid, dict) else appid
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            unique_ids.append(text_id)
+
+        if not unique_ids:
+            return counts
+
+        str_ids = list({uid for uid in unique_ids})
+        int_ids: List[int] = []
+        for uid in str_ids:
+            try:
+                int_ids.append(int(uid))
+            except ValueError:
+                continue
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            query_clauses.append({"appid": {"$in": int_ids}})
+        if str_ids:
+            query_clauses.append({"appid": {"$in": str_ids}})
+        if not query_clauses:
+            return counts
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        projection = {field: 1, "_id": 0}
+        collection_name = "juegos_steam"
+        try:
+            collection = self.mongo_client.get_collection(collection_name)
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return counts
+
+        for doc in cursor:
+            values = doc.get(field)
+            if not values:
+                continue
+            if isinstance(values, str):
+                iterable = [values]
+            else:
+                iterable = values if isinstance(values, Iterable) else []
+            for value in iterable:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                key = text.lower()
+                if key not in canonical_names:
+                    canonical_names[key] = text
+                counts[key] = counts.get(key, 0) + 1
+
+        return {canonical_names[key]: count for key, count in counts.items()}
 
     def _parse_release_date(self, value: Any) -> Optional[date]:
         if value is None:

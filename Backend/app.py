@@ -256,6 +256,17 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to evaluate segm_satu_edad rule: %s", exc)
                 segm_satu_edad_rule = {"label": "error"}
+
+            try:
+                publisher_rule = decision_rules_service.evaluate_publisher_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate publisher rule: %s", exc)
+                publisher_rule = {"label": "error", "top_publishers": [], "total_neighbors": 0, "details": str(exc)}
+            try:
+                dev_rule = decision_rules_service.evaluate_dev_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate developer rule: %s", exc)
+                dev_rule = {"label": "error", "top_developers": [], "total_neighbors": 0, "details": str(exc)}
         else:
             price_rule = {"label": "sin_servicio", "tag": "neutro"}
             platform_rule = {"label": "sin_servicio", "tag": "neutro"}
@@ -265,6 +276,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             segment_rule = {"label": "sin_servicio"}
             competencia_rule = "sin_servicio"
             segm_satu_edad_rule = {"label": "sin_servicio"}
+            publisher_rule = {"label": "sin_servicio", "top_publishers": [], "total_neighbors": 0}
+            dev_rule = {"label": "sin_servicio", "top_developers": [], "total_neighbors": 0}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
@@ -294,6 +307,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                         "segment_rule": segment_rule,
                         "competencia_rule": competencia_rule,
                         "segm_satu_edad_rule": segm_satu_edad_rule,
+                        "publisher_rule": publisher_rule,
+                        "dev_rule": dev_rule,
                     }
                 },
             )
@@ -331,6 +346,8 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             "segment_rule": segment_rule,
             "competencia_rule": competencia_rule,
             "segm_satu_edad_rule": segm_satu_edad_rule,
+            "publisher_rule": publisher_rule,
+            "dev_rule": dev_rule,
             "poc_assignment": {
                 "best_cluster_id": poc_record["best_cluster_id"],
                 "best_cluster_similarity": poc_record["best_cluster_similarity"],
