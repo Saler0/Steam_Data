@@ -140,7 +140,7 @@ stages:
       - outputs/events/events.parquet
 
   news_train_auto:
-    cmd: python src/insights/train_news_classifier_auto.py --config configs/news_train.yaml
+    cmd: python src/insights/train_news_classifier_auto.py --input outputs/events/news_classified.parquet
     deps:
       - src/insights/train_news_classifier_auto.py
       - configs/news_train.yaml
