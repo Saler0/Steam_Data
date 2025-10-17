@@ -57,7 +57,22 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
     rv = _read_parquet_filter_app(rv_pq, appid)
     pl = _read_parquet_filter_app(pl_pq, appid)
     if rv.empty and pl.empty:
-        return pd.DataFrame()
+        # Fallback: intentar CSV individual con players si hay patrón
+        players_cfg = cfg.get('players_data') or {}
+        patt = players_cfg.get('dir_pattern')
+        if patt:
+            from pathlib import Path as _P
+            p = _P(str(patt).format(appid=str(appid)))
+            if p.exists():
+                try:
+                    tmp = pd.read_csv(p)
+                    tmp['year_month'] = _to_month(tmp['date'] if 'date' in tmp.columns else tmp.iloc[:,0])
+                    tmp = tmp[['year_month', 'players']].copy()
+                    pl = tmp
+                except Exception:
+                    pass
+        if rv.empty and pl.empty:
+            return pd.DataFrame()
     out = None
     if not pl.empty:
         pl = pl.copy()
@@ -75,6 +90,12 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
         rv = rv[['year_month'] + cols]
         out = rv if out is None else pd.merge(out, rv, on='year_month', how='outer')
     out = out.sort_values('year_month').reset_index(drop=True).fillna(0)
+    # Completar total_reviews si falta y hay pos/neg
+    if ('total_reviews' not in out.columns) and ('pos' in out.columns) and ('neg' in out.columns):
+        try:
+            out['total_reviews'] = out[['pos','neg']].sum(axis=1)
+        except Exception:
+            pass
     return out
 
 
