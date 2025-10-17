@@ -185,10 +185,22 @@ def main() -> None:
                 skf = StratifiedKFold(n_splits=args.cv, shuffle=True, random_state=42)
                 cv_list = []
                 for tr_idx, va_idx in skf.split(X_train, y_train):
-                    X_tr = X_train[tr_idx] if hasattr(X_train, 'shape') else [X_train[i] for i in tr_idx]
-                    X_va = X_train[va_idx] if hasattr(X_train, 'shape') else [X_train[i] for i in va_idx]
-                    y_tr = y_train.iloc[tr_idx] if hasattr(y_train, 'iloc') else [y_train[i] for i in tr_idx]
-                    y_va = y_train.iloc[va_idx] if hasattr(y_train, 'iloc') else [y_train[i] for i in va_idx]
+                    # Indexado robusto para numpy arrays, scipy matrices y pandas Series
+                    def _slice(obj, idx):
+                        try:
+                            # pandas Series/DataFrame
+                            return obj.iloc[idx]
+                        except Exception:
+                            try:
+                                # numpy arrays / sparse matrices
+                                return obj[idx]
+                            except Exception:
+                                # listas u otros
+                                return [obj[i] for i in idx]
+                    X_tr = _slice(X_train, tr_idx)
+                    X_va = _slice(X_train, va_idx)
+                    y_tr = _slice(y_train, tr_idx)
+                    y_va = _slice(y_train, va_idx)
                     pipe_cv = make_pipeline(name, args.featurizer)
                     pipe_cv.fit(X_tr, y_tr)
                     y_pred = pipe_cv.predict(X_va)
