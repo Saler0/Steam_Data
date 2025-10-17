@@ -17,6 +17,7 @@ Escribe Parquet particionado por year_month en data/warehouse/players_monthly.pa
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
+import os
 from dotenv import load_dotenv
 import pandas as pd
 import argparse
@@ -36,13 +37,33 @@ except ImportError:
 
 load_dotenv()
 
-def read_from_postgres(pg_uri: str, table: str) -> pd.DataFrame:
+def read_from_postgres(pg_uri: str, table: str, schema: Optional[str] = None) -> pd.DataFrame:
     """Lee datos desde PostgreSQL y normaliza el esquema."""
     if not SQLALCHEMY_AVAILABLE:
         raise SystemExit("SQLAlchemy y psycopg2-binary son necesarios para leer desde PostgreSQL.")
     try:
         engine = create_engine(pg_uri)
-        df = pd.read_sql_table(table, engine)
+        # Intentar una SELECT explícita con casteos y esquema opcional
+        tbl = f'"{table}"' if table and not table.startswith('"') else table
+        if schema:
+            tbl_ref = f'"{schema}".{tbl}'
+        else:
+            tbl_ref = tbl
+        try:
+            query = f"""
+                SELECT
+                  CAST(appid AS text) AS appid,
+                  CAST(month_date AS date)::timestamp AS year_month,
+                  CAST(avg_players AS double precision) AS players
+                FROM {tbl_ref}
+            """
+            df = pd.read_sql_query(query, engine)
+            # Validación mínima
+            if set(['appid','year_month','players']).issubset(df.columns):
+                return df[['appid','year_month','players']]
+        except Exception:
+            # Fallback: leer tabla y normalizar en pandas
+            df = pd.read_sql_table(table, engine, schema=schema)
         # Lógica de normalización copiada de passthrough_monthly_csv
         if 'appid' in df.columns:
             df['appid'] = df['appid'].astype(str)
@@ -50,6 +71,7 @@ def read_from_postgres(pg_uri: str, table: str) -> pd.DataFrame:
             df = df.rename(columns={'month': 'month_date'})
         if 'avg_players' not in df.columns and 'players' in df.columns:
             df = df.rename(columns={'players': 'avg_players'})
+        # month_date puede venir como text/date/timestamp; to_datetime maneja los tres
         df['year_month'] = pd.to_datetime(df['month_date'], errors='coerce')
         df = df.dropna(subset=['year_month'])
         df['players'] = pd.to_numeric(df['avg_players'], errors='coerce').fillna(0).astype(int)
@@ -121,14 +143,16 @@ def main():
     ap.add_argument('--postgres-password', help='PostgreSQL password')
     ap.add_argument('--postgres-db', help='PostgreSQL database')
     ap.add_argument('--postgres-table', default='exploitation_zone', help='PostgreSQL table')
+    ap.add_argument('--postgres-schema', default=None, help='PostgreSQL schema (por defecto POSTGRES_SCHEMA o public)')
     args = ap.parse_args()
 
     df = None
     # --- Prioridad 1: Leer desde PostgreSQL ---
     if args.postgres_host and args.postgres_user and args.postgres_password and args.postgres_db:
         pg_uri = f"postgresql://{args.postgres_user}:{args.postgres_password}@{args.postgres_host}:{args.postgres_port}/{args.postgres_db}"
-        print(f"[INFO] Leyendo desde PostgreSQL, tabla: {args.postgres_table}")
-        df = read_from_postgres(pg_uri, args.postgres_table)
+        schema = args.postgres_schema or os.getenv('POSTGRES_SCHEMA') or 'public'
+        print(f"[INFO] Leyendo desde PostgreSQL, tabla: {args.postgres_table}, schema: {schema}")
+        df = read_from_postgres(pg_uri, args.postgres_table, schema=schema)
 
     # --- Prioridad 2: CSV mensual consolidado ---
     if df is None and args.file and Path(args.file).exists():
