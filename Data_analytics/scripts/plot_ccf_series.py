@@ -145,7 +145,11 @@ def main(argv: Iterable[str] | None = None) -> None:
     cfg = read_cfg(args.config)
     df = _series_from_preagg(cfg, str(args.appid))
     if df.empty:
-        raise SystemExit('No data found for appid. Check preaggregated paths and appid.')
+        out_path = Path(args.out) if args.out else (Path('outputs/ccf_analysis/plots') / f"{args.appid}_series_no_data.png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.touch()
+        print(f"[INFO] No data for appid {args.appid}. Created empty file: {out_path}")
+        return
     df = df.set_index(pd.to_datetime(df['year_month'])).drop(columns=['year_month'])
 
     # Config
@@ -159,7 +163,11 @@ def main(argv: Iterable[str] | None = None) -> None:
 
     vars_ = [c for c in ['players','pos','neg','total_reviews'] if c in df.columns]
     if not vars_:
-        raise SystemExit('No expected variables found (players/pos/neg/total_reviews).')
+        out_path = Path(args.out) if args.out else (Path('outputs/ccf_analysis/plots') / f"{args.appid}_series_no_vars.png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.touch()
+        print(f"[INFO] No variables to plot for appid {args.appid}. Created empty file: {out_path}")
+        return
 
     # Build original + stationarized
     transformed = {}

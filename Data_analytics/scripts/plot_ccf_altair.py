@@ -206,7 +206,11 @@ def main(argv: Iterable[str] | None = None) -> None:
     cfg = _read_yaml(args.config)
     df = _series_from_preagg(cfg, str(args.appid))
     if df.empty:
-        raise SystemExit('No hay datos para el appid. Verifica preaggregated.* en configs.')
+        out_path = Path(args.out) if args.out else (Path('outputs/ccf_analysis/plots') / f'altair_{args.appid}_no_data.html')
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.touch()
+        print(f'[INFO] No hay datos para el appid {args.appid}. Se ha creado un fichero vacío en {out_path}')
+        return
 
     long, chosen = _build_series_layers(df, cfg)
 
