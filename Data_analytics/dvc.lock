@@ -17,12 +17,12 @@ stages:
     outs:
     - path: data/processed/embeddings.parquet
       hash: md5
-      md5: d43ec7f170cb53169958badd9bf2d5df
-      size: 217068775
+      md5: 52f605a5f819fc234e4e4ce3753a1082
+      size: 217069027
     - path: data/processed/embeddings/
       hash: md5
-      md5: a041034b9774a45fb56b8ec6867e8df5.dir
-      size: 217074773
+      md5: 6f3a0a580662bfc3636cd4d3bb65e76f.dir
+      size: 217075025
       nfiles: 4
   clustering:
     cmd: python src/pipelines/run_clustering.py --config configs/clustering.yaml
@@ -34,9 +34,9 @@ stages:
       isexec: true
     - path: data/processed/embeddings/
       hash: md5
-      md5: 9cd233515dec54328afc57b0542c5aa0.dir
-      size: 217068775
-      nfiles: 1
+      md5: 6f3a0a580662bfc3636cd4d3bb65e76f.dir
+      size: 217075025
+      nfiles: 4
     - path: src/pipelines/run_clustering.py
       hash: md5
       md5: da1518b7a6b5f3e81fa60e63b90544c2
@@ -45,24 +45,24 @@ stages:
     outs:
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 59bc0ba6658bde7546997e6a6cf0acc3
-      size: 118031546
+      md5: 885e722eda72ba2c922a1f6d416e40f8
+      size: 118039526
     - path: data/processed/game_metadata.parquet
       hash: md5
-      md5: 959337e6a935510625aef8417896143a
+      md5: d2234b2157a687d96fc055cbf76680a6
       size: 246805470
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 17ddebc8f428db8b36904c754550e172
-      size: 34542654
+      md5: cdb00a49d198af16ec300e8a800fe574
+      size: 34541766
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: 16bfd715102d4eb3ec33da8349bc51f3
-      size: 24007669
+      md5: 8f9406f0cd8e42d48f7b0899bea38a6d
+      size: 23955217
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: 88c0def1f0f81fb182ed21287697b919
-      size: 171978
+      md5: 10c642dad36cc64604dd32a9ba105931
+      size: 170297
   cluster_topics_profile:
     cmd: python src/pipelines/cluster_assignment/profile_clusters_topics.py 
       --clusters data/processed/clusters.parquet --metadata 
@@ -79,11 +79,11 @@ stages:
       isexec: true
     - path: data/processed/clusters.parquet
       hash: md5
-      md5: 59bc0ba6658bde7546997e6a6cf0acc3
-      size: 118031546
+      md5: 885e722eda72ba2c922a1f6d416e40f8
+      size: 118039526
     - path: data/processed/game_metadata.parquet
       hash: md5
-      md5: 959337e6a935510625aef8417896143a
+      md5: d2234b2157a687d96fc055cbf76680a6
       size: 246805470
     - path: src/pipelines/cluster_assignment/profile_clusters_topics.py
       hash: md5
@@ -93,8 +93,8 @@ stages:
     outs:
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: 1047cdc933901d2a261abdeada9620e0
-      size: 16915
+      md5: 4c8b5be94aeba7d48a0d434cd544a93a
+      size: 16559
   cluster_topics_map:
     cmd: python scripts/plot_cluster_topics_umap.py --medoids 
       models/cluster_medoids.json --stats outputs/clustering/cluster_stats.csv 
@@ -104,20 +104,20 @@ stages:
     deps:
     - path: models/cluster_medoids.json
       hash: md5
-      md5: 17ddebc8f428db8b36904c754550e172
-      size: 34542654
+      md5: cdb00a49d198af16ec300e8a800fe574
+      size: 34541766
     - path: outputs/clustering/borderline_games.csv
       hash: md5
-      md5: 16bfd715102d4eb3ec33da8349bc51f3
-      size: 24007669
+      md5: 8f9406f0cd8e42d48f7b0899bea38a6d
+      size: 23955217
     - path: outputs/clustering/cluster_stats.csv
       hash: md5
-      md5: 88c0def1f0f81fb182ed21287697b919
-      size: 171978
+      md5: 10c642dad36cc64604dd32a9ba105931
+      size: 170297
     - path: outputs/clustering/cluster_topics.json
       hash: md5
-      md5: 1047cdc933901d2a261abdeada9620e0
-      size: 16915
+      md5: 4c8b5be94aeba7d48a0d434cd544a93a
+      size: 16559
     - path: scripts/plot_cluster_topics_umap.py
       hash: md5
       md5: 0819a4bc6cc8cced06236a63aa76eab9
@@ -126,5 +126,264 @@ stages:
     outs:
     - path: outputs/clustering/cluster_topics_umap.html
       hash: md5
-      md5: a0b2126ecad297c3f167ded869f825d6
-      size: 6061639
+      md5: b3f7918a5ecce7178986507ae02d6492
+      size: 6108091
+  preagg_reviews:
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config 
+      configs/ccf_analysis.yaml
+    deps:
+    - path: configs/ccf_analysis.yaml
+      hash: md5
+      md5: 5446e8e720d0c4f454596c7fe4696f7f
+      size: 5744
+      isexec: true
+    - path: src/pipelines/preaggregations/reviews_monthly.py
+      hash: md5
+      md5: efff0d7e43cfd3906d00f927cfb82864
+      size: 6727
+      isexec: true
+    outs:
+    - path: data/warehouse/reviews_monthly.parquet
+      hash: md5
+      md5: 3fbde1488d4d424a3e3c35660bc8962c
+      size: 15046
+  preagg_players:
+    cmd: "python src/pipelines/preaggregations/players_monthly.py --postgres-host
+      $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER
+      --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB --postgres-table
+      exploitation_zone --out data/warehouse/players_monthly.parquet\n"
+    deps:
+    - path: src/pipelines/preaggregations/players_monthly.py
+      hash: md5
+      md5: c0c51e7dd65a667e3a69b882799cee27
+      size: 8104
+      isexec: true
+    outs:
+    - path: data/warehouse/players_monthly.parquet
+      hash: md5
+      md5: 2f5901d608238c635ce5e93eae7f5234
+      size: 4771
+  reviews_with_segments:
+    cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py 
+      --config configs/review_segments.yaml --output 
+      data/warehouse/reviews_with_segments.parquet --topics-output 
+      outputs/events/reviews_topics.parquet --allow-empty
+    deps:
+    - path: configs/review_segments.yaml
+      hash: md5
+      md5: 6d6404668858da86cec2cb7b156f90c6
+      size: 1357
+      isexec: true
+    - path: src/pipelines/review_segments/prepare_reviews_with_segments.py
+      hash: md5
+      md5: 1fa077978138ecca3f1fa6b26a9913b3
+      size: 28860
+      isexec: true
+    outs:
+    - path: data/warehouse/reviews_with_segments.parquet
+      hash: md5
+      md5: b90fa4f1f58dea89552f3f2717024b63
+      size: 399961887
+    - path: outputs/events/reviews_topics.parquet
+      hash: md5
+      md5: c75b4cbd97fd36a017336da70bc93c49
+      size: 97191257
+  review_segments:
+    cmd: python src/insights/build_review_segments.py --events 
+      outputs/events/events.parquet --reviews 
+      data/warehouse/reviews_with_segments.parquet --topics 
+      outputs/events/reviews_topics.parquet --output 
+      outputs/events/review_segments.parquet
+    deps:
+    - path: data/warehouse/reviews_with_segments.parquet
+      hash: md5
+      md5: b90fa4f1f58dea89552f3f2717024b63
+      size: 399961887
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: b5677ddc78e1843d901e53f9541ad8c4
+      size: 7375
+    - path: outputs/events/reviews_topics.parquet
+      hash: md5
+      md5: c75b4cbd97fd36a017336da70bc93c49
+      size: 97191257
+    - path: src/insights/build_review_segments.py
+      hash: md5
+      md5: 606a51600cea9cd19782d070a90ec793
+      size: 15439
+      isexec: true
+    outs:
+    - path: outputs/events/review_segments.parquet
+      hash: md5
+      md5: c709b779f738842abaf5c7e464206608
+      size: 598
+  prepare:
+    cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare 
+      --config configs/params.yaml
+    deps:
+    - path: configs/params.yaml
+      hash: md5
+      md5: 2f2d40a2d85d658e7f4ff63886fea61b
+      size: 4587
+      isexec: true
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 59bc0ba6658bde7546997e6a6cf0acc3
+      size: 118031546
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: 51eac8178e5aef418fe228913bad6619
+      size: 7244
+    - path: outputs/events/explanations.parquet
+      hash: md5
+      md5: 622a1750fd67453319ab0e73cd72a9ed
+      size: 3643
+    - path: src/pipelines/decision_rules/pipeline.py
+      hash: md5
+      md5: 711880b14657345d3ffd4e9b1d48df48
+      size: 18598
+      isexec: true
+    - path: src/pipelines/decision_rules/reglas_decision.py
+      hash: md5
+      md5: 813e397b05bed35583cf044b00c77106
+      size: 45750
+      isexec: true
+    params:
+      configs/params.yaml:
+        mongo:
+          uri: mongodb://host.docker.internal:27017
+          database: exploitation_zone
+          collection: steam_reviews
+    outs:
+    - path: data/prepared/
+      hash: md5
+      md5: 131c14547961571dc42080d67a40d96d.dir
+      size: 244655489
+      nfiles: 32
+  events:
+    cmd: python src/pipelines/event_detection/detect_events.py --config 
+      configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: e0360d1a9d6c55bd085cf9a8f0e337b7
+      size: 10562
+      isexec: true
+    - path: data/processed/clusters.parquet
+      hash: md5
+      md5: 885e722eda72ba2c922a1f6d416e40f8
+      size: 118039526
+    - path: data/warehouse/players_monthly.parquet
+      hash: md5
+      md5: 2f5901d608238c635ce5e93eae7f5234
+      size: 4771
+    - path: data/warehouse/reviews_monthly.parquet
+      hash: md5
+      md5: 4b69e98c1b9afbb11d1136c33b003b06
+      size: 8257
+    - path: src/pipelines/event_detection/detect_events.py
+      hash: md5
+      md5: 121662f0aaee834ef52d13d3207de1bb
+      size: 17608
+      isexec: true
+    outs:
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: 99062da5a39540df3228f0832377c019
+      size: 10381
+  topics:
+    cmd: python src/insights/topic_motives.py --config configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: src/insights/topic_motives.py
+      hash: md5
+      md5: 9d51fc4ca3b3898413373e748be9fabf
+      size: 13814
+      isexec: true
+    outs:
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+  topics_relevance:
+    cmd: "python src/insights/score_topics_with_ccf.py --config configs/events.yaml\n"
+    deps:
+    - path: outputs/ccf_analysis/consistency.parquet
+      hash: md5
+      md5: cdf6e31ea4fce73e7f7df04b8313524f
+      size: 6839
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+    - path: src/insights/score_topics_with_ccf.py
+      hash: md5
+      md5: 98b6cbb8d94b60ee1580682a74e0eb84
+      size: 7690
+      isexec: true
+    outs:
+    - path: outputs/events/topics_scored.parquet
+      hash: md5
+      md5: 16976dfbec447347aff47d3e39d5c690
+      size: 201995
+  news_classifier:
+    cmd: python src/insights/news_classifier.py --config configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: src/insights/news_classifier.py
+      hash: md5
+      md5: fd347a4669765580767c015d1c69fcad
+      size: 23730
+      isexec: true
+    outs:
+    - path: outputs/events/news_classified.parquet
+      hash: md5
+      md5: 763864b1fb9d345dbc796d04cab51e1b
+      size: 2789285
+  enrich:
+    cmd: python src/pipelines/event_detection/enrich_events.py --config 
+      configs/events.yaml
+    deps:
+    - path: configs/events.yaml
+      hash: md5
+      md5: 1c036ae8e6fdd562aa086efc6f6cb0a6
+      size: 10385
+      isexec: true
+    - path: outputs/events/events.parquet
+      hash: md5
+      md5: c92547c4b62d240c7136e83df11fb23d
+      size: 10329
+    - path: outputs/events/news_classified.parquet
+      hash: md5
+      md5: 763864b1fb9d345dbc796d04cab51e1b
+      size: 2789285
+    - path: outputs/events/topics.parquet
+      hash: md5
+      md5: 5f50d0fe43148242689692d0981051a7
+      size: 194472
+    - path: src/pipelines/event_detection/enrich_events.py
+      hash: md5
+      md5: bad826505143b61c8496d8ec9bcbd288
+      size: 21596
+      isexec: true
+    outs:
+    - path: outputs/events/explanations.parquet
+      hash: md5
+      md5: 8f8ae92f9f2835d5ae4a1b4d2d408098
+      size: 7311

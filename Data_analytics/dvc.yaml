@@ -18,18 +18,40 @@ stages:
     outs:
       - data/warehouse/reviews_monthly.parquet
 
+  subset_config:
+    cmd: python scripts/prepare_subset_config.py --events configs/events.yaml --ccf configs/ccf_analysis.yaml --clusters data/processed/_tmp_neighbors_clusters.parquet --out-events configs/events_subset.yaml --out-ccf configs/ccf_subset.yaml
+    deps:
+      - scripts/prepare_subset_config.py
+      - configs/events.yaml
+      - configs/ccf_analysis.yaml
+      - data/processed/_tmp_neighbors_clusters.parquet
+    outs:
+      - configs/events_subset.yaml
+      - configs/ccf_subset.yaml
+
+  news_model_select:
+    cmd: python scripts/select_news_model.py --out configs/llm_override.yaml
+    deps:
+      - scripts/select_news_model.py
+    outs:
+      - configs/llm_override.yaml
+
   preagg_players:
     cmd: >
-      python src/pipelines/preaggregations/players_monthly.py 
-      --file Data_management/landing_zone/steamchart/steamcharts_data.csv 
+      python src/pipelines/preaggregations/players_monthly.py
+      --postgres-host $POSTGRES_HOST
+      --postgres-port $POSTGRES_PORT
+      --postgres-user $POSTGRES_USER
+      --postgres-password $POSTGRES_PASSWORD
+      --postgres-db $POSTGRES_DB
+      --postgres-table exploitation_zone
       --out data/warehouse/players_monthly.parquet
     deps:
       - src/pipelines/preaggregations/players_monthly.py
-      - Data_management/landing_zone/steamchart/steamcharts_data.csv
     outs:
       - data/warehouse/players_monthly.parquet
+
   # --- Etapa 1: GeneraciÃ³n de Embeddings y CaracterÃ­sticas NumÃ©ricas ---
-  # Genera representaciones vectoriales y features a partir de metadatos.
   embeddings:
     cmd: python src/pipelines/generate_embeddings.py --config configs/embeddings.yaml
     deps:
@@ -37,10 +59,9 @@ stages:
       - configs/embeddings.yaml
     outs:
       - data/processed/embeddings/
-      - data/processed/embeddings/embeddings.parquet
+      - data/processed/embeddings.parquet
 
   # --- Etapa 2: AgrupaciÃ³n de Juegos (Clustering) ---
-  # Utiliza los embeddings para agrupar juegos similares.
   clustering:
     cmd: python src/pipelines/run_clustering.py --config configs/clustering.yaml
     deps:
@@ -55,7 +76,7 @@ stages:
       - outputs/clustering/cluster_stats.csv
       - outputs/clustering/borderline_games.csv
 
-  # Perfilado tematico de clusters con BERTopic
+  # Perfilado temÃ¡tico de clusters con BERTopic
   cluster_topics_profile:
     cmd: python src/pipelines/cluster_assignment/profile_clusters_topics.py --clusters data/processed/clusters.parquet --metadata data/processed/game_metadata.parquet --mongo-config configs/clustering.yaml --out outputs/clustering/cluster_topics.json --mlflow-enabled --mlflow-experiment ${mlflow.experiment_name} --mlflow-run-name cluster_topics_profile --mlflow-tracking-uri ${mlflow.tracking_uri}
     deps:
@@ -65,6 +86,7 @@ stages:
       - configs/clustering.yaml
     outs:
       - outputs/clustering/cluster_topics.json
+
   cluster_topics_map:
     cmd: python scripts/plot_cluster_topics_umap.py --medoids models/cluster_medoids.json --stats outputs/clustering/cluster_stats.csv --topics outputs/clustering/cluster_topics.json --borderline outputs/clustering/borderline_games.csv --out-html outputs/clustering/cluster_topics_umap.html
     deps:
@@ -76,14 +98,14 @@ stages:
     outs:
       - outputs/clustering/cluster_topics_umap.html
 
-  # Asignacion diaria de nuevos juegos a clusters existentes (sin reentrenar)
+  # AsignaciÃ³n diaria de nuevos juegos a clusters existentes (sin reentrenar)
   cluster_assign:
     cmd: >
-      python -m src.pipelines.cluster_assignment.assign_new_games \
-        --embeddings data/processed/embeddings_new.parquet \
-        --medoids models/cluster_medoids.json \
-        --out data/processed/clusters_assigned.parquet \
-       --cluster_version  ${clustering.cluster_version}
+      python -m src.pipelines.cluster_assignment.assign_new_games
+        --embeddings data/processed/embeddings_new.parquet
+        --medoids models/cluster_medoids.json
+        --out data/processed/clusters_assigned.parquet
+        --cluster_version ${clustering.cluster_version}
     deps:
       - src/pipelines/cluster_assignment/assign_new_games.py
       - models/cluster_medoids.json
@@ -93,8 +115,7 @@ stages:
     outs:
       - data/processed/clusters_assigned.parquet
 
-  # --- Rama Paralela 1: DetecciÃ³n de Eventos y AnÃ¡lisis de Insights ---
-  # Esta rama se puede ejecutar en paralelo con las otras dos ramas.
+  # --- Rama Paralela 1: DetecciÃ³n de Eventos e Insights ---
   events:
     cmd: python src/pipelines/event_detection/detect_events.py --config configs/events.yaml
     deps:
@@ -106,7 +127,28 @@ stages:
     outs:
       - outputs/events/events.parquet
 
-  topics:
+  # Alternativa Spark para eventos (mismo output), útil en lago de datos
+  events_spark:
+    cmd: python src/pipelines/event_detection/events_spark.py --config configs/events.yaml
+    deps:
+      - src/pipelines/event_detection/events_spark.py
+      - configs/events.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
+      - data/processed/clusters.parquet
+    outs:
+      - outputs/events/events.parquet
+
+  news_train_auto:
+    cmd: python src/insights/train_news_classifier_auto.py --config configs/news_train.yaml
+    deps:
+      - src/insights/train_news_classifier_auto.py
+      - configs/news_train.yaml
+      - outputs/events/news_classified.parquet
+    outs:
+      - models/news_best.joblib
+      - models/news_best_meta.json
+
   reviews_with_segments:
     cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --allow-empty
     deps:
@@ -125,6 +167,17 @@ stages:
     outs:
       - outputs/events/topics.parquet
 
+  topics_relevance:
+    cmd: python src/insights/score_topics_with_ccf.py --config configs/events.yaml
+    deps:
+      - src/insights/score_topics_with_ccf.py
+      - configs/events.yaml
+      - outputs/events/topics.parquet
+      - outputs/ccf_analysis/consistency.parquet
+      - outputs/events/events.parquet
+    outs:
+      - outputs/events/topics_scored.parquet
+
   review_segments:
     cmd: python src/insights/build_review_segments.py --events outputs/events/events.parquet --reviews data/warehouse/reviews_with_segments.parquet --topics outputs/events/reviews_topics.parquet --output outputs/events/review_segments.parquet
     deps:
@@ -142,6 +195,14 @@ stages:
       - configs/events.yaml
     outs:
       - outputs/events/news_classified.parquet
+
+  news_train:
+    cmd: python src/insights/train_news_classifier.py --input outputs/events/news_classified.parquet --text-cols title,contents --model-out models/news_svm.joblib
+    deps:
+      - src/insights/train_news_classifier.py
+      - outputs/events/news_classified.parquet
+    outs:
+      - models/news_svm.joblib
 
   label_topics:
     cmd: python src/insights/label_topics.py --config configs/events.yaml
@@ -163,64 +224,12 @@ stages:
       - outputs/events/news_classified.parquet
     outs:
       - outputs/events/explanations.parquet
-      - outputs/events/review_segments.parquet
 
-   # --- Rama Paralela 2: AplicaciÃ³n y EvaluaciÃ³n de Reglas de DecisiÃ³n ---
-  # Esta rama se puede ejecutar en paralelo con las otras dos ramas.
-  prepare:
-    cmd: python src/pipelines/decision_rules/pipeline.py prepare --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - src/pipelines/decision_rules/reglas_decision.py
-      - data/processed/clusters.parquet
-      - outputs/events/events.parquet
-      - outputs/events/explanations.parquet
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - mongo
-    outs:
-      - data/prepared/
-
-  apply_rules:
-    cmd: python src/pipelines/decision_rules/pipeline.py apply_rules --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - src/pipelines/decision_rules/reglas_decision.py
-      - data/prepared/
-      - data/processed/clusters.parquet
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - regla_precio
-          - justificacion_precio
-          - saturacion_cluster_1
-          - saturacion_cluster_2
-          - saturacion_cluster_3
-          - justificacion_actividad
-          - experiencia_jugador
-          - deteccion_abandono
-          - limitaciones_tecnicas
-          - evaluacion_limitaciones
-          - publishers_estudios
-          - prioridad_idiomas
-    outs:
-      - data/with_rules/
-
-  evaluate:
-    cmd: python src/pipelines/decision_rules/pipeline.py evaluate --config configs/params.yaml
-    deps:
-      - src/pipelines/decision_rules/pipeline.py
-      - data/with_rules/
-      - configs/params.yaml
-    params:
-      - configs/params.yaml:
-          - mlflow
-    outs:
-      - outputs/reports/metrics.json
+  # --- Rama Paralela 2 (deshabilitada): Reglas de DecisiÃ³n
+  # Nota: estos stages se han movido al backend y se ejecutan fuera del pipeline offline.
+  # prepare/apply_rules/evaluate eliminados del pipeline DVC.
 
   # --- Rama Paralela 3: AnÃ¡lisis de CorrelaciÃ³n Cruzada (CCF) ---
-  # Esta rama puede ejecutarse en paralelo con ambas ramas anteriores.
   ccf:
     cmd: python src/pipelines/ccf_analysis/analyze_competitors_ccf.py --config configs/ccf_analysis.yaml
     deps:
@@ -229,22 +238,23 @@ stages:
       - data/warehouse/reviews_monthly.parquet
       - data/warehouse/players_monthly.parquet
     outs:
-      - outputs/ccf_analysis/summary.parquet
+      # CCF summary es opcional para client_report; el script lo maneja si falta
       - outputs/ccf_analysis/consistency.parquet
+      - outputs/ccf_analysis/summary.parquet
 
   cluster_history:
     cmd: >
-      python src/pipelines/cluster_assignment/build_competitor_insights.py \
-        --cluster-id ${cluster_history.cluster_id} \
-        --clusters data/processed/clusters.parquet \
-        --players data/warehouse/players_monthly.parquet \
-        --events outputs/events/events.parquet \
-        --topics outputs/events/topics.parquet \
-        --granger-summary outputs/ccf_analysis/summary.parquet \
-        --out outputs/clustering/competitors_${cluster_history.cluster_id}.json \
-        --launch-date ${cluster_history.launch_date} \
-        --start-date ${cluster_history.start_date} \
-        --end-date ${cluster_history.end_date} \
+      python src/pipelines/cluster_assignment/build_competitor_insights.py
+        --cluster-id ${cluster_history.cluster_id}
+        --clusters data/processed/clusters.parquet
+        --players data/warehouse/players_monthly.parquet
+        --events outputs/events/events.parquet
+        --topics outputs/events/topics.parquet
+        --granger-summary outputs/ccf_analysis/summary.parquet
+        --out outputs/clustering/competitors_${cluster_history.cluster_id}.json
+        --launch-date ${cluster_history.launch_date}
+        --start-date ${cluster_history.start_date}
+        --end-date ${cluster_history.end_date}
         --min-points ${cluster_history.min_points}
     deps:
       - src/pipelines/cluster_assignment/build_competitor_insights.py
@@ -260,13 +270,12 @@ stages:
       - outputs/clustering/competitors_${cluster_history.cluster_id}.json
 
   # --- Etapa Final: GeneraciÃ³n de Informes (Convergencia) ---
-  # Esta etapa no se puede paralelizar ya que depende de las salidas de otras etapas.
   report:
     cmd: >
       python src/insights/build_game_report.py
-      --config configs/events.yaml
-      --appid ${report.appid}
-      --top_k ${report.neighbors_top_k}
+        --config configs/events.yaml
+        --appid ${report.appid}
+        --top_k ${report.neighbors_top_k}
     deps:
       - src/insights/build_game_report.py
       - configs/events.yaml
@@ -275,6 +284,7 @@ stages:
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
       - outputs/ccf_analysis/summary.parquet
+      - outputs/ccf_analysis/event_correlation.parquet
     params:
       - configs/params.yaml:report
     outs:
@@ -283,7 +293,7 @@ stages:
   editor_view:
     cmd: >
       python src/insights/compose_editor_payload.py
-      --appid ${report.appid}
+        --appid ${report.appid}
     deps:
       - src/insights/compose_editor_payload.py
       - outputs/reports/${report.appid}.json
@@ -292,22 +302,22 @@ stages:
     outs:
       - outputs/reports/${report.appid}_editor.json
 
-  topics_relevance:
-    cmd: >
-      python src/insights/score_topics_with_ccf.py --config configs/events.yaml
+  # --- Estudio de eventos (leadâ€“lag corto) para peaks/drops ---
+  event_leadlag:
+    cmd: python src/pipelines/ccf_analysis/event_leadlag.py --config configs/ccf_analysis.yaml
     deps:
-      - src/insights/score_topics_with_ccf.py
-      - outputs/events/topics.parquet
-      - outputs/events/events.parquet
-      - outputs/ccf_analysis/consistency.parquet
+      - src/pipelines/ccf_analysis/event_leadlag.py
+      - configs/ccf_analysis.yaml
+      - data/warehouse/reviews_monthly.parquet
+      - data/warehouse/players_monthly.parquet
     outs:
-      - outputs/events/topics_scored.parquet
+      - outputs/ccf_analysis/event_correlation.parquet
 
   client_report:
     cmd: >
-      python src/insights/make_client_report.py \
-        --client_file ${client_report.client_file} \
-        --top_k ${client_report.neighbors_top_k} \
+      python src/insights/make_client_report.py
+        --client_file ${client_report.client_file}
+        --top_k ${client_report.neighbors_top_k}
         --same_cluster_only ${client_report.same_cluster_only}
     deps:
       - src/insights/make_client_report.py
@@ -319,21 +329,10 @@ stages:
       - outputs/events/events.parquet
       - outputs/events/topics_scored.parquet
       - outputs/events/explanations.parquet
+      - outputs/events/review_segments.parquet
+      - outputs/clustering/cluster_stats.csv
+      - outputs/clustering/cluster_topics.json
     params:
       - configs/params.yaml:client_report
     outs:
       - outputs/reports/client_${client_report.client_id}.json
-
-
-
-
-
-
-
-
-
-
-
-
-
-

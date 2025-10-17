@@ -17,11 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, StatisticsError
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+import os
+import sys
 
 import numpy as np
 import pandas as pd
 import yaml
 import mlflow
+# Ensure project root is importable when running as a script
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from src.utils.config_utils import expand_env_in_obj
 from src.utils.mlflow_utils import log_mlflow_params, log_mlflow_metrics
 from src.insights.neighbor_strategy import EmbeddingIndex, select_competitor_neighbors
@@ -37,6 +41,7 @@ from src.insights.text_templates import (
     describe_topic_insight,
     describe_key_signal,
     summarize_global_relevance,
+    compose_client_narrative,
 )
 
 from src.utils.io import (
@@ -1291,8 +1296,9 @@ def main() -> None:
     ap.add_argument('--topics', default='outputs/events/topics_scored.parquet')
     ap.add_argument('--explanations', default='outputs/events/explanations.parquet')
     ap.add_argument('--review_segments', default='outputs/events/review_segments.parquet', help='Parquet/JSON con segmentos de reseÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±as por pico.')
-    ap.add_argument('--rules', default='data/with_rules/with_rules.parquet')
-    ap.add_argument('--rules_dir', default='data/with_rules/')
+    # Reglas offline deshabilitadas: por defecto vacío (no carga)
+    ap.add_argument('--rules', default='')
+    ap.add_argument('--rules_dir', default='')
     ap.add_argument('--emb_config', default='configs/embeddings.yaml')
     ap.add_argument('--cluster_stats', default='outputs/clustering/cluster_stats.csv', help='CSV con metricas agregadas por cluster.')
     ap.add_argument('--cluster_topics', default='outputs/clustering/cluster_topics.json', help='JSON con topicos representativos por cluster.')
@@ -1301,7 +1307,8 @@ def main() -> None:
     ap.add_argument('--same_cluster_only', type=lambda x: str(x).lower() in ['1', 'true', 'yes'], default=True)
     ap.add_argument('--out', default=None, help='Ruta de salida JSON; por defecto outputs/reports/client_{id}.json')
     ap.add_argument('--params', default='configs/params.yaml')
-    ap.add_argument('--version', default='1.3', help='Version del payload del reporte de cliente.')
+    ap.add_argument('--version', default='1.4', help='Version del payload del reporte de cliente.')
+    ap.add_argument('--language', default='en', help='Language for narrative (en/es).')
     args = ap.parse_args()
 
     client = json.loads(Path(args.client_file).read_text(encoding='utf-8'))
@@ -1315,7 +1322,7 @@ def main() -> None:
     topics_df = _load_any_df(args.topics) if path_exists(args.topics) else pd.DataFrame()
     expl_df = _load_any_df(args.explanations) if path_exists(args.explanations) else pd.DataFrame()
     review_segments_df = _load_any_df(args.review_segments) if path_exists(args.review_segments) else pd.DataFrame()
-    rules_df = _load_any_df(args.rules) if path_exists(args.rules) else pd.DataFrame()
+    rules_df = _load_any_df(args.rules) if (args.rules and path_exists(args.rules)) else pd.DataFrame()
 
     cluster_stats_df = _load_cluster_stats_df(args.cluster_stats)
     cluster_topics_map = _load_cluster_topics_map(args.cluster_topics)
@@ -1677,6 +1684,12 @@ def main() -> None:
         'methodology': methodology,
         'provenance': provenance,
     }
+
+    # Compose a concise narrative paragraph (no Reddit fields)
+    try:
+        report['narrative'] = compose_client_narrative(report, lang=args.language)
+    except Exception:
+        report['narrative'] = ''
 
     out_path = Path(args.out) if args.out else Path('outputs/reports') / f"client_{client_id}.json"
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Anota la relevancia de tópicos por (appid, event_year_month) usando la máscara mensual
+Anota la relevancia de tópicos por (appid, year_month) usando la máscara mensual
 de consistencia CCF/Granger y, opcionalmente, la magnitud del evento de players.
 
 Entradas:
-- topics.parquet (o el generado por Spark/Ray con columnas: appid, event_year_month, topics)
+- topics.parquet (o el generado por Spark/Ray con columnas: appid, year_month, topics)
 - outputs/ccf_analysis/consistency.parquet (appid, pair_name, year_month, ccf_consistent, local_corr_3m, lead_or_lag)
 - outputs/events/events.parquet (para traer zscore de players por mes)
 
@@ -19,6 +19,11 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import yaml
+import os
+import sys
+
+# Ensure project root is importable
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.utils.io import read_parquet_any, write_parquet_any
 
@@ -71,7 +76,7 @@ def main():
             players_df['appid'] = players_df['appid'].astype(str)
 
     # Normalizar columnas de fechas
-    for df, col in [(topics_df, 'event_year_month'), (cons_df, 'year_month')]:
+    for df, col in [(topics_df, 'year_month'), (cons_df, 'year_month')]:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col])
 
@@ -110,14 +115,14 @@ def main():
     merged['appid'] = merged['appid'].astype(str)
     merged = merged.merge(
         wide,
-        left_on=['appid', 'event_year_month'], right_on=['appid', 'year_month'], how='left'
-    ).drop(columns=['year_month'], errors='ignore')
+        left_on=['appid', 'year_month'], right_on=['appid', 'year_month'], how='left'
+    )
 
     if not players_df.empty:
         merged = merged.merge(
             players_df.rename(columns={'zscore': 'players_zscore', 'growth_rate': 'players_growth_rate'}),
-            left_on=['appid', 'event_year_month'], right_on=['appid', 'year_month'], how='left'
-        ).drop(columns=['year_month'], errors='ignore')
+            left_on=['appid', 'year_month'], right_on=['appid', 'year_month'], how='left'
+        )
     else:
         merged['players_zscore'] = np.nan
         merged['players_growth_rate'] = np.nan

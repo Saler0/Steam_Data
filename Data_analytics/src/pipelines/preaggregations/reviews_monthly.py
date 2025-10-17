@@ -10,6 +10,10 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 try:
     from pyspark.sql import SparkSession
@@ -19,7 +23,7 @@ except Exception:
     SPARK_AVAILABLE = False
 
 from pymongo import MongoClient
-
+from src.utils.config_utils import expand_env_in_obj
 
 def read_mongo_reviews(mongo_uri: str, db: str, coll: str, query: dict | None = None, projection: dict | None = None) -> pd.DataFrame:
     client = MongoClient(mongo_uri)
@@ -70,7 +74,7 @@ def main():
 
     if args.config:
         import yaml
-        cfg = yaml.safe_load(open(args.config, 'r'))
+        cfg = expand_env_in_obj(yaml.safe_load(open(args.config, 'r')))
         mongo = (cfg.get('mongo_connection') or
                  (cfg.get('players_data') if 'players_data' in cfg else {}) or
                  {})
@@ -88,6 +92,7 @@ def main():
         try:
             spark = (SparkSession.builder
                      .appName("reviews_monthly_preagg")
+                     .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
                      .getOrCreate())
             try:
                 sdf = (spark.read

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import yaml
+from src.utils.config_utils import expand_env_in_obj
 
 from src.ingestion.twitch import load_twitch_monthly
 from src.ingestion.youtube import load_youtube_monthly
@@ -30,10 +31,11 @@ def main() -> None:
     parser.add_argument("--year_month", required=True, help="Mes objetivo en formato YYYY-MM")
     args = parser.parse_args()
 
-    cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    cfg = expand_env_in_obj(yaml.safe_load(Path(args.config).read_text(encoding="utf-8")))
     signals_cfg = cfg.get("signals", {})
 
-    target_month = pd.Timestamp(f"{args.year_month}-01", tz="UTC").to_period("M").to_timestamp(tz="UTC")
+    # Normaliza a inicio de mes (naive) para que coincida con el resto del pipeline
+    target_month = pd.Timestamp(f"{args.year_month}-01").to_period("M").to_timestamp()
     month_list = [target_month]
     appid = str(args.appid)
 

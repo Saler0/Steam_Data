@@ -54,10 +54,35 @@ def write_parquet_any(df: pd.DataFrame, path: Any, **kwargs):
 
 def write_json_any(obj: Any, path: Any, **kwargs):
     import json
+    # Encoder seguro: convierte tipos de NumPy y arrays a JSON
+    def _default(o):
+        try:
+            import numpy as _np  # type: ignore
+            if isinstance(o, _np.ndarray):
+                return o.tolist()
+            if isinstance(o, (_np.integer,)):
+                return int(o)
+            if isinstance(o, (_np.floating,)):
+                return float(o)
+            if isinstance(o, (_np.bool_,)):
+                return bool(o)
+        except Exception:
+            pass
+        if hasattr(o, 'item'):
+            try:
+                return o.item()
+            except Exception:
+                pass
+        return str(o)
+
+    dumps_kwargs = {"ensure_ascii": False, "default": _default}
+    dumps_kwargs.update(kwargs or {})
+
+    text = json.dumps(obj, **dumps_kwargs)
     if is_gcs(path):
         import fsspec
         with fsspec.open(path, 'w') as f:
-            f.write(json.dumps(obj, ensure_ascii=False, **kwargs))
+            f.write(text)
     else:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(json.dumps(obj, ensure_ascii=False, **kwargs), encoding='utf-8')
+        Path(path).write_text(text, encoding='utf-8')

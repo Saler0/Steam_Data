@@ -10,11 +10,14 @@ import pandas as pd
 from pymongo import MongoClient
 import os
 import sys
+import re
 
 # Ensure project root is importable when running as a script
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import mlflow
+from datetime import datetime
+from src.utils.mlflow_utils import make_standard_run_name, set_standard_tags
 try:
     import ray
     RAY_AVAILABLE = True
@@ -25,6 +28,7 @@ from multiprocessing.pool import Pool
 
 from src.utils.io import read_parquet_any, write_parquet_any, path_exists
 from src.utils.timeseries import dlog
+import re
 
 def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str, date_filter: dict | None = None) -> pd.DataFrame | None:
     try:
@@ -40,6 +44,8 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 if date_filter and date_filter.get('end'):
                     expr = expr & (ds.field('year_month') < pd.to_datetime(date_filter['end']))
                 rv = ds_rv.to_table(filter=expr).to_pandas()
+                if rv is None or rv.empty:
+                    raise ValueError("empty_after_arrow_filter")
             except Exception:
                 rv = read_parquet_any(reviews_path)
                 rv = rv[rv['appid'].astype(str) == str(appid)].copy()
@@ -56,6 +62,8 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 if date_filter and date_filter.get('end'):
                     expr = expr & (ds.field('year_month') < pd.to_datetime(date_filter['end']))
                 pl = ds_pl.to_table(filter=expr).to_pandas()
+                if pl is None or pl.empty:
+                    raise ValueError("empty_after_arrow_filter")
             except Exception:
                 pl = read_parquet_any(players_path)
                 pl = pl[pl['appid'].astype(str) == str(appid)].copy()
@@ -70,7 +78,26 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
     except Exception:
         return None
 
-def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg: dict | None = None) -> pd.DataFrame:
+_ENV_PATTERN = re.compile(r"^\$\{([^}:]+)(?::-(.*))?\}$")
+
+def _resolve_env_placeholder(value: str):
+    if not isinstance(value, str):
+        return value
+    m = _ENV_PATTERN.match(value.strip())
+    if not m:
+        return value
+    var, default = m.group(1), m.group(2)
+    env_val = os.environ.get(var)
+    return env_val if env_val not in (None, "") else (default or "")
+
+def _resolve_mongo_cfg(mongo_cfg: dict) -> dict:
+    cfg = dict(mongo_cfg or {})
+    cfg['uri'] = _resolve_env_placeholder(cfg.get('uri')) or cfg.get('uri')
+    cfg['database'] = _resolve_env_placeholder(cfg.get('database')) or cfg.get('database')
+    cfg['collection'] = _resolve_env_placeholder(cfg.get('collection')) or cfg.get('collection')
+    return cfg
+
+def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg: dict | None = None, date_filter: dict | None = None) -> pd.DataFrame:
     """
     Carga y une datos de jugadores (desde CSV) y reseñas (desde MongoDB) para un appid.
     """
@@ -78,7 +105,7 @@ def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg
 
     # 0) Intentar leer preagregados si están configurados
     if preagg:
-        df_pre = _read_preagg(preagg.get('players_monthly'), preagg.get('reviews_monthly'), appid, date_filter=cfg.get('date_filter'))
+        df_pre = _read_preagg(preagg.get('players_monthly'), preagg.get('reviews_monthly'), appid, date_filter=date_filter)
         if df_pre is not None and not df_pre.empty:
             return df_pre
     
@@ -94,12 +121,18 @@ def load_data_for_appid(appid: str, cfg_players: dict, cfg_reviews: dict, preagg
             players_df['year_month'] = players_df['date'].dt.to_period('M').dt.to_timestamp()
             players_df = players_df.groupby('year_month')['players'].sum().reset_index()
 
-    # Cargar reseñas desde MongoDB
-    client = MongoClient(cfg_reviews['uri'])
-    col = client[cfg_reviews['database']][cfg_reviews['collection']]
-    cur = col.find({"appid": {"$in": [appid, appid_int]}}, {"_id": 0, "timestamp_created": 1, "voted_up": 1})
-    rows = list(cur)
-    client.close()
+    # Cargar reseñas desde MongoDB (si la URI es válida)
+    rows = []
+    try:
+        uri = (cfg_reviews or {}).get('uri')
+        if isinstance(uri, str) and (uri.startswith('mongodb://') or uri.startswith('mongodb+srv://')):
+            client = MongoClient(uri)
+            col = client[cfg_reviews['database']][cfg_reviews['collection']]
+            cur = col.find({"appid": {"$in": [appid, appid_int]}}, {"_id": 0, "timestamp_created": 1, "voted_up": 1})
+            rows = list(cur)
+            client.close()
+    except Exception:
+        rows = []
     
     if not rows and players_df.empty:
         return pd.DataFrame()
@@ -151,17 +184,35 @@ def detect_events_for_series(df: pd.DataFrame, variable: str, z_thresh: float) -
     return pd.DataFrame(results)
 
 def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
-    """Detecta y retorna eventos para un único appid (versión sincronizada)."""
-    appid, cfg = args
+    """Detecta y retorna eventos para un único appid (versión sincronizada).
+
+    Acepta tanto un dict de config directo (modo multiprocessing) como un
+    ObjectRef de Ray (modo ray)."""
+    appid, cfg_ref = args
+    # Si estamos en modo Ray y recibimos un ObjectRef, deserializar; de lo contrario usar tal cual
+    cfg = cfg_ref
+    try:
+        if RAY_AVAILABLE:
+            import ray as _ray  # import local para evitar NameError cuando no está disponible
+            # En Ray moderno, ObjectRef es un tipo; evitamos dependencia directa si no existe
+            if hasattr(_ray, 'ObjectRef') and isinstance(cfg_ref, _ray.ObjectRef):
+                cfg = _ray.get(cfg_ref)
+    except Exception:
+        # En caso de cualquier problema con Ray, continuar con cfg_ref tal cual
+        cfg = cfg_ref
     cfg_players = cfg.get('players_data', {})
-    cfg_reviews = cfg.get('mongo_connection', {})
+    cfg_reviews = _resolve_mongo_cfg(cfg.get('mongo_connection', {}))
     z_thresh = float(cfg['detection']['zscore_threshold'])
     
-    df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'))
+    df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'), date_filter=cfg.get('date_filter'))
     
     if df_ts is None or df_ts.empty or len(df_ts) < 12:
         return pd.DataFrame()
     
+    if 'year_month' in df_ts.columns and df_ts['year_month'].duplicated().any():
+        numeric_cols = [c for c in df_ts.columns if pd.api.types.is_numeric_dtype(df_ts[c]) and c != 'year_month']
+        df_ts = df_ts.groupby('year_month')[numeric_cols].sum().reset_index()
+
     all_events = []
     variables = ['players', 'pos', 'neg', 'total_reviews']
     for var in variables:
@@ -177,15 +228,66 @@ _detect_events_for_game_ray = None
 if RAY_AVAILABLE:
     _detect_events_for_game_ray = ray.remote(_detect_events_for_game_sync)
 
+def resolve_env_vars(config):
+    """Resuelve ${VAR:-default} en un diccionario de configuración."""
+    pattern = re.compile(r"\${([^}]+)}")
+
+    def _replace_one(s: str) -> str:
+        m = pattern.search(s)
+        if not m:
+            return s
+        expr = m.group(1)
+        if ':-' in expr:
+            var_name, default = expr.split(':-', 1)
+        else:
+            var_name, default = expr, ''
+        env_val = os.environ.get(var_name)
+        value = env_val if env_val not in (None, '') else default
+        return s[: m.start()] + value + s[m.end():]
+
+    out = {}
+    for key, value in config.items():
+        if isinstance(value, str):
+            prev = None
+            cur = value
+            while prev != cur:
+                prev = cur
+                cur = _replace_one(cur)
+            out[key] = cur
+        elif isinstance(value, dict):
+            out[key] = resolve_env_vars(value)
+        else:
+            out[key] = value
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = resolve_env_vars(cfg)  # Resuelve las variables de entorno
     
     mode = cfg['parallelization'].get('mode', 'multiprocessing')
-    
-    with mlflow.start_run(run_name=f"detect_events_{mode}"):
+
+    # Configure MLflow according to config: set experiment and run name
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+    script_name = Path(__file__).stem
+    run_name = make_standard_run_name(prefix=run_name_prefix, script_path=__file__, suffix=mode)
+    with mlflow.start_run(run_name=run_name):
+        set_standard_tags(script_path=__file__, extra={"mode": mode})
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
         clusters_path = cfg.get('input_paths', {}).get('clusters_parquet', 'data/processed/clusters.parquet')
         if not Path(clusters_path).exists():
             raise FileNotFoundError(f"Archivo de clústeres no encontrado en {clusters_path}")
@@ -198,14 +300,36 @@ def main():
         all_appids = clusters_df['appid'].astype(str).unique()
         
         print(f"Detectando eventos para {len(all_appids)} juegos de forma paralela con {mode}...")
+        try:
+            mlflow.set_tag("n_appids", int(len(all_appids)))
+        except Exception:
+            pass
         
         if mode == 'ray' and RAY_AVAILABLE:
+            use_ray = True
             if not ray.is_initialized():
-                print("[INFO] Inicializando Ray...")
-                ray.init(address=cfg.get('ray_cluster', {}).get('address', 'auto'))
-            futures = [_detect_events_for_game_ray.remote(appid, cfg) for appid in all_appids]
-            results = ray.get(futures)
-            ray.shutdown()
+                address = (cfg.get('ray_cluster', {}) or {}).get('address', 'auto')
+                try:
+                    print("[INFO] Inicializando Ray...")
+                    if address in (None, "", "local", "auto"):
+                        ray.init()
+                    else:
+                        ray.init(address=address)
+                except Exception as e:
+                    print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Usando multiprocessing.")
+                    use_ray = False
+            if use_ray:
+                cfg_ref = ray.put(cfg)  # Sube cfg resuelto a la object store de Ray
+                futures = [_detect_events_for_game_ray.remote((appid, cfg_ref)) for appid in all_appids]
+                results = ray.get(futures)
+                try:
+                    ray.shutdown()
+                except Exception:
+                    pass
+            else:
+                with Pool(multiprocessing.cpu_count()) as pool:
+                    tasks = [(appid, cfg) for appid in all_appids]
+                    results = pool.map(_detect_events_for_game_sync, tasks)
         elif mode == 'ray' and not RAY_AVAILABLE:
             print("[WARN] Ray no está disponible. Cambiando a 'multiprocessing'.")
             with Pool(multiprocessing.cpu_count()) as pool:
@@ -222,6 +346,7 @@ def main():
         
         if all_events:
             final_df = pd.concat(all_events, ignore_index=True)
+            final_df['event_id'] = final_df['appid'].astype(str) + '_' + final_df['variable'] + '_' + pd.to_datetime(final_df['year_month']).dt.strftime('%Y-%m')
             out_path = Path(cfg.get('output_dir', 'outputs/events')) / 'events.parquet'
             out_path.parent.mkdir(parents=True, exist_ok=True)
             write_parquet_any(final_df, out_path)
@@ -229,8 +354,61 @@ def main():
             mlflow.log_metric("total_games_analyzed", len(all_appids))
             mlflow.log_metric("events_detected", len(final_df))
             print(f"[OK] Eventos detectados guardados en -> {out_path}")
+
+            # Emparejar picos players -> reviews positivas con lags configurados
+            try:
+                lags = []
+                lags_cfg = (cfg.get('pairing', {}) or {}).get('lags_months') or (cfg.get('correlation', {}) or {}).get('lags_months')
+                if isinstance(lags_cfg, list):
+                    lags = [int(x) for x in lags_cfg if str(x).strip()]
+                if not lags:
+                    lags = [1, 2]
+                ev = final_df.copy()
+                ev['appid'] = ev['appid'].astype(str)
+                ev['year_month'] = pd.to_datetime(ev['year_month'], errors='coerce')
+                players_peaks = ev[(ev['variable'] == 'players') & (ev['direction'] == 'peak')][['appid','year_month','zscore']]
+                pos_peaks = ev[(ev['variable'] == 'pos') & (ev['direction'] == 'peak')][['appid','year_month','zscore']]
+                pairs_rows = []
+                if not players_peaks.empty and not pos_peaks.empty:
+                    for _, row in players_peaks.iterrows():
+                        base_ym = pd.to_datetime(row['year_month'])
+                        app = row['appid']
+                        for lag in lags:
+                            target_ym = (base_ym.to_period('M') + lag).to_timestamp()
+                            match = pos_peaks[(pos_peaks['appid'] == app) & (pos_peaks['year_month'] == target_ym)]
+                            if not match.empty:
+                                pairs_rows.append({
+                                    'appid': app,
+                                    'base_month': base_ym,
+                                    'target_month': target_ym,
+                                    'lag_months': int(lag),
+                                    'players_z': float(row['zscore']),
+                                    'pos_z': float(match.iloc[0]['zscore']),
+                                })
+                if pairs_rows:
+                    pairs_df = pd.DataFrame(pairs_rows)
+                    pair_out = Path(cfg.get('output_dir', 'outputs/events')) / 'paired_peaks.parquet'
+                    write_parquet_any(pairs_df, pair_out)
+                    mlflow.log_artifact(str(pair_out))
+                    mlflow.log_metric('paired_peaks_count', int(len(pairs_df)))
+            except Exception as e:
+                print(f"[WARN] Emparejamiento de picos falló: {e}")
         else:
             print("[WARN] No se detectaron eventos. Creando fichero vacío.")
+            out_path = Path(cfg.get('output_dir', 'outputs/events')) / 'events.parquet'
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            empty_df = pd.DataFrame({
+                'year_month': pd.Series(dtype='datetime64[ns]'),
+                'variable': pd.Series(dtype='str'),
+                'direction': pd.Series(dtype='str'),
+                'zscore': pd.Series(dtype='float'),
+                'value': pd.Series(dtype='float'),
+                'growth_rate': pd.Series(dtype='float'),
+                'appid': pd.Series(dtype='str'),
+                'event_id': pd.Series(dtype='str')
+            })
+            write_parquet_any(empty_df, out_path)
+            print(f"[INFO] Creado fichero de eventos vacío en -> {out_path}")
             mlflow.log_metric("total_games_analyzed", len(all_appids))
             mlflow.log_metric("events_detected", 0)
 

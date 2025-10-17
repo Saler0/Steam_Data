@@ -1,0 +1,62 @@
+input_path:
+  clusters_parquet: data/processed/_tmp_single_app_clusters.parquet
+mongo_connection:
+  uri: ${MONGO_URI:-mongodb://localhost:27017}
+  database: ${MONGO_DB_REVIEWS:-steam}
+  collection: ${MONGO_COLL_REVIEWS:-reviews}
+players_data:
+  enabled: true
+  dir_pattern: data/external/players/{appid}.csv
+output_dir: outputs/ccf_analysis/single_281990
+backend: python
+cluster_filter: []
+preaggregated:
+  reviews_monthly: data/warehouse/reviews_monthly.parquet
+  players_monthly: data/warehouse/players_monthly.parquet
+stationarity:
+  transforms:
+  - dlog
+  - diff
+  - diff2
+  - sqrt
+  - sqrt_diff
+  - log1p_diff
+  - seasonal_diff
+  adf_alpha: 0.05
+  seasonal:
+    period: 12
+  kpss:
+    enabled: true
+    regression: c
+    alpha: 0.05
+parallel_mode: multiprocessing
+num_processes: 4
+ray_cluster:
+  enabled: false
+  address: auto
+ccf_pairs:
+- predictor: players
+  target: pos
+  name: players_vs_positive_reviews
+- predictor: players
+  target: neg
+  name: players_vs_negative_reviews
+- predictor: pos
+  target: neg
+  name: positive_vs_negative_reviews
+ccf_lags: 6
+granger:
+  maxlag: 3
+  alpha: 0.05
+consistency:
+  window: 3
+  min_abs_corr: 0.2
+whiteness:
+  ljung_box:
+    enabled: true
+    h: 12
+    alpha: 0.05
+mlflow:
+  enabled: true
+  experiment: Steam Analytics
+  run_name_prefix: ccf_analysis_
