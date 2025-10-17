@@ -193,6 +193,23 @@ def main(argv: Iterable[str] | None = None) -> None:
     # Build original + stationarized
     transformed = {}
     chosen = {}
+    # Etiquetas en castellano
+    vnames = {
+        'players': 'Jugadores Activos',
+        'pos': 'Reseñas Positivas',
+        'neg': 'Reseñas Negativas',
+        'total_reviews': 'Reseñas Totales',
+    }
+    mnames = {
+        'dlog': 'Diferencia logarítmica',
+        'diff': 'Diferenciación',
+        'diff2': 'Diferenciación 2ª',
+        'sqrt': 'Raíz cuadrada',
+        'sqrt_diff': 'Raíz cuadrada + diferencia',
+        'log1p_diff': 'log1p + diferencia',
+        'seasonal_diff': 'Diferenciación estacional',
+        'fallback': 'Transformación alternativa',
+    }
     for v in vars_:
         s = pd.Series(df[v].astype(float)).dropna()
         t, name = _stationarize_best(s, methods, adf_alpha, use_kpss, kpss_alpha, season_period)
@@ -211,12 +228,16 @@ def main(argv: Iterable[str] | None = None) -> None:
         # Original
         ax = axes[i, 0]
         df[v].plot(ax=ax, color='#3b82f6', linewidth=1.5)
-        ax.set_title(f"{v} — original")
+        ax.set_title(f"{vnames.get(v, v)} - Original")
+        ax.set_xlabel('Fecha')
+        ax.set_ylabel('Valor')
         ax.grid(True, alpha=0.3)
         # Stationarized
         ax2 = axes[i, 1]
         transformed[v].plot(ax=ax2, color='#ef4444', linewidth=1.2)
-        ax2.set_title(f"{v} — stationarized ({chosen[v]})")
+        ax2.set_title(f"{vnames.get(v, v)} - Estacionaria ({mnames.get(chosen[v], chosen[v])})")
+        ax2.set_xlabel('Fecha')
+        ax2.set_ylabel('Valor')
         ax2.grid(True, alpha=0.3)
     plt.tight_layout()
 
