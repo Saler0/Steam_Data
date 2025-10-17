@@ -214,6 +214,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     ap.add_argument('--appid', required=True)
     ap.add_argument('--out', default=None)
     ap.add_argument('--ccf-dir', default='outputs/ccf_analysis')
+    ap.add_argument('--png', action='store_true', help='Also save a PNG copy of the dashboard (requires altair_saver + vl-convert or selenium)')
+    ap.add_argument('--png-out', default=None, help='Optional PNG output path (defaults to outputs/ccf_analysis/plots/altair_{appid}.png)')
     return ap.parse_args(list(argv) if argv is not None else None)
 
 
@@ -319,6 +321,25 @@ def main(argv: Iterable[str] | None = None) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     dashboard.save(str(out))
     print(f'[OK] Dashboard Altair -> {out}')
+
+    # Optional PNG export
+    if args.png:
+        png_path = Path(args.png_out) if args.png_out else (out.with_suffix('.png'))
+        try:
+            # Prefer vl-convert if available
+            method = None
+            try:
+                import vl_convert  # type: ignore
+                method = 'vl-convert'
+            except Exception:
+                method = None
+            if method is None:
+                # Fallback to selenium if installed
+                method = 'selenium'
+            dashboard.save(str(png_path), format='png', method=method, scale_factor=2)
+            print(f'[OK] PNG export -> {png_path} (method={method})')
+        except Exception as e:
+            print(f'[WARN] No se pudo exportar PNG de Altair: {e}. Instala altair_saver y vl-convert-python o selenium dentro del contenedor.')
 
 
 if __name__ == '__main__':

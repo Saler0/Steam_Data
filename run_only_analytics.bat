@@ -504,7 +504,7 @@ rem Generar dashboards Altair (original vs estacionaria + métricas) por APPID d
 echo [INFO] Generando dashboards Altair por APPID del subset...
 for %%I in (!APPID_LIST!) do (
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics python scripts/plot_ccf_altair.py --config configs/ccf_subset.yaml --appid %%I
+      exec -w /app/Data_analytics analytics python scripts/plot_ccf_altair.py --config configs/ccf_subset.yaml --appid %%I --png
     if errorlevel 1 goto :neighbors_failed
 )
 
@@ -703,7 +703,7 @@ if errorlevel 1 goto :offline_failed
 
 rem Generar dashboards Altair para TODOS los appids
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "set -e; while IFS= read -r A; do [ -z \"$A\" ] && continue; python scripts/plot_ccf_altair.py --config configs/ccf_analysis.yaml --appid \"$A\" || exit 1; done < outputs/tmp_all_appids.txt"
+  exec -w /app/Data_analytics analytics bash -lc "set -e; while IFS= read -r A; do [ -z \"$A\" ] && continue; python scripts/plot_ccf_altair.py --config configs/ccf_analysis.yaml --appid \"$A\" --png || exit 1; done < outputs/tmp_all_appids.txt"
 if errorlevel 1 goto :offline_failed
 
 rem Generar PNGs de series para TODOS los appids
