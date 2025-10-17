@@ -36,30 +36,30 @@ def export_topics_summary(path_in: str = 'outputs/events/enriched_events_with_to
     try:
         from sqlalchemy import create_engine  # type: ignore
     except Exception:
-        print('[WARN] sqlalchemy no instalada. Omitiendo export a Postgres.')
-        sys.exit(0)
+        print('[ERROR] La dependencia "sqlalchemy" no está instalada. Omitiendo export a Postgres.')
+        sys.exit(1)
 
     uri = _resolve_uri()
     if not uri:
-        print('[INFO] Postgres no configurado; omitiendo export de topics_summary')
-        sys.exit(0)
+        print('[ERROR] La conexión a Postgres no está configurada. Asegúrate de que tu fichero .env contiene las variables POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD y POSTGRES_DB.')
+        sys.exit(1)
 
     p = Path(path_in)
     if not p.exists():
-        print(f'[INFO] No existe {p}; omitiendo export de topics_summary')
-        sys.exit(0)
+        print(f'[ERROR] No se encontró el archivo de entrada {p}. Omitiendo export de topics_summary.')
+        sys.exit(1)
 
     df = _read_any(p)
     if df.empty or 'topics_summary' not in df.columns:
-        print('[INFO] Dataset vacío o sin columna topics_summary; omitiendo export')
-        sys.exit(0)
+        print('[ERROR] El fichero de entrada está vacío o no contiene la columna "topics_summary". No se puede exportar a Postgres.')
+        sys.exit(1)
 
     # Columnas mínimas para exportar
     cols = ['appid', 'year_month', 'topics_summary']
     missing = [c for c in ['appid', 'year_month'] if c not in df.columns]
     if missing:
-        print(f"[INFO] Faltan columnas requeridas {missing}; omitiendo export")
-        sys.exit(0)
+        print(f"[ERROR] Faltan columnas requeridas en el fichero de entrada: {missing}. Omitiendo export.")
+        sys.exit(1)
     out = df[cols].copy()
     out['appid'] = out['appid'].astype(str)
 

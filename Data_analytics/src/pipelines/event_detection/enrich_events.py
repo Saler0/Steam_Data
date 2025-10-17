@@ -453,6 +453,15 @@ def main():
             print(f"[OK] Explicaciones de eventos guardadas en -> {out_path}")
         else:
             print("[WARN] No se generaron explicaciones. Creando fichero vacío.")
+            out_path = outdir / 'explanations.parquet'
+            empty_df = pd.DataFrame({
+                'appid': pd.Series(dtype='str'),
+                'year_month': pd.Series(dtype='datetime64[ns]'),
+                'variable': pd.Series(dtype='str'),
+                'direction': pd.Series(dtype='str'),
+            })
+            write_parquet_any(empty_df, out_path)
+            print(f"[INFO] Creado fichero de explicaciones vacío en -> {out_path}")
             mlflow.log_metric("events_enriched", 0)
 
 if __name__ == "__main__":

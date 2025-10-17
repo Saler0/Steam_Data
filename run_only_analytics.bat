@@ -468,8 +468,7 @@ rem (Opcional) Generar columna topics_summary legible a partir de 'topics'
 if "!RUN_TOPICS_SUMMARY!"=="1" (
   echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then set -a; source <(sed 's/\r$//' .env); set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
-  if errorlevel 1 goto :neighbors_failed
+    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/topics.parquet ]; then set -a; source <(sed 's/\r$//' .env); set +a; python scripts/summarize_topics_column.py --in outputs/events/topics.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe topics.parquet; omitiendo resumen de topics.'; fi"
   rem Exportar topics_summary a Postgres si existe y hay conexión
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python scripts/export_topics_summary_to_postgres.py"

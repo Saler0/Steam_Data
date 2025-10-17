@@ -395,6 +395,20 @@ def main():
                 print(f"[WARN] Emparejamiento de picos falló: {e}")
         else:
             print("[WARN] No se detectaron eventos. Creando fichero vacío.")
+            out_path = Path(cfg.get('output_dir', 'outputs/events')) / 'events.parquet'
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            empty_df = pd.DataFrame({
+                'year_month': pd.Series(dtype='datetime64[ns]'),
+                'variable': pd.Series(dtype='str'),
+                'direction': pd.Series(dtype='str'),
+                'zscore': pd.Series(dtype='float'),
+                'value': pd.Series(dtype='float'),
+                'growth_rate': pd.Series(dtype='float'),
+                'appid': pd.Series(dtype='str'),
+                'event_id': pd.Series(dtype='str')
+            })
+            write_parquet_any(empty_df, out_path)
+            print(f"[INFO] Creado fichero de eventos vacío en -> {out_path}")
             mlflow.log_metric("total_games_analyzed", len(all_appids))
             mlflow.log_metric("events_detected", 0)
 

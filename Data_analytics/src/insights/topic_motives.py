@@ -148,7 +148,7 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             if topic_rows:
                 result = {
                     'appid': str(appid),
-                    'event_year_month': event_date,
+                    'year_month': event_date,
                     'topics': topic_rows
                 }
                 all_topics_results.append(result)
