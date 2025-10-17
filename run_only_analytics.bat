@@ -872,14 +872,14 @@ if defined EMB_MODEL set "TRAIN_ARGS=!TRAIN_ARGS! --embedding-model !EMB_MODEL!"
 if defined CV_K set "TRAIN_ARGS=!TRAIN_ARGS! --cv !CV_K!"
 
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics python src/insights/train_news_classifier_auto.py !TRAIN_ARGS!
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_train_auto
 if errorlevel 1 (
     echo [ERROR] Falló al entrenar el SVM de noticias. Asegúrate de haber generado outputs/events/news_classified.parquet primero (news_classifier).
     pause
     endlocal
     exit /b 1
 )
-echo [OK] Modelos entrenados. Mejor guardado en models/news_best.joblib
+echo [OK] Modelos entrenados via DVC. Mejor guardado en models/news_best.joblib
 if "!USE_SVM!"=="1" (
     echo [INFO] Flag use-svm activo: el subset usará provider=svm con models/news_best.joblib
 )
