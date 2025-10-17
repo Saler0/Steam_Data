@@ -12,9 +12,9 @@ input_path:
 
 mongo_connection:
   # Conexión a MongoDB para obtener los datos de las reseñas (positivas/negativas).
-  uri: ${MONGO_URI:-mongodb://localhost:27017}
-  database: ${MONGO_DB_REVIEWS:-steam}
-  collection: ${MONGO_COLL_REVIEWS:-reviews}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
 
 players_data:
   # Configuración para cargar los datos de jugadores activos.
@@ -86,9 +86,9 @@ ccf_pairs:
   
   # ¿Afecta el crecimiento de jugadores al de reseñas NEGATIVAS?
   - {predictor: "players", target: "neg", name: "players_vs_negative_reviews"}
-  
-  # Ejemplo de otro par opcional
-  - {predictor: "pos", target: "neg", name: "positive_vs_negative_reviews"}
+
+  # ¿Afecta el crecimiento de jugadores al volumen total de reseñas?
+  - {predictor: "players", target: "total_reviews", name: "players_vs_total_reviews"}
 
 # Número máximo de meses de desfase (hacia adelante y atrás) a comprobar en la CCF.
 ccf_lags: 6
@@ -121,3 +121,16 @@ mlflow:
   enabled: true
   experiment: "Steam Analytics"
   run_name_prefix: "ccf_analysis_"
+
+# -----------------------------------------------------------------------------
+# Modo de estudio de eventos (peaks/drops) para series cortas
+# -----------------------------------------------------------------------------
+event_mode:
+  enabled: true           # activa el análisis de lead–lag corto por eventos
+  z_threshold: 2.0        # umbral z para detectar picos de players (t0)
+  window_months: 2        # ventana ± meses alrededor de t0
+  max_lag_event: 2        # lags en [-max_lag_event, +max_lag_event]
+  permutations: 500       # permutaciones para p-value robusto en ventana
+  alpha_event: 0.10       # nivel para señales débiles
+  min_drop_1m: -0.15      # caída relativa mínima a 1 mes para marcar patrón
+  use_negative_pct: true  # usar % de reseñas negativas (en lugar de conteo)

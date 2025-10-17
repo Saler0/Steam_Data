@@ -13,9 +13,14 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from typing import Dict, Any, List
 import os
+import sys
+import re
 from multiprocessing import Pool, cpu_count
 import mlflow
 from typing import Optional
+
+# Ensure project root is importable
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 # Importaciones de utilidades del proyecto
 from src.utils.io import read_parquet_any, write_parquet_any, makedirs_if_local
@@ -58,7 +63,7 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
     
     mongo_cfg = cfg.get('mongo_connection', {})
 
-    for (_, year_month), event_group in group.groupby(group.index):
+    for year_month, event_group in group.groupby('year_month'):
         event_date = pd.Timestamp(year_month)
         window = int(topic_cfg.get('window_months', 2))
         start_date = event_date - pd.DateOffset(months=window)
@@ -74,6 +79,11 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             random.seed(42)
             reviews = random.sample(reviews, max_docs)
         
+        # Asegurar mínimo de documentos acorde a min_df del vectorizador
+        min_df_cfg = int(topic_cfg.get('min_df', 5))
+        if len(reviews) < min_df_cfg:
+            print(f"  -> No hay suficientes reseñas ({len(reviews)}) para modelar tópicos.")
+            continue
         if len(reviews) < topic_model.min_topic_size:
             print(f"  -> No hay suficientes reseñas ({len(reviews)}) para modelar tópicos.")
             continue
@@ -85,8 +95,36 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             top_n = topic_cfg.get('top_n_topics', 3)
             main_topics = topic_info[topic_info.Topic != -1].head(top_n)
 
+            # Opcional: adjuntar documentos representativos sin duplicados (por ponderación)
+            want_docs = bool(topic_cfg.get('attach_top_docs', True))
+            top_docs_k = int(topic_cfg.get('top_docs_per_topic', 3))
+
             # Calcular coherencia C_v si Gensim está disponible
             topic_rows = main_topics.to_dict(orient='records') if not main_topics.empty else []
+            if want_docs and topic_rows:
+                try:
+                    for row in topic_rows:
+                        tid = int(row.get('Topic')) if row.get('Topic') is not None else None
+                        if tid is None or tid < 0:
+                            row['top_docs'] = []
+                            continue
+                        reps = topic_model.get_representative_docs(tid) or []
+                        # Deduplicar preservando orden por contenido exacto
+                        seen = set()
+                        unique_docs = []
+                        for doc in reps:
+                            d = str(doc)
+                            if d in seen:
+                                continue
+                            seen.add(d)
+                            unique_docs.append(d)
+                            if len(unique_docs) >= top_docs_k:
+                                break
+                        row['top_docs'] = unique_docs
+                except Exception:
+                    # Si no se puede calcular representativos, omitir sin romper flujo
+                    for row in topic_rows:
+                        row.setdefault('top_docs', [])
             if GENSIM_AVAILABLE and topic_rows:
                 try:
                     analyzer = vectorizer_model.build_analyzer()
@@ -110,7 +148,7 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
             if topic_rows:
                 result = {
                     'appid': str(appid),
-                    'event_year_month': event_date,
+                    'year_month': event_date,
                     'topics': topic_rows
                 }
                 all_topics_results.append(result)
@@ -188,16 +226,65 @@ def load_reviews_for_window(appid: str, start_date: pd.Timestamp, end_date: pd.T
         out.extend([text] * w)
     return out
 
+def resolve_env_vars(config):
+    """Resuelve ${VAR:-default} en un diccionario de configuración.
+
+    - Usa el valor de entorno si está definido y no es cadena vacía.
+    - En caso contrario, usa el default provisto (si existe) o "".
+    """
+    pattern = re.compile(r"\${([^}]+)}")
+
+    def _replace_one(s: str) -> str:
+        m = pattern.search(s)
+        if not m:
+            return s
+        expr = m.group(1)
+        if ':-' in expr:
+            var_name, default = expr.split(':-', 1)
+        else:
+            var_name, default = expr, ''
+        env_val = os.environ.get(var_name)
+        value = env_val if env_val not in (None, '') else default
+        return s[: m.start()] + value + s[m.end():]
+
+    out = {}
+    for key, value in config.items():
+        if isinstance(value, str):
+            prev = None
+            cur = value
+            while prev != cur:
+                prev = cur
+                cur = _replace_one(cur)
+            out[key] = cur
+        elif isinstance(value, dict):
+            out[key] = resolve_env_vars(value)
+        else:
+            out[key] = value
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = resolve_env_vars(cfg)
     
-    # Iniciar MLflow
-    if not cfg['mlflow']['enabled']: os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null' 
-    with mlflow.start_run(run_name=f"{cfg['mlflow'].get('run_name_prefix', '')}bertopic_analysis"):
-        mlflow.log_dict(cfg, "config.yaml")
+    # Iniciar MLflow: respetar enabled/experiment/run_name_prefix y registrar config
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+    with mlflow.start_run(run_name=f"{run_name_prefix}bertopic_analysis"):
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
 
         outdir = Path(cfg.get('output_dir', 'outputs/events'))
         events_path = outdir / 'events.parquet'
@@ -228,7 +315,7 @@ def main():
         elif parallel_mode == 'ray' and RAY_AVAILABLE:
             print("[INFO] Usando Ray para paralelización distribuida.")
             if not ray.is_initialized(): ray.init()
-            futures = [_process_event_group_ray.remote(appid, group, cfg) for appid, group in processing_args]
+            futures = [_process_event_group_ray.remote(appid, group, cfg) for appid, group in event_groups]
             results = ray.get(futures)
             all_topics_results = [item for sublist in results for item in sublist]
         else: # Modo secuencial

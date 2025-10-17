@@ -10,11 +10,13 @@ python-dateutil>=2.9
 pyspark>=3.5.0 
 tqdm>=4.66          # Para barras de progreso en la terminal
 requests>=2.32      # Para hacer llamadas a APIs externas (Twitch, YouTube, LLM)
-dvc 
+dvc
+
 # --- Conectores de Datos ---
 pymongo>=4.6        # Para conectar con MongoDB
 gcsfs>=2024.6.0     # Para conectar con Google Cloud Storage (opcional)
 fsspec>=2024.6.0    # Dependencia de gcsfs
+psycopg2-binary
 
 # --- Machine Learning y NLP ---
 scikit-learn>=1.4   # Para KMeans y otras utilidades de ML

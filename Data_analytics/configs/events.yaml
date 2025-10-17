@@ -9,22 +9,52 @@
 # Directorios de salida para los artefactos generados por el pipeline.
 output_dir: outputs/events
 reports_output_dir: "outputs/reports"
-backend: python  # opciones: python | spark
+backend: python # opciones: python | spark
 
 # Entradas para el reporte final
 embeddings_parquet: data/processed/embeddings/
 clusters_parquet: data/processed/clusters.parquet
 metadata_parquet: data/processed/game_metadata.parquet
 
+# Parámetros de Similitud
 neighbors_top_k: 15
 neighbors_same_cluster_only: true
 neighbors_min_similarity: 0.4
 
+# --- CONFIGURACIÓN DE CONEXIONES Y RUTAS DE DATOS ---
 # Conexión a Mongo para leer reseñas de texto en BERTopic (topics)
 mongo_connection:
   uri: ${MONGO_URI:-mongodb://mongo:27017}
   database: ${MONGO_DB_REVIEWS:-exploitation_zone}
   collection: ${MONGO_COLL_REVIEWS:-steam_reviews}
+
+# Configuración para obtener información sobre los DLCs (Contenido Descargable).
+# Esta sección se usa en el script `dlcs.py`.
+dlc:
+  enabled: true
+  mongo_connection:
+    # URL de conexión a la base de datos de MongoDB.
+    uri: ${MONGO_URI:-mongodb://mongo:27017}
+    database: ${MONGO_DB_GAMES:-exploitation_zone}
+    collection: ${MONGO_COLL_GAMES:-juegos_steam}
+
+# CONFIGURACIÓN DE MONGO PARA NOTICIAS
+# Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
+mongodb:
+  uri: ${MONGO_URI:-mongodb://mongo:27017}
+  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
+  collection_name: ${MONGO_COLL_NEWS:-news_games}
+
+# Preagregados mensuales opcionales (para escala)
+preaggregated:
+  reviews_monthly: data/warehouse/reviews_monthly.parquet
+  players_monthly: data/warehouse/players_monthly.parquet
+
+# Ruta de tópicos para el clasificador de noticias si se usa
+topics_input_path: outputs/events/topics.parquet
+
+# Filtro opcional por clúster para limitar el alcance del pipeline de eventos (ej. [42])
+cluster_filter: []
 
 # --- Ejemplos en lago de objetos ---
 # GCS:
@@ -33,6 +63,8 @@ mongo_connection:
 # embeddings_parquet: gs://mi-bucket-steam/processed/embeddings/
 # clusters_parquet: gs://mi-bucket-steam/processed/clusters.parquet
 # metadata_parquet: gs://mi-bucket-steam/processed/game_metadata.parquet
+# reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
+# players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
 
 # S3 (pandas requiere s3fs; Spark usar s3a://):
 # output_dir: s3://mi-bucket-steam/outputs/events
@@ -40,8 +72,15 @@ mongo_connection:
 # embeddings_parquet: s3://mi-bucket-steam/processed/embeddings/
 # clusters_parquet: s3://mi-bucket-steam/processed/clusters.parquet
 # metadata_parquet: s3://mi-bucket-steam/processed/game_metadata.parquet
+# reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
+# players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
 
-# --- CONFIGURACIÓN DE PARALELIZACIÓN ---
+
+# ----------------------------------------------------------------------------
+# --- CONFIGURACIÓN DE OPERACIÓN Y EJECUCIÓN ---
+# ----------------------------------------------------------------------------
+
+# CONFIGURACIÓN DE PARALELIZACIÓN
 # Controla cómo se distribuye la carga de trabajo de la detección de eventos
 # entre los diferentes núcleos de la CPU.
 parallelization:
@@ -59,62 +98,39 @@ ray_cluster:
   # La dirección del 'head node' del clúster de Ray.
   # 'auto' intenta conectarse a un clúster local, o a uno ya iniciado en la red.
   # También puedes especificar una dirección IP específica (ej. 'ray://<IP>:10001').
-  address: "auto"
+  address: "local" # opciones: "auto" | "local" | "ray://<IP>:10001"
 
-# --- PARÁMETROS DE DETECCIÓN DE EVENTOS ---
+# CONFIGURACIÓN DE MLflow
+# Controla el seguimiento de experimentos, modelos y artefactos.
+mlflow:
+  enabled: true
+  # Nombre del experimento en MLflow.
+  experiment: "Steam Analytics"
+  # Prefijo para el nombre de las ejecuciones.
+  run_name_prefix: "eventos_detect" 
+
+
+# ----------------------------------------------------------------------------
+# --- PARÁMETROS CENTRALES DEL PIPELINE ---
+# ----------------------------------------------------------------------------
+
+# PARÁMETROS DE DETECCIÓN DE EVENTOS
 # Controla el corazón del script `detect_events.py`, que identifica picos y caídas.
 detection:
   # El umbral de z-score para que un pico/caída sea considerado un "evento".
   # Un z-score de 1.5 significa que el cambio es 1.5 desviaciones estándar
   # por encima o por debajo de la media. Un valor más alto (ej. 3.0) hace
   # el detector menos sensible, y solo marca cambios más anómalos.
-  zscore_threshold: 1.5
+  zscore_threshold: 1.4
 
-# --- FUENTES DE DATOS EXTERNAS (SEÑALES) PARA ENRIQUECIMIENTO ---
-# Define la configuración para obtener datos que se usarán para contextualizar
-# los eventos detectados. Estos datos se gestionan por scripts como
-# `fetch_signals_for_event.py`.
-signals:
-  # Configuración para los datos de la plataforma de streaming Twitch.
-  twitch:
-    # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
-    # 'api': Llama a la API de Twitch para obtener datos en tiempo real.
-    mode: "file"
-    # Credenciales para la API de Twitch. Se recomienda usar variables de entorno
-    # para no exponer datos sensibles.
-    client_id: ${TWITCH_CLIENT_ID}
-    client_secret: ${TWITCH_CLIENT_SECRET}
-    # Ruta al archivo de datos de Twitch cuando el modo es 'file'.
-    file: "data/external/twitch/monthly_{appid}.csv"
-    # Directorio de caché si el modo es 'api'.
-    api_cache_dir: "data/external/twitch/api_cache"
-  
-  # Configuración para los datos de la plataforma de videos YouTube.
-  youtube:
-    mode: "file"
-    # Clave de la API de YouTube. Se recomienda usar una variable de entorno.
-    api_key: ${YOUTUBE_API_KEY}
-    file: "data/external/youtube/monthly_{appid}.csv"
-    api_cache_dir: "data/external/youtube/api_cache"
-  
-  # Configuración para los datos de noticias/actualizaciones de Steam.
-  # Gestionado por el script `steam_updates.py`.
-  steam_updates:
-    mode: "file"
-    file: "data/external/changelogs/{appid}.json"
+# Ventanas de emparejamiento de picos (opcional)
+pairing:
+  lags_months: [1, 2]
 
-# Configuración para obtener información sobre los DLCs (Contenido Descargable).
-# Esta sección se usa en el script `dlcs.py`.
-dlc:
-  enabled: true
-  mongo_connection:
-    # URL de conexión a la base de datos de MongoDB.
-    uri: ${MONGO_URI:-mongodb://mongo:27017}
-    database: ${MONGO_DB_GAMES:-exploitation_zone}
-    collection: ${MONGO_COLL_GAMES:-juegos_steam}
-
-# --- CONFIGURACIÓN DEL MODELADO DE TÓPICOS (BERTopic) ---
+# CONFIGURACIÓN DEL MODELADO DE TÓPICOS (BERTopic)
 # Parámetros para el script que realiza el modelado de tópicos.
+# Modelado de tópicos (BERTopic). La ponderación replica textos para entrenar,
+# pero los "top_docs" presentados se deduplican en topic_motives.py.
 bertopic:
   # El modelo de embedding usado para convertir texto en vectores.
   embedding_model: 'all-MiniLM-L6-v2'
@@ -129,75 +145,95 @@ bertopic:
   # Ponderación opcional por votos de utilidad en reseñas
   weighting:
     enabled: true
-    method: log2   # opciones: log2 | log10 | log1p
-    cap: 5         # máximo de repeticiones por reseña
-    min_len: 100   # longitud mínima del texto a considerar
+    method: log2 # opciones: log2 | log10 | log1p
+    cap: 5       # máximo de repeticiones por reseña
+    min_len: 100 # longitud mínima del texto a considerar
   # Límite de documentos por evento (tras ponderación)
   max_docs_per_event: 20000
 
-# Preagregados mensuales opcionales (para escala)
-preaggregated:
-  reviews_monthly: data/warehouse/reviews_monthly.parquet
-  players_monthly: data/warehouse/players_monthly.parquet
-
-  # Ejemplos en lago de objetos:
-  # GCS:
-  # reviews_monthly: gs://mi-bucket-steam/warehouse/reviews_monthly.parquet
-  # players_monthly: gs://mi-bucket-steam/warehouse/players_monthly.parquet
-  # S3:
-  # reviews_monthly: s3://mi-bucket-steam/warehouse/reviews_monthly.parquet
-  # players_monthly: s3://mi-bucket-steam/warehouse/players_monthly.parquet
-
-# --- CONFIGURACIÓN DEL CLASIFICADOR (LLM) ---
-# Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
-# Esta sección es usada por el script `news_classifier.py`.
-llm:
-  # Activa o desactiva el uso del LLM en el pipeline.
-  enabled: true
-  # Identificador del modelo que se pasa a la API del servidor.
-  model_id: "local-llm"
-  # URL del servidor donde corre el LLM (por ejemplo, una instancia de vLLM, Ollama, etc.).
-  server_url: "http://localhost:8000/v1/chat/completions"
-  # Máximo número de tokens a generar por el modelo en cada respuesta.
-  max_new_tokens: 128
-  # Controla la aleatoriedad de la respuesta. Un valor bajo (ej. 0.1) produce
-  # respuestas más deterministas y consistentes.
-  temperature: 0.1
-  # Número máximo de hilos para clasificar títulos de noticias en paralelo
-  max_workers: 8
-  # La taxonomía de categorías que el LLM usará para etiquetar los tópicos de BERTopic.
-  taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
-  # Las categorías que el LLM usará para clasificar las noticias de Steam.
-  news_labels: ["patch","marketing","community","other"]
-  # Nombre del experimento de MLflow para esta etapa.
-  mlflow_experiment: "news_topics_classification"
-
-# Ruta de tópicos para el clasificador de noticias si se usa
-topics_input_path: outputs/events/topics.parquet
-
-# --- CONFIGURACIÓN DE MLflow ---
-# Controla el seguimiento de experimentos, modelos y artefactos.
-mlflow:
-  enabled: true
-  # Nombre del experimento en MLflow.
-  experiment: "Steam Analytics"
-  # Prefijo para el nombre de las ejecuciones.
-  run_name_prefix: "eventos_detect" 
-
-# Filtro opcional por clúster para limitar el alcance del pipeline de eventos (ej. [42])
-cluster_filter: []
-
-# --- CONFIGURACIÓN DE MONGO PARA NOTICIAS ---
-# Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
-mongodb:
-  uri: ${MONGO_URI:-mongodb://mongo:27017}
-  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
-  collection_name: ${MONGO_COLL_NEWS:-news_games}
-
-# --- CONFIGURACIÓN DE SCORING DE TÓPICOS (CCF) ---
+# CONFIGURACIÓN DE SCORING DE TÓPICOS (CCF)
 # Controla cómo se etiqueta la relevancia y cómo penalizar polaridad negativa/mixta
 topics_scoring:
-  high_z: 2.0              # umbral alto para marcar 'high'
-  penalize_negative: true  # degradar si la polaridad es negativa
-  penalize_mixed: true     # degradar si la polaridad es mixta
-  degrade_levels: 1        # niveles a degradar (1: high->medium, medium->low)
+  high_z: 2.0           # umbral alto para marcar 'high'
+  penalize_negative: true # degradar si la polaridad es negativa
+  penalize_mixed: true    # degradar si la polaridad es mixta
+  degrade_levels: 1       # niveles a degradar (1: high->medium, medium->low)
+
+
+# ----------------------------------------------------------------------------
+# --- CONFIGURACIÓN DE LLM Y ENRIQUECIMIENTO DE DATOS ---
+# ----------------------------------------------------------------------------
+
+# CONFIGURACIÓN DEL CLASIFICADOR (LLM)
+# Parámetros para la clasificación de noticias y etiquetado de tópicos con un LLM.
+# Esta sección es usada por el script `news_classifier.py`.
+# Clasificador de noticias/tópicos. Si existe configs/llm_override.yaml
+# (generado por el stage news_model_select), se forzará provider/model_path
+# con el mejor modelo local entrenado; si no, se usa este provider.
+llm:
+  enabled: true
+  # Proveedor del LLM: "deepseek" usa la REST API de DeepSeek (requiere DEEPSEEK_API_KEY)
+  provider: "deepseek"
+  # Modelo a usar con DeepSeek
+  model_id: "deepseek-chat"
+  # Clasificación en lotes para reducir coste/latencia
+  batch_size: 20
+  # Extraer palabras clave por noticia
+  keywords_enabled: true
+  keywords_max: 6
+  # Usar también el campo 'contents' como contexto (si existe)
+  use_contents: false
+
+  # Alternativa sin tokens: clasificador local (SVM) entrenado con etiquetas del LLM
+  # Para usarlo, cambia provider: "svm" y asegúrate de entrenar el modelo (stage news_train)
+  # provider: "svm"
+  # model_path: models/news_svm.joblib
+  # Nombre de la variable de entorno para el API key (por defecto DEEPSEEK_API_KEY)
+  api_key_env: ${LLM_API_KEY_ENV:-DEEPSEEK_API_KEY}
+  # Base URL opcional (permite proxys o pass-through). Por defecto api.deepseek.com/v1
+  base_url: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+  # Alternativamente, si quieres usar un servidor local, especifica server_url y quita provider/api_key
+  # server_url: "http://localhost:8000/v1/chat/completions"
+  max_new_tokens: 128
+  temperature: 0.1
+  max_workers: 8
+  taxonomy: ["bugs","performance","balance","price","ux","story","multiplayer","endgame","innovation","content","qa/support"]
+  news_labels: ["patch","marketing","community","other"]
+  mlflow_experiment: "news_topics_classification"
+
+
+# FUENTES DE DATOS EXTERNAS (SEÑALES) PARA ENRIQUECIMIENTO
+# Define la configuración para obtener datos que se usarán para contextualizar
+# los eventos detectados. Estos datos se gestionan por scripts como
+# `fetch_signals_for_event.py`.
+signals:
+  # Margen de meses alrededor de cada pico para consultar señales externas.
+  # Ej.: 1 incluye el mes anterior y el siguiente al evento.
+  context_months: 1
+  # Configuración para los datos de la plataforma de streaming Twitch.
+  twitch:
+    # 'file': Lee los datos desde un archivo CSV local, ideal para pruebas.
+    # 'api': Llama a la API de Twitch para obtener datos en tiempo real.
+    mode: "api"
+    # Credenciales para la API de Twitch. Se recomienda usar variables de entorno
+    # para no exponer datos sensibles.
+    client_id: ${TWITCH_CLIENT_ID}
+    client_secret: ${TWITCH_CLIENT_SECRET}
+    # Ruta al archivo de datos de Twitch cuando el modo es 'file'.
+    file: "data/external/twitch/monthly_{appid}.csv"
+    # Directorio de caché si el modo es 'api'.
+    api_cache_dir: "data/external/twitch/api_cache"
+  
+  # Configuración para los datos de la plataforma de videos YouTube.
+  youtube:
+    mode: "api"
+    # Clave de la API de YouTube. Se recomienda usar una variable de entorno.
+    api_key: ${YOUTUBE_API_KEY}
+    file: "data/external/youtube/monthly_{appid}.csv"
+    api_cache_dir: "data/external/youtube/api_cache"
+  
+  # Configuración para los datos de noticias/actualizaciones de Steam.
+  # Gestionado por el script `steam_updates.py`.
+  steam_updates:
+    mode: "file"
+    file: "data/external/changelogs/{appid}.json"
