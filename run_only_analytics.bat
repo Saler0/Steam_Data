@@ -853,7 +853,7 @@ echo Entrenando clasificadores de noticias (multi-modelo, selección automática
 echo ============================
 rem Asegurar dataset de entrenamiento con etiquetas (si no existe, clasificar en batch con LLM actual)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "python -c 'import sys, pathlib, subprocess; p=pathlib.Path("outputs/events/news_classified.parquet");\nif not p.exists():\n    print("[INFO] news_classified.parquet no existe. Ejecutando clasificación batch con LLM para generarlo...");\n    sys.exit(subprocess.run(["python","src/insights/news_classifier.py","--config","configs/events.yaml"]).returncode)\nprint("[OK] Dataset de entrenamiento existente: outputs/events/news_classified.parquet")'"
+  exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; if [ ! -f outputs/events/news_classified.parquet ]; then echo '[INFO] news_classified.parquet no existe. Ejecutando news_classifier via DVC...'; dvc repro -q --single-item news_classifier || exit 1; else echo '[OK] Dataset de entrenamiento existente: outputs/events/news_classified.parquet'; fi"
 if errorlevel 1 (
     if not defined CV_K set "CV_K=5"
     echo [ERROR] No se pudo generar outputs/events/news_classified.parquet. Revisa credenciales del LLM o la config.
