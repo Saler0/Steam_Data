@@ -880,6 +880,11 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [OK] Modelos entrenados via DVC. Mejor guardado en models/news_best.joblib
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics dvc repro -q --single-item news_train_plots
+if errorlevel 1 (
+    echo [WARN] No se pudieron generar los plots de modelos.
+)
 if "!USE_SVM!"=="1" (
     echo [INFO] Flag use-svm activo: el subset usará provider=svm con models/news_best.joblib
 )
