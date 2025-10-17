@@ -24,7 +24,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -244,7 +244,8 @@ def build_review_segments(
     reviews['appid'] = reviews['appid'].astype(str)
     if 'review_date' not in reviews.columns:
         raise SystemExit("El dataset de resenas debe contener 'review_date'.")
-    reviews['review_date'] = reviews['review_date'].apply(_parse_datetime)
+    # Normaliza timestamps a naive UTC para evitar comparaciones tz-aware vs tz-naive
+    reviews['review_date'] = pd.to_datetime(reviews['review_date'], errors='coerce', utc=True).dt.tz_localize(None)
     reviews = reviews.dropna(subset=['review_date'])
 
     if 'experience_label' in reviews.columns:
@@ -288,7 +289,7 @@ def build_review_segments(
             ym = event.get('year_month')
             if ym:
                 try:
-                    peak_dt = pd.to_datetime(str(ym), utc=True).to_pydatetime()
+                    peak_dt = pd.to_datetime(str(ym)).to_pydatetime()
                 except Exception:
                     peak_dt = None
         if peak_dt is None:

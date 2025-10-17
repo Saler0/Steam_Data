@@ -153,25 +153,44 @@ def _load_reviews_from_mongo(cfg: Dict[str, Any]) -> pd.DataFrame:
         limit = None
 
     client = MongoClient(uri)
+    processed_chunks = []
     try:
-        cursor = client[database][collection].find(query, projection)
+        cursor = client[database][collection].find(query, projection, batch_size=5000)
         if limit:
             cursor = cursor.limit(limit)
-        rows = list(cursor)
+
+        rows_chunk = []
+        for row in cursor:
+            rows_chunk.append(row)
+            if len(rows_chunk) >= 5000:
+                df_chunk = pd.DataFrame(rows_chunk)
+                if "_id" in df_chunk.columns:
+                    df_chunk = df_chunk.drop(columns=["_id"])
+                if "author" in df_chunk.columns:
+                    author_df = pd.json_normalize(df_chunk["author"]).add_prefix("author_")
+                    df_chunk = df_chunk.drop(columns=["author"]).join(author_df)
+                processed_chunks.append(df_chunk)
+                rows_chunk = []
+
+        if rows_chunk:
+            df_chunk = pd.DataFrame(rows_chunk)
+            if "_id" in df_chunk.columns:
+                df_chunk = df_chunk.drop(columns=["_id"])
+            if "author" in df_chunk.columns:
+                author_df = pd.json_normalize(df_chunk["author"]).add_prefix("author_")
+                df_chunk = df_chunk.drop(columns=["author"]).join(author_df)
+            processed_chunks.append(df_chunk)
     finally:
         try:
             client.close()
         except Exception:
             pass
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    if "_id" in df.columns:
-        df = df.drop(columns=["_id"])
 
-    if "author" in df.columns:
-        author_df = pd.json_normalize(df["author"]).add_prefix("author_")
-        df = df.drop(columns=["author"]).join(author_df)
+    if not processed_chunks:
+        return pd.DataFrame()
+
+    df = pd.concat(processed_chunks, ignore_index=True)
+
 
     convert_numeric = [
         "timestamp_created",
@@ -274,6 +293,8 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     playtime_30d_col = next((col for col in playtime_30d_candidates if col and col in df.columns), None)
     if playtime_30d_col:
         df["playtime_since_review_30d"] = df[playtime_30d_col].apply(_safe_float)
+        if str(cfg.get("time_units", "minutes")).lower().startswith("min"):
+            df["playtime_since_review_30d"] = pd.to_numeric(df["playtime_since_review_30d"], errors="coerce") / 60.0
     else:
         df["playtime_since_review_30d"] = None
 
@@ -282,6 +303,10 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     review_col_name = heuristic_cfg.get("review_column") or "abandon_after_review"
     post_review_threshold = float(heuristic_cfg.get("post_review_minutes_threshold", 10.0))
     last_two_weeks_threshold = float(heuristic_cfg.get("last_two_weeks_threshold", post_review_threshold))
+
+    # Normalizar unidades a horas si las entradas vienen en minutos
+    time_units = str(cfg.get("time_units", "minutes")).lower()
+    to_hours = (time_units.startswith("min"))
 
     abandon_candidates = []
     configured_abandon = cfg.get("abandon_column")
@@ -292,13 +317,21 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     author_forever = df.get("author_playtime_forever")
     author_forever = author_forever.apply(_safe_float) if author_forever is not None else None
+    if to_hours and author_forever is not None:
+        author_forever = pd.to_numeric(author_forever, errors="coerce") / 60.0
     playtime_at_review_series = df.get("playtime_at_review")
+    if to_hours:
+        if playtime_at_review_series is not None:
+            playtime_at_review_series = (pd.to_numeric(playtime_at_review_series, errors="coerce") / 60.0)
+            df["playtime_at_review"] = playtime_at_review_series
     post_review_playtime = None
     if author_forever is not None and playtime_at_review_series is not None:
         post_review_playtime = (author_forever.fillna(0) - playtime_at_review_series.fillna(0)).clip(lower=0)
     last_two_weeks_series = None
     if "author_playtime_last_two_weeks" in df.columns:
         last_two_weeks_series = df["author_playtime_last_two_weeks"].apply(_safe_float).fillna(0)
+        if to_hours:
+            last_two_weeks_series = (pd.to_numeric(last_two_weeks_series, errors="coerce").fillna(0) / 60.0)
         if post_review_playtime is None:
             post_review_playtime = last_two_weeks_series
 
@@ -311,11 +344,12 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
             df["post_review_playtime"] = None
             review_series = general_series
         else:
-            df["post_review_playtime"] = post_review_playtime
+            # Convertir post_review_playtime a horas si procede
+            df["post_review_playtime"] = (post_review_playtime / 60.0) if (to_hours and post_review_playtime is not None) else post_review_playtime
             review_series = (post_review_playtime <= post_review_threshold).astype(bool)
         df[review_col_name] = review_series
     else:
-        df["post_review_playtime"] = post_review_playtime
+        df["post_review_playtime"] = (post_review_playtime / 60.0) if (to_hours and post_review_playtime is not None) else post_review_playtime
         if last_two_weeks_series is not None:
             general_series = (last_two_weeks_series <= last_two_weeks_threshold).astype(bool)
         elif post_review_playtime is not None:
@@ -350,7 +384,7 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     base_minutes = last_two_weeks_series if last_two_weeks_series is not None else post_review_playtime
     if base_minutes is not None:
-        minutes = base_minutes.fillna(0)
+        minutes = base_minutes.fillna(0) * (60.0 if not to_hours else 1.0)
         activity_segment = np.full(len(df), "muy_activo", dtype=object)
         mask = minutes <= inactive_minutes
         activity_segment[mask] = "inactivo"

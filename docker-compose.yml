@@ -52,6 +52,8 @@ services:
     env_file:
       - ./Data_management/.env # Carga las variables de entorno, incluidas las de PostgreSQL
     environment:
+      - SPARK_DRIVER_MEMORY=4g
+      - SPARK_EXECUTOR_MEMORY=4g
       - MONGO_URI=mongodb://mongo:27017 # Se mantiene la configuración de Mongo
       - MONGO_DB=trusted_zone
       - RUN_MODE=app
@@ -105,6 +107,8 @@ services:
       - gcp_secrets:/secrets:ro
       - mlflow_data:/mlruns
     command: ["/bin/bash", "-lc", "sleep infinity"]
+    # Aumentar memoria compartida para Ray (/dev/shm) y evitar que use /tmp
+    shm_size: "4g"
 
 volumes:
   mongo_data:

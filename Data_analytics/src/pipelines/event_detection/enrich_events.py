@@ -17,6 +17,8 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 import mlflow
+from src.utils.mlflow_utils import make_standard_run_name, set_standard_tags
+from src.utils.config_utils import expand_env_in_obj
 try:
     import ray
     RAY_AVAILABLE = True
@@ -26,22 +28,37 @@ from src.utils.io import read_parquet_any, write_parquet_any
 from src.ingestion.twitch import load_twitch_monthly
 from src.ingestion.youtube import load_youtube_monthly
 from src.ingestion.dlcs import load_dlcs_for_game
+import os
 
 def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
                             game_name: str | None,
                             news_counts_df: pd.DataFrame | None = None,
-                            topics_labels_df: pd.DataFrame | None = None) -> pd.DataFrame:
+                            topics_labels_df: pd.DataFrame | None = None,
+                            news_kw_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """Enriquece los eventos de un unico juego."""
     signals_cfg = cfg.get('signals', {})
     dlc_cfg = cfg.get('dlc', {})
     months_raw = pd.to_datetime(group['year_month'], errors='coerce').dropna().tolist()
     target_months: list = []
+    # Contexto adicional alrededor de cada pico (por ej., ±1 mes)
+    ctx_cfg = (cfg.get('signals') or {}).get('context_months', 0)
+    try:
+        context_months = int(ctx_cfg) if ctx_cfg is not None else 0
+    except Exception:
+        context_months = 0
+    months_set = set()
     for ts in months_raw:
-        if ts.tzinfo is None:
-            normalized = ts.tz_localize('UTC').to_period('M').to_timestamp(tz='UTC')
-        else:
-            normalized = ts.tz_convert('UTC').to_period('M').to_timestamp(tz='UTC')
-        target_months.append(normalized)
+        ts = pd.Timestamp(ts)
+        # Normalizar a mes (naive, sin tz) para consistencia
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert('UTC').tz_localize(None)
+        base = ts.to_period('M').to_timestamp()
+        months_set.add(base)
+        # Expandir margen ±N meses si está configurado
+        for k in range(1, max(0, context_months) + 1):
+            months_set.add((base - pd.DateOffset(months=k)).to_period('M').to_timestamp())
+            months_set.add((base + pd.DateOffset(months=k)).to_period('M').to_timestamp())
+    target_months = sorted(months_set)
     external_data = load_external_signals(
         appid,
         signals_cfg,
@@ -51,6 +68,15 @@ def _enrich_events_for_game(appid: str, group: pd.DataFrame, cfg: dict,
         news_counts_df=news_counts_df,
         topics_labels_df=topics_labels_df,
     )
+    # Adjuntar keywords de noticias si existen
+    if news_kw_df is not None and not news_kw_df.empty:
+        subkw = news_kw_df[news_kw_df['appid'].astype(str) == str(appid)].copy()
+        if not subkw.empty:
+            subkw['year_month'] = pd.to_datetime(subkw['year_month'])
+            ext_kw = subkw.set_index('year_month')
+            ext_kw = ext_kw[['news_keywords','news_patch_keywords']].copy()
+            external_data['news_kw'] = ext_kw
+
     explanations = enrich_group(group, external_data)
     return pd.DataFrame(explanations) if explanations else pd.DataFrame()
 
@@ -70,8 +96,9 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
     Retorna un dict con dataframes indexados por year_month cuando aplica.
     """
     ext: dict = {}
+    offline = os.getenv("ANALYTICS_OFFLINE", "0") == "1"
     # Twitch
-    tw_cfg = (signals_cfg or {}).get('twitch', {})
+    tw_cfg = (signals_cfg or {}).get('twitch', {}) if not offline else {}
     tw = load_twitch_monthly(appid, tw_cfg, target_months=target_months, game_name=game_name) if tw_cfg else None
     if tw is not None and not tw.empty:
         tw = tw.copy()
@@ -79,7 +106,7 @@ def load_external_signals(appid: str, signals_cfg: dict, dlc_cfg: dict,
         ext['twitch'] = tw.set_index('year_month')
 
     # YouTube
-    yt_cfg = (signals_cfg or {}).get('youtube', {})
+    yt_cfg = (signals_cfg or {}).get('youtube', {}) if not offline else {}
     yt = load_youtube_monthly(appid, yt_cfg, target_months=target_months, game_name=game_name) if yt_cfg else None
     if yt is not None and not yt.empty:
         yt = yt.copy()
@@ -125,6 +152,13 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
     g = group.copy()
     g['year_month'] = pd.to_datetime(g['year_month'])
 
+    # Precalcular picos por variable para reglas causales simples
+    try:
+        players_peaks = set(pd.to_datetime(g[(g['variable'] == 'players') & (g['direction'] == 'peak')]['year_month']))
+        pos_peaks = set(pd.to_datetime(g[(g['variable'].isin(['pos', 'positive'])) & (g['direction'] == 'peak')]['year_month']))
+    except Exception:
+        players_peaks, pos_peaks = set(), set()
+
     for _, ev in g.iterrows():
         ym = ev['year_month']
         rec = {
@@ -166,6 +200,22 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
                     except Exception:
                         pass
 
+        # Palabras clave de noticias (top-k agregadas por mes)
+        news_kw = external_data.get('news_kw')
+        if news_kw is not None and ym in news_kw.index:
+            try:
+                kws = news_kw.loc[ym, 'news_keywords'] if 'news_keywords' in news_kw.columns else None
+                if isinstance(kws, list) and kws:
+                    rec['news_keywords'] = [str(x) for x in kws if str(x).strip()][:10]
+            except Exception:
+                pass
+            try:
+                pk = news_kw.loc[ym, 'news_patch_keywords'] if 'news_patch_keywords' in news_kw.columns else None
+                if isinstance(pk, list) and pk:
+                    rec['news_patch_keywords'] = [str(x) for x in pk if str(x).strip()][:10]
+            except Exception:
+                pass
+
         # Tópicos etiquetados (lista de etiquetas)
         tlabels = external_data.get('topics_labels')
         if tlabels is not None and ym in tlabels.index:
@@ -176,6 +226,20 @@ def enrich_group(group: pd.DataFrame, external_data: dict) -> list[dict]:
                 # separar por coma si viene serializado
                 rec['topics_labels'] = [x.strip() for x in val.split(',') if x.strip()]
 
+        # Heurística causal: pico de players y pico de reseñas positivas con parche el mismo mes
+        try:
+            has_players_peak = ym in players_peaks
+            has_pos_peak = ym in pos_peaks
+            news_patch = int(rec.get('news_patch', 0)) if rec.get('news_patch') is not None else 0
+            if has_players_peak and has_pos_peak and news_patch > 0:
+                rec['possible_patch_cause'] = True
+                # Resumen breve usando keywords si están disponibles
+                kw = rec.get('news_patch_keywords') or rec.get('news_keywords') or []
+                if isinstance(kw, list) and kw:
+                    rec['patch_summary'] = ", ".join([str(x) for x in kw[:3]])
+        except Exception:
+            pass
+
         out.append(rec)
 
     return out
@@ -185,14 +249,40 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True, help="Ruta al fichero de configuración YAML.")
     args = ap.parse_args()
-    cfg = yaml.safe_load(open(args.config, 'r'))
+    cfg = expand_env_in_obj(yaml.safe_load(open(args.config, 'r')))
     
     parallel_mode = (cfg.get('parallelization', {}) or {}).get('mode', 'ray')
     if parallel_mode == 'ray' and RAY_AVAILABLE and not ray.is_initialized():
-        print("[INFO] Inicializando Ray...")
-        ray.init(address=cfg.get('ray_cluster', {}).get('address', 'auto'))
+        address = (cfg.get('ray_cluster', {}) or {}).get('address', 'auto')
+        try:
+            print("[INFO] Inicializando Ray...")
+            if address in (None, "", "local", "auto"):
+                ray.init()
+            else:
+                ray.init(address=address)
+        except Exception as e:
+            print(f"[WARN] No se pudo inicializar Ray ('{address}'): {e}. Fallback a ejecución local.")
+            # degradar el modo para el resto del script
+            parallel_mode = 'multiprocessing'
 
-    with mlflow.start_run(run_name=f"enrich_events"):
+    # Configure MLflow experiment and run name prefix
+    ml_cfg = (cfg.get('mlflow') or {})
+    if not ml_cfg.get('enabled', True):
+        os.environ['MLFLOW_TRACKING_URI'] = 'file:///dev/null'
+    else:
+        try:
+            exp_name = ml_cfg.get('experiment') or ml_cfg.get('experiment_name') or 'Default'
+            mlflow.set_experiment(exp_name)
+        except Exception as e:
+            print(f"[WARN] No se pudo configurar el experimento de MLflow: {e}")
+    run_name_prefix = ml_cfg.get('run_name_prefix', '')
+    run_name = make_standard_run_name(prefix=run_name_prefix, script_path=__file__)
+    with mlflow.start_run(run_name=run_name):
+        set_standard_tags(script_path=__file__, extra={"parallel_mode": parallel_mode})
+        try:
+            mlflow.log_dict(cfg, "config.yaml")
+        except Exception:
+            pass
         outdir = Path(cfg.get('output_dir', 'outputs/events'))
         outdir.mkdir(parents=True, exist_ok=True)
         events_path = outdir / 'events.parquet'
@@ -286,19 +376,62 @@ def main():
         except Exception as e:
             print(f"[WARN] No se pudo cargar/extraer topics etiquetados: {e}")
 
+        # --- Cargar keywords agregadas de noticias ---
+        news_kw_df = pd.DataFrame()
+        try:
+            news_path = outdir / 'news_classified.parquet'
+            if news_path.exists():
+                df_nc = read_parquet_any(news_path)
+                if not df_nc.empty and 'title' in df_nc.columns:
+                    tmp = df_nc.copy()
+                    tmp['appid'] = tmp['appid'].astype(str)
+                    if 'year_month' not in tmp.columns:
+                        if 'date' in tmp.columns:
+                            tmp['year_month'] = pd.to_datetime(tmp['date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
+                        else:
+                            tmp['year_month'] = pd.NaT
+                    # Explode keywords si existen
+                    if 'keywords' in tmp.columns:
+                        # Top-k por appid/mes y por etiqueta 'patch'
+                        def _topk(series, k=5):
+                            vc = series.value_counts()
+                            return [str(x) for x in vc.index.tolist()[:k]]
+                        # Todas
+                        all_kw = (tmp.explode('keywords')
+                                    .dropna(subset=['keywords'])
+                                    .groupby(['appid','year_month'])['keywords']
+                                    .apply(lambda s: _topk(s, 5))
+                                    .reset_index(name='news_keywords'))
+                        # Solo patch
+                        if 'label' in tmp.columns:
+                            patch_kw = (tmp[tmp['label'].astype(str).str.lower()=='patch']
+                                          .explode('keywords')
+                                          .dropna(subset=['keywords'])
+                                          .groupby(['appid','year_month'])['keywords']
+                                          .apply(lambda s: _topk(s, 5))
+                                          .reset_index(name='news_patch_keywords'))
+                        else:
+                            patch_kw = pd.DataFrame(columns=['appid','year_month','news_patch_keywords'])
+                        news_kw_df = pd.merge(all_kw, patch_kw, on=['appid','year_month'], how='left')
+        except Exception as e:
+            print(f"[WARN] No se pudieron agregar keywords de noticias: {e}")
+
         event_groups = events_df.groupby('appid')
         
         print(f"Enriqueciendo eventos para {len(event_groups)} juegos de forma paralela...")
-        if parallel_mode == 'ray' and RAY_AVAILABLE:
+        if parallel_mode == 'ray' and RAY_AVAILABLE and ray.is_initialized():
             futures = []
             for appid, group in event_groups:
                 app = str(appid)
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
                 game_name = metadata_lookup.get(app) if metadata_lookup else None
-                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app))
+                futures.append(_enrich_events_for_game_ray.remote(app, group, cfg, game_name, news_app, tlabels_app, news_kw_df))
             results = ray.get(futures)
-            ray.shutdown()
+            try:
+                ray.shutdown()
+            except Exception:
+                pass
         else:
             # Fallback secuencial si Ray no está disponible
             results = []
@@ -307,7 +440,7 @@ def main():
                 news_app = news_counts_df[news_counts_df['appid'].astype(str) == app] if not news_counts_df.empty else pd.DataFrame()
                 tlabels_app = topics_labels_df[topics_labels_df['appid'].astype(str) == app] if not topics_labels_df.empty else pd.DataFrame()
                 game_name = metadata_lookup.get(app) if metadata_lookup else None
-                results.append(_enrich_events_for_game(app, group, cfg, game_name, news_app, tlabels_app))
+                results.append(_enrich_events_for_game(app, group, cfg, game_name, news_app, tlabels_app, news_kw_df))
         
         all_explanations = [res for res in results if not res.empty]
         
@@ -320,6 +453,15 @@ def main():
             print(f"[OK] Explicaciones de eventos guardadas en -> {out_path}")
         else:
             print("[WARN] No se generaron explicaciones. Creando fichero vacío.")
+            out_path = outdir / 'explanations.parquet'
+            empty_df = pd.DataFrame({
+                'appid': pd.Series(dtype='str'),
+                'year_month': pd.Series(dtype='datetime64[ns]'),
+                'variable': pd.Series(dtype='str'),
+                'direction': pd.Series(dtype='str'),
+            })
+            write_parquet_any(empty_df, out_path)
+            print(f"[INFO] Creado fichero de explicaciones vacío en -> {out_path}")
             mlflow.log_metric("events_enriched", 0)
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import yaml
 import argparse
 from pymongo import MongoClient
@@ -265,7 +265,7 @@ def prepare(params):
 # ------------------------
 def apply_rules(params):
     """Aplicar reglas al dataset preparado."""
-    spark = get_spark_session("SteamApplyRules")
+    spark = get_spark_session("SteamApplyRules", config={"spark.driver.memory": "4g"})
     df = spark.read.parquet("data/prepared/")
 
     pdf = df.toPandas()
@@ -285,15 +285,30 @@ def apply_rules(params):
         except Exception:
             playtime_ratio = None
 
+        # Calcular limitaciones técnicas primero para reusar en evaluación
+        limitaciones = limitaciones_tecnicas(
+            row.get("ram_gb"),
+            row.get("median_ram_gb"),
+            # usar conteo de plataformas si existe; fallback a 'platforms'
+            row.get("platforms_count") if "platforms_count" in row else row.get("platforms"),
+            row.get("median_platforms"),
+            row.get("steam_deck_verified"),
+            row.get("otros_verificados"),
+            row.get("requires_connection"),
+            row.get("otros_requieren_conexion"),
+            row.get("install_size_gb"),
+            row.get("p75_install_size"),
+        )
+
         res = {
-            "app_id": row.get("app_id"),
-            "precio": regla_precio(row.get("price"), row.get("median_price"), row.get("all_included")),
+            "app_id": row.get("app_id") if "app_id" in row else row.get("appid"),
+            "precio": regla_precio(row.get("price"), row.get("median_price")),
             "justificacion_precio": justificacion_precio(
-                row.get("price"),
-                row.get("median_price"),
-                row.get("all_included"),
-                row.get("avg_playtime"),
-                row.get("launch_price"),
+                row.get("all_included"),            # incluye_todo_sin_dlcs
+                row.get("avg_playtime"),            # tiempo_jugado_medio
+                row.get("median_hours"),            # tiempo_jugado_medio_cluster
+                row.get("price"),                   # precio_actual
+                row.get("launch_price"),            # precio_lanzamiento_cluster
             ),
             "saturacion1": saturacion_cluster_1(row.get("k_neighbors"), row.get("cluster_age")),
             "saturacion2": saturacion_cluster_2(row.get("total_reviews"), row.get("std_dev"), row.get("mean_score")),
@@ -315,17 +330,8 @@ def apply_rules(params):
                 hours_last_2w,
                 review_positive,
             ),
-            "limitaciones": limitaciones_tecnicas(
-                row.get("ram_gb"),
-                row.get("median_ram_gb"),
-                row.get("platforms"),
-                row.get("median_platforms"),
-                row.get("steam_deck_verified"),
-                row.get("requires_connection"),
-                row.get("install_size_gb"),
-                row.get("p75_install_size"),
-            ),
-            "eval_limitaciones": evaluacion_limitaciones(row.get("num_limitaciones")),
+            "limitaciones": limitaciones,
+            "eval_limitaciones": evaluacion_limitaciones(limitaciones),
             "publishers": publishers_estudios(
                 row.get("pct_publi_potente"),
                 row.get("pct_dev_potente"),

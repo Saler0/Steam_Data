@@ -520,6 +520,9 @@ class EmbeddingIndex:
         return vec
 DEFAULT_CONFIG: Dict[str, Any] = {
     'target_total': 40,
+    # Si se especifica, se seleccionan todos los candidatos con score >= min_score
+    # y 'target_total' actúa como límite superior si es necesario.
+    'min_score': None,
     'same_cluster_only': True,
     'allow_cross_cluster': False,
     'k_in': 50,
@@ -780,6 +783,11 @@ def select_competitor_neighbors(
     k_in = int(cfg.get('k_in', 50) or 0)
     k_out = int(cfg.get('k_out', 20) or 0)
     total_target = int(cfg.get('target_total', 40))
+    min_score_cfg = cfg.get('min_score')
+    try:
+        min_score: Optional[float] = float(min_score_cfg) if min_score_cfg is not None else None
+    except Exception:
+        min_score = None
     business_cfg = cfg.get('business_filters', {})
 
     gather_in_limit = max(total_target * 3, (k_in or total_target) * 3, (k_in or total_target) + 40)
@@ -964,15 +972,19 @@ def select_competitor_neighbors(
     selected: List[Dict[str, Any]] = []
     cross_selected = 0
     for cand in pool:
-        if cand['source'] == 'cross' and cross_selected >= max_cross_allowed and len(selected) < total_target:
+        if min_score is not None and float(cand.get('score', 0.0)) < min_score:
+            # Como pool está ordenado por score desc, podemos cortar aquí
+            break
+        if cand['source'] == 'cross' and cross_selected >= max_cross_allowed and (min_score is None):
+            # Si estamos en modo min_score, permitimos omitir esta cota rígida para no truncar
             continue
         selected.append(cand)
         if cand['source'] == 'cross':
             cross_selected += 1
-        if len(selected) >= total_target:
+        if min_score is None and len(selected) >= total_target:
             break
 
-    if len(selected) < total_target:
+    if min_score is None and len(selected) < total_target:
         remaining = [cand for cand in pool if cand not in selected]
         for cand in remaining:
             selected.append(cand)
@@ -980,7 +992,7 @@ def select_competitor_neighbors(
                 break
 
     fallback_used = False
-    if len(selected) < total_target:
+    if min_score is None and len(selected) < total_target:
         existing_ids = {cand['appid'] for cand in selected}
         fallback_pool: List[Dict[str, Any]] = []
 
@@ -1040,6 +1052,7 @@ def select_competitor_neighbors(
 
     diagnostics = {
         'target_total': total_target,
+        'min_score': min_score,
         'intra_candidates': len(in_candidates),
         'cross_candidates': len(out_candidates) if allow_cross else 0,
         'selected': len(output_neighbors),

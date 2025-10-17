@@ -1,4 +1,4 @@
-﻿# Configuration for prepare_reviews_with_segments.py
+# Configuration for prepare_reviews_with_segments.py`n# - Define columnas origen y heurísticas para enriquecer reseñas`n# - Salidas: data/warehouse/reviews_with_segments.parquet y`n#            outputs/events/reviews_topics.parquet (si --run-bertopic)
 reviews_source: null  # Keep null to load from Mongo by default
 review_id_column: recommendationid
 appid_column: appid
@@ -7,6 +7,7 @@ date_column: timestamp_created_date
 recommended_column: voted_up
 playtime_column: author_playtime_at_review
 playtime_30d_column: author_playtime_last_two_weeks
+time_units: minutes  # units for input playtime columns (minutes|hours). Pipeline normalizes to hours
 abandon_column: null
 gifted_column: received_for_free
 early_access_column: written_during_early_access
@@ -22,6 +23,7 @@ mongo:
   limit: null
   
 abandon_heuristic:
+  # Banderas de abandono y umbrales de actividad reciente (horas)
   general_column: abandon_general
   review_column: abandon_after_review
   post_review_minutes_threshold: 10.0
@@ -31,3 +33,5 @@ abandon_heuristic:
     low_hours: 2.0
     occasional_hours: 10.0
     frequent_hours: 30.0
+
+

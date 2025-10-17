@@ -214,4 +214,89 @@ def summarize_global_relevance(stats: Dict[str, Any]) -> List[str]:
 
 def describe_topic_insight(topic: Dict[str, Any]) -> str:
     return describe_topic_reason(topic)
-
+
+
+def _fmt_pct(value: Optional[float]) -> str:
+    try:
+        return f"{value*100:.0f}%" if value is not None else "—"
+    except Exception:
+        return "—"
+
+
+def compose_client_narrative(report: Dict[str, Any], lang: str = "en") -> str:
+    """Compose a concise narrative in the requested language (en/es).
+
+    Uses cluster context, competitors, peak_analysis, pricing, and topic insights.
+    Falls back gracefully if pieces are missing.
+    """
+    lang = (lang or "en").lower()
+    md = report.get("metadata", {}) or {}
+    name = md.get("name") or "The game"
+    cluster = report.get("cluster", {}) or {}
+    cc = report.get("cluster_context", {}) or {}
+    rc_summary = report.get("real_competitors_summary", {}) or {}
+    topic_insights = report.get("topic_insights", {}) or {}
+    peaks = report.get("peak_analysis", []) or []
+    rules = report.get("rules_analysis", {}) or {}
+    pricing = rules.get("pricing_vs_real_competitors", {}) or {}
+
+    def t(en_text: str, es_text: str) -> str:
+        return en_text if lang == "en" else es_text
+
+    # 1) Opening
+    parts: List[str] = []
+    csize = cc.get("cluster_size")
+    sat = cc.get("saturation")
+    opening = t(
+        f"{name} sits in cluster {cluster.get('cluster_id')} (size {csize}) with {sat or 'balanced'} competition.",
+        f"{name} se ubica en el clúster {cluster.get('cluster_id')} (tamaño {csize}) con competencia {sat or 'balanceada'}."
+    )
+    parts.append(opening)
+
+    # 2) Pricing position
+    pos = pricing.get("position")
+    avg_price = pricing.get("avg_competitors_price")
+    delta = pricing.get("delta_pct")
+    if pos or avg_price is not None:
+        parts.append(t(
+            f"Pricing: {pos or 'in-line'} (vs avg ${avg_price:.2f} | Δ={delta:+.0%}).",
+            f"Precio: {pos or 'en línea'} (vs promedio ${avg_price:.2f} | Δ={delta:+.0%})."
+        ))
+
+    # 3) Peaks & drivers (take the strongest)
+    if peaks:
+        p0 = peaks[0]
+        ym = p0.get("year_month") or p0.get("date_or_month")
+        z = p0.get("zscore")
+        why = (p0.get("context") or {}).get("summary") or p0.get("why")
+        parts.append(t(
+            f"Key peak {ym} (z={z}). Driver: {why or 'demand variation' }.",
+            f"Pico clave {ym} (z={z}). Motivo: {why or 'variación de demanda' }."
+        ))
+
+    # 4) Topics signals
+    tr = topic_insights.get("trending_topics", [])
+    risk = topic_insights.get("risk_topics", [])
+    if tr:
+        parts.append(t(
+            f"Trending topics: {', '.join(str(x.get('topic_id')) for x in tr[:3])}.",
+            f"Tópicos en alza: {', '.join(str(x.get('topic_id')) for x in tr[:3])}."
+        ))
+    if risk:
+        parts.append(t(
+            f"Risk topics: {', '.join(str(x.get('topic_id')) for x in risk[:2])}.",
+            f"Tópicos de riesgo: {', '.join(str(x.get('topic_id')) for x in risk[:2])}."
+        ))
+
+    # 5) Competitors snapshot
+    counts = (rc_summary.get("counts") or {})
+    total = counts.get("total")
+    intra = counts.get("intra_cluster")
+    cross = counts.get("cross_cluster")
+    if total is not None:
+        parts.append(t(
+            f"Competitive set: {total} titles (intra {intra}, cross {cross}).",
+            f"Conjunto competitivo: {total} títulos (intra {intra}, cross {cross})."
+        ))
+
+    return " " .join([p for p in parts if p])

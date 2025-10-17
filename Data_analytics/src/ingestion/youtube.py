@@ -5,8 +5,11 @@ from typing import Iterable, Optional
 
 import pandas as pd
 import requests
+import os
 
 from src.utils.io import read_parquet_any, write_parquet_any
+import logging
+from requests.exceptions import RequestException, ReadTimeout, ConnectTimeout
 
 _YT_ENDPOINT_SEARCH = "https://www.googleapis.com/youtube/v3/search"
 _YT_ENDPOINT_VIDEOS = "https://www.googleapis.com/youtube/v3/videos"
@@ -22,10 +25,11 @@ def _normalize_months(months: Optional[Iterable]) -> list[pd.Timestamp]:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts):
             continue
-        if ts.tzinfo is None:
-            ts = ts.tz_localize("UTC")
-        out.append(ts.to_period("M").to_timestamp(tz="UTC"))
-    return sorted(set(out))gi
+        if ts.tzinfo is not None:
+            # Convertir a UTC y quitar tz para unificar formato naive
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        out.append(ts.to_period("M").to_timestamp())
+    return sorted(set(out))
 
 
 def _load_cache(path: Path) -> pd.DataFrame:
@@ -55,9 +59,13 @@ def _search_videos(query: str, api_key: str, start_iso: str, end_iso: str, max_r
     }
     items: list[dict] = []
     while True:
-        response = requests.get(_YT_ENDPOINT_SEARCH, params=params, timeout=30)
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = requests.get(_YT_ENDPOINT_SEARCH, params=params, timeout=30)
+            response.raise_for_status()
+            payload = response.json()
+        except (RequestException, ReadTimeout, ConnectTimeout) as e:
+            logging.warning("[youtube] search failed for query='%s': %s", query, e)
+            break
         items.extend(payload.get("items", []))
         if len(items) >= max_results:
             break
@@ -80,11 +88,15 @@ def _fetch_video_stats(video_ids: list[str], api_key: str) -> dict[str, dict]:
             "id": ",".join(chunk),
             "key": api_key,
         }
-        response = requests.get(_YT_ENDPOINT_VIDEOS, params=params, timeout=30)
-        response.raise_for_status()
-        for item in response.json().get("items", []):
-            vid = item.get("id")
-            stats[vid] = item.get("statistics", {})
+        try:
+            response = requests.get(_YT_ENDPOINT_VIDEOS, params=params, timeout=30)
+            response.raise_for_status()
+            for item in response.json().get("items", []):
+                vid = item.get("id")
+                stats[vid] = item.get("statistics", {})
+        except (RequestException, ReadTimeout, ConnectTimeout) as e:
+            logging.warning("[youtube] stats fetch failed for %d ids: %s", len(chunk), e)
+            continue
     return stats
 
 
@@ -134,6 +146,8 @@ def load_youtube_monthly(
     force_refresh: bool = False,
 ) -> pd.DataFrame | None:
     mode = (cfg or {}).get("mode", "file")
+    if os.getenv("ANALYTICS_OFFLINE", "0") == "1":
+        mode = "file"
     if mode == "file":
         path = Path(cfg.get("file", f"data/external/youtube/monthly_{appid}.csv"))
         if not path.exists():
@@ -169,8 +183,9 @@ def load_youtube_monthly(
         months_back = int(cfg.get("months_back", 6))
         end_date = pd.Timestamp.utcnow().tz_localize("UTC")
         start_date = end_date - pd.DateOffset(months=months_back)
-    start_iso = start_date.to_period("M").to_timestamp(tz="UTC").isoformat()
-    end_iso = (end_date.to_period("M").to_timestamp(tz="UTC") + pd.offsets.MonthEnd(1)).isoformat()
+    # Pasar a inicio de mes (naive) y luego marcar como UTC para RFC3339
+    start_iso = start_date.to_period("M").to_timestamp().tz_localize("UTC").isoformat()
+    end_iso = (end_date.to_period("M").to_timestamp().tz_localize("UTC") + pd.offsets.MonthEnd(1)).isoformat()
 
     cache_dir = Path(cfg.get("api_cache_dir", "data/external/youtube/api_cache"))
     cache_path = cache_dir / f"{appid}.parquet"
@@ -206,6 +221,6 @@ def load_youtube_monthly(
 
     result = cache_df
     if months:
-        result = result[result["year_month"].isin(months)]
+        result = result[result["year_month"].isin(months)].copy()
     result["appid"] = str(appid)
     return result.reset_index(drop=True)

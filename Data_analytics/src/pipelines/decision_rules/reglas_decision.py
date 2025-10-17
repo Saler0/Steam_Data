@@ -240,15 +240,55 @@ def justificacion_actividad(
     return "Sin causa clara → investigar más o revisar datos"
 
 
+_EXP_THRESH_CACHE: dict | None = None
+
+def _load_experience_thresholds() -> dict:
+    global _EXP_THRESH_CACHE
+    if _EXP_THRESH_CACHE is not None:
+        return _EXP_THRESH_CACHE
+    cfg = None
+    try:
+        import yaml, os
+        # Ruta típica dentro del contenedor: /app/Data_analytics
+        base = os.getcwd()
+        cand = [
+            os.path.join(base, 'configs', 'params.yaml'),
+            os.path.join(base, '..', 'configs', 'params.yaml'),
+            'configs/params.yaml',
+        ]
+        path = next((p for p in cand if os.path.exists(p)), None)
+        if path:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = None
+    defaults = {
+        'horas_nuevo': 0.1,
+        'horas_intermedio': 0.5,
+        'horas_experto': 1.5,
+    }
+    try:
+        node = (cfg or {}).get('experiencia_jugador') or {}
+        tn = float(node.get('horas_nuevo', defaults['horas_nuevo']))
+        ti = float(node.get('horas_intermedio', defaults['horas_intermedio']))
+        te = float(node.get('horas_experto', defaults['horas_experto']))
+        _EXP_THRESH_CACHE = {'nuevo': tn, 'intermedio': ti, 'experto': te}
+    except Exception:
+        _EXP_THRESH_CACHE = {'nuevo': defaults['horas_nuevo'], 'intermedio': defaults['horas_intermedio'], 'experto': defaults['horas_experto']}
+    return _EXP_THRESH_CACHE
+
+
 def experiencia_jugador(
     horas: Optional[float],
     mediana_horas: Optional[float]
     ) -> str:
     """
-    - horas ≤ 0.1 * mediana → "Nuevo"
-    - horas ≤ 0.5 * mediana → "Intermedio"
-    - horas ≤ 1.5 * mediana → "Experto"
-    - else                  → "Veterano"
+    Usa umbrales configurables en configs/params.yaml → experiencia_jugador:
+      - horas ≤ horas_nuevo * mediana → "Nuevo"
+      - horas ≤ horas_intermedio * mediana → "Intermedio"
+      - horas ≤ horas_experto * mediana → "Experto"
+      - else → "Veterano"
+    Fallback a 0.1 / 0.5 / 1.5 si no hay config.
     """
     if horas is None or mediana_horas is None:
         return "Datos insuficientes para evaluar experiencia del jugador"
@@ -259,11 +299,12 @@ def experiencia_jugador(
     if m <= 0:
         return "Datos inválidos (mediana no puede ser <= 0)"
 
-    if h <= 0.1 * m:
+    th = _load_experience_thresholds()
+    if h <= th['nuevo'] * m:
         return "Nuevo"
-    elif h <= 0.5 * m:
+    elif h <= th['intermedio'] * m:
         return "Intermedio"
-    elif h <= 1.5 * m:
+    elif h <= th['experto'] * m:
         return "Experto"
     else:
         return "Veterano"

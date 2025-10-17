@@ -4,7 +4,8 @@
 Preagrega jugadores mensuales por appid.
 
 Modos soportados:
-- Passthrough mensual (recomendado): --file <csv_mensual> con columnas
+- Lectura desde PostgreSQL (recomendado): --postgres-host, etc.
+- Passthrough mensual (fallback): --file <csv_mensual> con columnas
   ['appid','name','month_date','avg_players'] como genera Data_management.
   Se mapea a esquema estándar (appid:str, year_month:timestamp, players:int).
 
@@ -14,10 +15,11 @@ Modos soportados:
 Escribe Parquet particionado por year_month en data/warehouse/players_monthly.parquet.
 """
 from __future__ import annotations
-import argparse
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 import pandas as pd
+import argparse
 
 try:
     from pyspark.sql import SparkSession
@@ -26,6 +28,35 @@ try:
 except Exception:
     SPARK_AVAILABLE = False
 
+try:
+    from sqlalchemy import create_engine
+    SQLALCHEMY_AVAILABLE = True
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+
+load_dotenv()
+
+def read_from_postgres(pg_uri: str, table: str) -> pd.DataFrame:
+    """Lee datos desde PostgreSQL y normaliza el esquema."""
+    if not SQLALCHEMY_AVAILABLE:
+        raise SystemExit("SQLAlchemy y psycopg2-binary son necesarios para leer desde PostgreSQL.")
+    try:
+        engine = create_engine(pg_uri)
+        df = pd.read_sql_table(table, engine)
+        # Lógica de normalización copiada de passthrough_monthly_csv
+        if 'appid' in df.columns:
+            df['appid'] = df['appid'].astype(str)
+        if 'month' in df.columns and 'month_date' not in df.columns:
+            df = df.rename(columns={'month': 'month_date'})
+        if 'avg_players' not in df.columns and 'players' in df.columns:
+            df = df.rename(columns={'players': 'avg_players'})
+        df['year_month'] = pd.to_datetime(df['month_date'], errors='coerce')
+        df = df.dropna(subset=['year_month'])
+        df['players'] = pd.to_numeric(df['avg_players'], errors='coerce').fillna(0).astype(int)
+        return df[['appid','year_month','players']]
+    except Exception as e:
+        print(f"[ERROR] No se pudo leer desde PostgreSQL: {e}")
+        return pd.DataFrame(columns=['appid','year_month','players'])
 
 def preaggregate_pandas(dir_path: str) -> pd.DataFrame:
     base = Path(dir_path)
@@ -83,16 +114,34 @@ def main():
     ap.add_argument('--players_dir', default='data/external/players')
     ap.add_argument('--file', help='CSV mensual consolidado (Data_management steamcharts_data.csv)')
     ap.add_argument('--out', default='data/warehouse/players_monthly.parquet')
+    # Argumentos para PostgreSQL
+    ap.add_argument('--postgres-host', help='PostgreSQL host')
+    ap.add_argument('--postgres-port', default='5432', help='PostgreSQL port')
+    ap.add_argument('--postgres-user', help='PostgreSQL user')
+    ap.add_argument('--postgres-password', help='PostgreSQL password')
+    ap.add_argument('--postgres-db', help='PostgreSQL database')
+    ap.add_argument('--postgres-table', default='exploitation_zone', help='PostgreSQL table')
     args = ap.parse_args()
 
-    # Camino recomendado: CSV mensual consolidado
-    if args.file and Path(args.file).exists():
+    df = None
+    # --- Prioridad 1: Leer desde PostgreSQL ---
+    if args.postgres_host and args.postgres_user and args.postgres_password and args.postgres_db:
+        pg_uri = f"postgresql://{args.postgres_user}:{args.postgres_password}@{args.postgres_host}:{args.postgres_port}/{args.postgres_db}"
+        print(f"[INFO] Leyendo desde PostgreSQL, tabla: {args.postgres_table}")
+        df = read_from_postgres(pg_uri, args.postgres_table)
+
+    # --- Prioridad 2: CSV mensual consolidado ---
+    if df is None and args.file and Path(args.file).exists():
+        print(f"[INFO] Leyendo desde archivo CSV consolidado: {args.file}")
         df = passthrough_monthly_csv(args.file)
+
+    if df is not None:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(args.out, index=False)
-        print(f"[OK] Players mensual (passthrough) guardado en -> {args.out}")
+        print(f"[OK] Players mensual guardado en -> {args.out}")
         return
 
+    # --- Prioridad 3 (Fallback): Spark o Pandas sobre directorio de CSVs ---
     if SPARK_AVAILABLE:
         try:
             spark = SparkSession.builder.appName('players_monthly_preagg').getOrCreate()
@@ -101,8 +150,7 @@ def main():
             # Extraer appid del nombre de archivo
             fname = input_file_name()
             sdf = sdf.withColumn('appid', regexp_extract(fname, r"players/(.*)\.csv$", 1))
-            sdf = sdf.withColumn('ts', to_timestamp(col('date'))) \
-                     .dropna(subset=['ts'])
+            sdf = sdf.withColumn('ts', to_timestamp(col('date'))).dropna(subset=['ts'])
             sdf.createOrReplaceTempView('players')
             outdf = spark.sql(
                 """
@@ -121,12 +169,13 @@ def main():
              .option('maxRecordsPerFile', 5_000_000)
              .partitionBy('year_month')
              .parquet(args.out))
-            print(f"[OK] Preagregado de jugadores guardado en -> {args.out}")
+            print(f"[OK] Preagregado de jugadores (Spark) guardado en -> {args.out}")
             spark.stop(); return
         except Exception as e:
             print(f"[WARN] Spark falló ({e}); usando pandas.")
 
-    # Fallback
+    # Fallback final
+    print(f"[INFO] Leyendo desde directorio de CSVs con pandas: {args.players_dir}")
     agg = preaggregate_pandas(args.players_dir)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     agg.to_parquet(args.out, index=False)
