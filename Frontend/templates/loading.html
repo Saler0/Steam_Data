@@ -1,14 +1,58 @@
 {% extends "base.html" %}
 
+{% block title %}Cargando Juego{% endblock %}
+
 {% block content %}
 <div class="loading-container">
   <div class="spinner"></div>
-  <p>Cargando tu juego... serás redirigido al dashboard en breve.</p>
+  <p>Cargando tu juego... por favor espera.</p>
 </div>
 
+<style>
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 5rem;
+}
+
+.spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #3498db;
+  border-radius: 50%;
+  width: 80px;
+  height: 80px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>
+
 <script>
-  setTimeout(function() {
-    window.location.href = "{{ url_for('dashboard') }}";
-  }, 2000);
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const response = await fetch("{{ url_for('process_game') }}", {
+      method: "POST"
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.status === "success") {
+      window.location.href = "{{ url_for('dashboard') }}";
+    } else {
+      alert(data.message || "Error al guardar el juego.");
+      window.location.href = "{{ url_for('agregar_juego') }}";
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error de conexión con el servidor.");
+    window.location.href = "{{ url_for('agregar_juego') }}";
+  }
+});
 </script>
 {% endblock %}

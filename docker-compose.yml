@@ -47,7 +47,6 @@ services:
       # Mapeamos las carpetas que el pipeline necesita
       - ./Data_management/landing_zone:/app/landing_zone
       - ./Data_management/trusted_zone:/app/trusted_zone
-      - ./Data_management/trusted_to_explotation:/app/trusted_to_explotation
       - ./logs:/app/logs # Mapeo para persistir los logs
     env_file:
       - ./Data_management/.env # Carga las variables de entorno, incluidas las de PostgreSQL

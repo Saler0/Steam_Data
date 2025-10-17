@@ -6,7 +6,7 @@ set COMPOSE_PROJECT_NAME=proyecto_steam
 
 echo.
 echo ============================
-echo 0) Rebuild de imagenes (app, mlflow, analytics)...
+echo 0) Rebuild de imagenes (app)...
 echo ============================
 docker compose build %BUILD_ARGS% app
 if errorlevel 1 (
@@ -38,7 +38,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================
-echo Ver logs de app + analytics (Ctrl+C para salir)...
+echo Ver logs de app (Ctrl+C para salir)...
 echo ============================
 docker compose logs -f app
 

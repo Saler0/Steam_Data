@@ -3,95 +3,91 @@
 
 {% block content %}
 <div class="form-container">
-  <h2>Describe tu juego</h2>
-  <form id="gameForm" method="post" action="{{ url_for('agregar_juego') }}">
+  <h2>Game's description</h2>
+  <!-- <form id="gameForm" method="post" action="{{ url_for('agregar_juego') }}"> -->
+  <form id="gameForm" method="POST" action="{{ url_for('agregar_juego') }}">
+
       
       <div class="form-group">
-          <label for="nombre">Nombre del juego:</label>
+          <label for="nombre">Game's name:</label>
           <input type="text" id="nombre" name="nombre" required placeholder="Ej: Steam Adventure">
       </div>
 
       <div class="form-group">
-          <label for="short_description">Descripción corta:</label>
-          <input type="text" id="categoria" name="categoria" required placeholder="Ej: Accion, Estrategia">
+          <label for="short_description">Short description:</label>
+          <input type="text" id="short_description" name="short_description" required placeholder="Propose a brief description in one sentence...">
       </div>
 
       <div class="form-group">
-          <label for="detailed_description">Descripción detallada:</label>
-          <textarea id="descripcion" name="descripcion" rows="4" required placeholder="Describe brevemente el juego..."></textarea>
+          <label for="detailed_description">Detail description:</label>
+          <textarea id="detailed_description" name="detailed_description" rows="4" required placeholder="More detailes about your game..."></textarea>
       </div>
 
       <!-- Dropdowns lado a lado -->
-      <div style="display:flex; gap:2rem; flex-wrap:wrap;">
-        <!-- Géneros -->
-        <div class="form-group dropdown" style="flex:1;">
-          <label>Géneros: <span class="selected-summary"></span></label>
+      <!-- <div style="display:flex; gap:2rem; flex-wrap:wrap;"> -->
+        <!-- GÃ©neros -->
+        <!-- <div class="form-group dropdown" data-field="genres" style="flex:1;">
+          <label>GÃ©neros: <span class="selected-summary"></span></label>
+          <div class="dropdown-content"> -->
+
+        <div class="form-group dropdown" data-field="genres">
+          <button type="button" class="dropdown-toggle">
+            Genres : <span class="selected-summary"></span>
+          </button>
           <div class="dropdown-content">
-                <label><span>Adjustable Difficulty</span></label>
-                <label><span>Adjustable Text Size</span></label>
-                <label><span>Camera Comfort</span></label>
-                <label><span>Captions available</span></label>
-                <label><span>Chat Speech-to-text</span></label>
-                <label><span>Chat Text-to-speech</span></label>
-                <label><span>Co-op</span></label>
-                <label><span>Color Alternatives</span></label>
-                <label><span>Commentary available</span></label>
-                <label><span>Cross-Platform Multiplayer</span></label>
-                <label><span>Custom Volume Controls</span></label>
-                <label><span>Family Sharing</span></label>
-                <label><span>Full controller support</span></label>
-                <label><span>HDR available</span></label>
-                <label><span>In-App Purchases</span></label>
-                <label><span>Includes Source SDK</span></label>
-                <label><span>Includes level editor</span></label>
-                <label><span>Keyboard Only Option</span></label>
-                <label><span>LAN Co-op</span></label>
-                <label><span>LAN PvP</span></label>
-                <label><span>MMO</span></label>
-                <label><span>Mods</span></label>
-                <label><span>Mods (require HL2)</span></label>
-                <label><span>Mouse Only Option</span></label>
-                <label><span>Multi-player</span></label>
-                <label><span>Narrated Game Menus</span></label>
-                <label><span>Online Co-op</span></label>
-                <label><span>Online PvP</span></label>
-                <label><span>Partial Controller Support</span></label>
-                <label><span>Playable without Timed Input</span></label>
-                <label><span>PvP</span></label>
-                <label><span>Remote Play Together</span></label>
-                <label><span>Remote Play on Phone</span></label>
-                <label><span>Remote Play on TV</span></label>
-                <label><span>Remote Play on Tablet</span></label>
-                <label><span>Save Anytime</span></label>
-                <label><span>Shared/Split Screen</span></label>
-                <label><span>Shared/Split Screen Co-op</span></label>
-                <label><span>Shared/Split Screen PvP</span></label>
-                <label><span>Single-player</span></label>
-                <label><span>Stats</span></label>
-                <label><span>Steam Achievements</span></label>
-                <label><span>Steam Cloud</span></label>
-                <label><span>Steam Leaderboards</span></label>
-                <label><span>Steam Timeline</span></label>
-                <label><span>Steam Trading Cards</span></label>
-                <label><span>Steam Turn Notifications</span></label>
-                <label><span>Steam Workshop</span></label>
-                <label><span>SteamVR Collectibles</span></label>
-                <label><span>Stereo Sound</span></label>
-                <label><span>Subtitle Options</span></label>
-                <label><span>Surround Sound</span></label>
-                <label><span>Touch Only Option</span></label>
-                <label><span>Tracked Controller Support</span></label>
-                <label><span>VR Only</span></label>
-                <label><span>VR Support</span></label>
-                <label><span>VR Supported</span></label>
-                <label><span>Valve Anti-Cheat enabled</span></label>
+            <input type="text" class="dropdown-search" placeholder="Select Genres...">
+            <div class="dropdown-options">        
+
+                <label><span>360 Video</span></label>
+                <label><span>Accounting</span></label>
+                <label><span>Action</span></label>
+                <label><span>Adventure</span></label>
+                <label><span>Animation & Modeling</span></label>
+                <label><span>Audio Production</span></label>
+                <label><span>Casual</span></label>
+                <label><span>Design & Illustration</span></label>
+                <label><span>Documentary</span></label>
+                <label><span>Early Access</span></label>
+                <label><span>Education</span></label>
+                <label><span>Episodic</span></label>
+                <label><span>Free To Play</span></label>
+                <label><span>Game Developmen</span></label>
+                <label><span>Gore</span></label>
+                <label><span>Indie</span></label>
+                <label><span>Massively Multiplayer</span></label>
+                <label><span>Movie</span></label>
+                <label><span>Nudity</span></label>
+                <label><span>Photo Editing</span></label>
+                <label><span>RPG</span></label>
+                <label><span>Racing</span></label>
+                <label><span>Sexual Content</span></label>
+                <label><span>Short</span></label>
+                <label><span>Simulation</span></label>
+                <label><span>Software Training</span></label>
+                <label><span>Sports</span></label>
+                <label><span>Strategy</span></label>
+                <label><span>Tutorial</span></label>
+                <label><span>Utilities</span></label>
+                <label><span>Video Production</span></label>
+                <label><span>Violentr</span></label>
+                <label><span>Web Publishing</span></label>
+            </div>
           </div>
+          <input type="hidden" name="genres_order" class="selection-order-input">
         </div>
 
-        <!-- Categorías -->
-        <div class="form-group dropdown" style="flex:1;">
-          <label>Categorías: <span class="selected-summary"></span></label>
+        <!-- CategorÃ­as -->
+        <!-- <div class="form-group dropdown" data-field="categories" style="flex:1;">
+          <label>CategorÃ­as: <span class="selected-summary"></span></label>
+          <div class="dropdown-content">             -->
+        <div class="form-group dropdown" data-field="categories">
+          <button type="button" class="dropdown-toggle">
+            Categories : <span class="selected-summary"></span>
+          </button>
           <div class="dropdown-content">
+            <input type="text" class="dropdown-search" placeholder="Select category...">
+            <div class="dropdown-options">
+       
                 <label><span>Adjustable Difficulty</span></label>
                 <label><span>Adjustable Text Size</span></label>
                 <label><span>Camera Comfort</span></label>
@@ -150,53 +146,178 @@
                 <label><span>VR Support</span></label>
                 <label><span>VR Supported</span></label>
                 <label><span>Valve Anti-Cheat enabled</span></label>
+            </div>
           </div>
+          <input type="hidden" name="categories_order" class="selection-order-input">
         </div>
+
+      <div class="form-group">
+          <label>Available platforms:</label>
+          <div class="checkbox-group">
+              <label><input type="checkbox" name="platforms" value="windows"> Windows</label>
+              <label><input type="checkbox" name="platforms" value="mac"> Mac</label>
+              <label><input type="checkbox" name="platforms" value="linux"> Linux</label>
+          </div>
+      </div>   
+
+      <div class="form-group">
+          <label for="steam_deck_compatible">Steam Deck compatibility:</label>
+          <div class="checkbox-group">
+              <label>
+                  <input type="checkbox" id="steam_deck_compatible" name="steam_deck_compatible" value="true">
+                  Compatible with Steam Deck
+              </label>
+          </div>
+      </div>
+            
+
+      <div class="form-group">
+          <label for="install_size_gb">Size (GB):</label>
+          <input type="number" id="install_size_gb" name="install_size_gb" step="0.1" min="0" required placeholder="Ej: 20">
       </div>
 
       <div class="form-group">
-          <label for="precio">Precio:</label>
-          <input type="number" id="precio" name="precio" step="0.01" min="0" required placeholder="Ej: 19.99">
+          <label for="ram_gb">RAM recomended (GB):</label>
+          <input type="number" id="ram_gb" name="ram_gb" step="0.1" min="0" required placeholder="Ej: 8">
       </div>
-      <h2>
-      <button type="submit" class="btn-primary">Agregar</button> 
-      </h2>
+
+      <div class="form-group">
+          <label>Includes all content without DLCs or microtransactions?</label>
+          <div class="radio-group">
+              <label><input type="radio" name="full_content_included" value="yes" required> Yes</label>
+              <label><input type="radio" name="full_content_included" value="no" required> No</label>
+          </div>
+      </div>
+
+      <div class="form-group">
+          <label for="precio">Price:</label>
+          <input type="number" id="precio" name="precio" step="0.01" min="0" required placeholder="Ej: 19.99 DOLARES">
+      <div style="text-align:center; margin-top: 2rem;">
+        <button type="submit" class="btn-primary">Send</button>
+      </div>
       </form> 
   </form>
 </div>
 
-<!-- JS Dropdown y selección de chips -->
 <script>
-  // Toggle dropdown
+document.addEventListener('DOMContentLoaded', () => {
+  // --- Dropdowns con checkboxes ---
   document.querySelectorAll('.dropdown').forEach(dropdown => {
-    const label = dropdown.querySelector('label');
+    const button = dropdown.querySelector('.dropdown-toggle');
     const content = dropdown.querySelector('.dropdown-content');
-    const summary = label.querySelector('.selected-summary'); // span donde se muestra lo seleccionado
+    const summary = button ? button.querySelector('.selected-summary') : null;
+    const fieldName = dropdown.dataset.field;
+    if (!content || !summary || !fieldName) return;
 
-    // Abrir/cerrar dropdown
-    label.addEventListener('click', (e) => {
-      e.preventDefault();
-      content.classList.toggle('show');
-    });
+    const selectionOrder = [];
+    const orderInput = dropdown.querySelector('.selection-order-input');
 
-    document.addEventListener('click', (e) => {
-      if (!dropdown.contains(e.target)) {
-        content.classList.remove('show');
+    const updateSummary = () => {
+      summary.textContent = selectionOrder.map((v, i) => `${i+1}. ${v}`).join(', ');
+      if (orderInput) {
+        orderInput.value = JSON.stringify(selectionOrder);
       }
-    });
+    };
 
-    // Selección de chips
-    content.querySelectorAll('label').forEach(chip => {
-      chip.addEventListener('click', () => {
-        chip.classList.toggle('selected');
+    content.querySelectorAll('label').forEach(optionLabel => {
+      const value = optionLabel.textContent.trim();
+      optionLabel.textContent = '';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.name = fieldName;
+      checkbox.value = value;
+      const span = document.createElement('span');
+      span.textContent = value;
+      optionLabel.appendChild(checkbox);
+      optionLabel.appendChild(span);
 
-        // Actualizar resumen de seleccionados
-        const selected = Array.from(content.querySelectorAll('label.selected'))
-                              .map(c => c.textContent);
-        summary.textContent = selected.join(', ');
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!selectionOrder.includes(checkbox.value)) selectionOrder.push(checkbox.value);
+        } else {
+          const idx = selectionOrder.indexOf(checkbox.value);
+          if (idx > -1) selectionOrder.splice(idx, 1);
+        }
+        optionLabel.classList.toggle('selected', checkbox.checked);
+        updateSummary();
       });
     });
+
+    content.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+      if (!selectionOrder.includes(cb.value)) selectionOrder.push(cb.value);
+    });
+    updateSummary();
+
+    const search = content.querySelector('.dropdown-search');
+    if (search) {
+      search.addEventListener('input', () => {
+        const term = search.value.trim().toLowerCase();
+        content.querySelectorAll('label').forEach(label => {
+          const txt = label.querySelector('span')?.textContent?.toLowerCase() || '';
+          label.style.display = txt.includes(term) ? 'block' : 'none';
+        });
+      });
+    }
+
+    if (button) {
+      button.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropdown.classList.toggle('show');
+      });
+    }
+
+    document.addEventListener('click', e => {
+      if (!dropdown.contains(e.target)) dropdown.classList.remove('show');
+    });
   });
+
+  // --- Envío del formulario como JSON ---
+  // const form = document.getElementById("gameForm");
+  // form.addEventListener("submit", async function(event) {
+  //   event.preventDefault();
+
+  //   const formData = new FormData(this);
+  //   const payload = {};
+
+  //   formData.forEach((value, key) => {
+  //     if (payload[key]) {
+  //       if (Array.isArray(payload[key])) payload[key].push(value);
+  //       else payload[key] = [payload[key], value];
+  //     } else {
+  //       payload[key] = value;
+  //     }
+  //   });
+
+  //   // Validación mínima antes de enviar
+  //   if (!payload.nombre || !payload.short_description || !payload.detailed_description ||
+  //       !payload.precio || !payload.install_size_gb || !payload.ram_gb ||
+  //       !payload.platforms || payload.platforms.length === 0) {
+  //     alert("Todos los campos obligatorios deben ser completados y al menos una plataforma seleccionada");
+  //     return;
+  //   }
+
+  //   try {
+  //     const response = await fetch("http://127.0.0.1:5001/api/games", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify(payload)
+  //     });
+
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       sessionStorage.setItem("game_id", data.mongo_id);
+  //       window.location.href = "{{ url_for('loading') }}";
+  //     } else {
+  //       const data = await response.json();
+  //       alert(data.message || "Error al guardar el juego");
+  //     }
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("Error de conexión con el servidor");
+  //   }
+  // });
+});
 </script>
 
 

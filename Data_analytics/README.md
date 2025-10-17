@@ -497,6 +497,5 @@ Ejecución condicional (Local vs Big Data)
 - Big Data:        python scripts/run_pipeline.py --mode bigdata [--appid 12345] [--data-root gs://mi-bucket/prefix]
 - DATA_ROOT: si se define (gs:// o s3://), los scripts leerán/escribirán en ese prefijo (requiere credenciales y librerías gcsfs/s3fs).
 
-
-# ejecutar el poc
+# Como hacer POC:
 ./run_only_analytics.bat single-game-poc --scenario stellar
