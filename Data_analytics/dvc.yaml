@@ -140,7 +140,13 @@ stages:
       - outputs/events/events.parquet
 
   news_train_auto:
-    cmd: python src/insights/train_news_classifier_auto.py --input outputs/events/news_classified.parquet --cv 5
+    cmd: >
+      python src/insights/train_news_classifier_auto.py
+      --input outputs/events/news_classified.parquet
+      --featurizer sbert
+      --embedding-model all-MiniLM-L6-v2
+      --models "svm,logreg,rf,mlp"
+      --cv 5
     deps:
       - src/insights/train_news_classifier_auto.py
       - configs/news_train.yaml
