@@ -129,6 +129,12 @@ def _heuristic_summary(topics: List[Dict[str, Any]], max_items: int = 3, max_key
         name = _clean_name(str(t.get('Name') or t.get('name') or ''))
         cnt = _count(t)
         rep = t.get('Representation')
+        # Accept numpy arrays as well
+        try:
+            if hasattr(rep, 'tolist'):
+                rep = rep.tolist()
+        except Exception:
+            pass
         if isinstance(rep, (list, tuple)):
             kws = [str(x) for x in rep if str(x).strip()][:max_keywords]
         else:
