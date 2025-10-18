@@ -61,6 +61,11 @@ def main():
         raise SystemExit(f'No existe {ccf_consistency_path}. Ejecuta la etapa CCF con consistencia.')
 
     topics_df = read_parquet_any(topics_path)
+    if topics_df is None or topics_df.empty or 'appid' not in topics_df.columns:
+        out_path = out_dir / 'topics_scored.parquet'
+        write_parquet_any(pd.DataFrame(), out_path)
+        print(f"[WARN] topics.parquet vacío o sin columna 'appid'. Escribiendo topics_scored vacío -> {out_path}")
+        return
     cons_df = read_parquet_any(ccf_consistency_path)
     cons_df['appid'] = cons_df['appid'].astype(str)
 

@@ -349,7 +349,13 @@ def main():
         else:
             print("[WARN] No se generaron tópicos para ningún evento. Guardando fichero vacío.")
             mlflow.log_metric("total_events_analyzed", 0)
-            write_parquet_any(pd.DataFrame(), Path(outdir) / 'topics.parquet')
+            empty = pd.DataFrame(columns=[
+                'appid', 'year_month', 'topics',
+                'players_zscore', 'players_growth_rate',
+                'ccf_consistent_pos', 'local_corr_3m_pos', 'lead_or_lag_pos',
+                'ccf_consistent_neg', 'local_corr_3m_neg', 'lead_or_lag_neg'
+            ])
+            write_parquet_any(empty, Path(outdir) / 'topics.parquet')
 
 if __name__ == "__main__":
     main()
