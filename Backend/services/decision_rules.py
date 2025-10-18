@@ -320,30 +320,69 @@ class DecisionRulesService:
         neighbor_appids: Sequence[Any],
     ) -> str:
         """Evaluate recent competitive activity based on neighbor release dates."""
-        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
-        if not release_dates:
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_map:
             return "Desinteres del mercado"
 
-        cutoff_date = date.today() - timedelta(days=365)
-        for rel_date in release_dates:
+        today = date.today()
+        cutoff_date = today - timedelta(days=365)
+        for rel_date in release_map.values():
             if rel_date and rel_date >= cutoff_date:
                 return "Alta competencia reciente"
         return "Desinteres del mercado"
+
+    def build_release_info_map(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return release date info and age (in years) per neighbor appid."""
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        today = date.today()
+        info: Dict[str, Dict[str, Any]] = {}
+
+        def _normalized_appid(entry: Any) -> Optional[str]:
+            if isinstance(entry, dict):
+                candidate = entry.get("appid")
+            else:
+                candidate = entry
+            if candidate is None:
+                return None
+            text = str(candidate).strip()
+            return text or None
+
+        for entry in neighbor_appids:
+            appid_key = _normalized_appid(entry)
+            if not appid_key:
+                continue
+            rel_date = release_map.get(appid_key)
+            if rel_date is None:
+                info[appid_key] = {
+                    "release_date": None,
+                    "age_years": None,
+                }
+                continue
+            age_days = (today - rel_date).days
+            age_years = round(max(age_days, 0) / 365.25, 2)
+            info[appid_key] = {
+                "release_date": rel_date.isoformat(),
+                "age_years": age_years,
+            }
+        return info
 
     def evaluate_segment_saturation_age_rule(
         self,
         neighbor_appids: Sequence[Any],
     ) -> Dict[str, Any]:
         """Evaluate saturation vs. age profile for a neighbor cluster."""
-        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
-        if not release_dates:
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_map:
             return {
                 "label": "Desinteres del mercado",
                 "average_age_years": None,
                 "neighbor_count": len(neighbor_appids),
             }
 
-        valid_dates = [d for d in release_dates if isinstance(d, date)]
+        valid_dates = [d for d in release_map.values() if isinstance(d, date)]
         neighbor_count = len(neighbor_appids)
 
         average_age_years: Optional[float]
@@ -802,8 +841,8 @@ class DecisionRulesService:
             counts.append(self._count_platforms(doc.get("platforms")))
         return [count for count in counts if count is not None]
 
-    def _fetch_neighbor_release_dates(self, neighbor_appids: Sequence[Any]) -> List[Optional[date]]:
-        releases: List[Optional[date]] = []
+    def _fetch_neighbor_release_dates(self, neighbor_appids: Sequence[Any]) -> Dict[str, Optional[date]]:
+        releases: Dict[str, Optional[date]] = {}
         unique_ids: List[str] = []
         for appid in neighbor_appids:
             candidate = appid.get("appid") if isinstance(appid, dict) else appid
@@ -828,8 +867,10 @@ class DecisionRulesService:
         query_clauses: List[Dict[str, Any]] = []
         if int_ids:
             query_clauses.append({"appid": {"$in": int_ids}})
+            query_clauses.append({"app_id": {"$in": int_ids}})
         if str_ids:
             query_clauses.append({"appid": {"$in": str_ids}})
+            query_clauses.append({"app_id": {"$in": str_ids}})
         if not query_clauses:
             return releases
 
@@ -838,7 +879,7 @@ class DecisionRulesService:
         else:
             query = {"$or": query_clauses}
 
-        projection = {"release_date": 1, "_id": 0}
+        projection = {"release_date": 1, "appid": 1, "app_id": 1, "_id": 0}
         collection_name = "juegos_steam"
         try:
             collection = self.mongo_client.get_collection(collection_name)
@@ -847,8 +888,14 @@ class DecisionRulesService:
             return releases
 
         for doc in cursor:
+            appid_value = doc.get("appid", doc.get("app_id"))
+            if appid_value is None:
+                continue
+            appid_key = str(appid_value).strip()
+            if not appid_key:
+                continue
             parsed = self._parse_release_date(doc.get("release_date"))
-            releases.append(parsed)
+            releases[appid_key] = parsed
         return releases
 
     def _count_platforms(self, platforms: Any) -> int:
@@ -941,7 +988,11 @@ class DecisionRulesService:
 
         if isinstance(value, dict):
             # Steam API typically stores release_date as {"coming_soon": bool, "date": "May 1, 2024"}
+            coming_soon = value.get("coming_soon")
             possible = value.get("date")
+            if coming_soon is True and (not possible or not str(possible).strip()):
+                today = date.today()
+                return date(today.year, 12, 31)
             return self._parse_release_date(possible)
 
         if isinstance(value, (int, float)):
@@ -955,6 +1006,15 @@ class DecisionRulesService:
             if not text:
                 return None
             normalized = text.replace("Z", "")
+            lower_text = normalized.lower()
+            if "coming soon" in lower_text:
+                today = date.today()
+                return date(today.year, 12, 31)
+            if len(normalized) == 4 and normalized.isdigit():
+                try:
+                    return date(int(normalized), 1, 1)
+                except ValueError:
+                    return None
             date_formats = [
                 "%Y-%m-%d",
                 "%Y-%m-%dT%H:%M:%S",

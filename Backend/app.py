@@ -210,12 +210,18 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
         decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
         has_decision_service = isinstance(decision_rules_service, DecisionRulesService)
         activity_map: Dict[str, Dict[str, Any]] = {}
+        release_info_map: Dict[str, Dict[str, Any]] = {}
         if has_decision_service and raw_neighbors:
             try:
                 activity_map = decision_rules_service.evaluate_activity_rule(raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate activity rule: %s", exc)
                 activity_map = {}
+            try:
+                release_info_map = decision_rules_service.build_release_info_map(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to build release info map: %s", exc)
+                release_info_map = {}
         activity_default_label = "sin_datos" if has_decision_service else "sin_servicio"
         activity_threshold_hours: Optional[float] = None
         if activity_map:
@@ -245,6 +251,14 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                     "threshold_hours": activity_threshold_hours,
                 }
             neighbor["activity_rule"] = activity_info
+            release_info = release_info_map.get(appid_str) if appid_str else None
+            if release_info is None:
+                release_info = {
+                    "release_date": None,
+                    "age_years": None,
+                }
+            neighbor["release_date"] = release_info.get("release_date")
+            neighbor["release_age_years"] = release_info.get("age_years")
         if has_decision_service:
             try:
                 price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
