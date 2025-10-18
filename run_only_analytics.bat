@@ -53,6 +53,8 @@ set "RUN_OFFLINE_ALL=0"
 set "RUN_NEWS_TRAIN=0"
 set "RUN_TOPICS_SUMMARY=0"
 set "TOPICS_SUMMARY_PROVIDER=heuristic"
+set "RUN_TOPICS_LABELS=0"
+set "OUT_PNG="
 set "RUN_SPARK_BACKEND=0"
 set "FEATURIZER="
 set "EMB_MODEL="
@@ -81,6 +83,8 @@ for %%A in (%*) do (
     if /I "!ARG!"=="from-news" set "RUN_FROM_NEWS=1"
     if /I "!ARG!"=="topics-summary" set "RUN_TOPICS_SUMMARY=1"
     if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
+    if /I "!ARG!"=="topics-labels" set "RUN_TOPICS_LABELS=1"
+    if /I "!ARG:~0,8!"=="out-png=" set "OUT_PNG=!ARG:~8!"
     if /I "!ARG!"=="spark-backend" set "RUN_SPARK_BACKEND=1"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
@@ -144,6 +148,7 @@ if "!RUN_REVIEWS_MONGO!"=="1" goto :run_reviews_mongo
 if "!RUN_POC_CLIENT!"=="1" goto :run_poc_client
 if "!RUN_OFFLINE_ALL!"=="1" goto :run_offline_all
 if "!RUN_NEWS_TRAIN!"=="1" goto :run_news_train
+if "!RUN_TOPICS_LABELS!"=="1" goto :run_topics_labels
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -281,6 +286,30 @@ pause
 endlocal
 exit /b 0
 
+:run_topics_labels
+echo.
+echo ============================
+echo Generando grafico de etiquetas de topicos (BERTopic)...
+echo ============================
+set "LABELS_HTML=outputs/clustering/cluster_topics_labels.html"
+set "LABELS_PNG_OPT="
+if defined OUT_PNG (
+    set "LABELS_PNG_OPT=--out-png !OUT_PNG!"
+)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/plot_topics_labels.py --topics outputs/clustering/cluster_topics.json --out-html !LABELS_HTML! !LABELS_PNG_OPT!
+if errorlevel 1 (
+  echo [ERROR] Fallo la generacion de etiquetas de topicos.
+  pause
+  endlocal
+  exit /b 1
+)
+echo [OK] Grafico generado: !LABELS_HTML!
+if defined OUT_PNG echo [OK] PNG: !OUT_PNG!
+pause
+endlocal
+exit /b 0
+
 :run_poc
 echo.
 echo ============================
@@ -320,6 +349,7 @@ echo   - models/cluster_medoids.json
 echo   - outputs/clustering/cluster_stats.csv
 echo   - outputs/clustering/cluster_topics.json
 echo   - outputs/clustering/cluster_topics_umap.html
+echo   - outputs/clustering/cluster_topics_labels.html (si ejecutaste topics-labels)
 echo.
 echo Puedes apagar los contenedores con: docker compose down
 echo.
