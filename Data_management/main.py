@@ -39,7 +39,7 @@ class PipelineIngest:
         # EN UN ESCENARIO RELISTA SE CAPTURARIAN TODOS LOS REVIEWS DE TODOS LOS APPIDS REGISTRADOS.
         self.modo='MVP'
         if self.modo == 'MVP': # se capturara todas las reviews de un grupo selecto de APPIDs
-            self.appids_to_process =  [] # CS2, Dota 2, Baldur's Gate 3, GTA V, Stardew Valley
+            self.appids_to_process =  [334270, 1357210, 439960, 3627670, 951040, 3350350, 410540, 2646810, 574070, 246940, 322540, 312960, 2310980, 412250, 1138440, 2326740, 70900, 871710, 3050760, 281990] # CS2, Dota 2, Baldur's Gate 3, GTA V, Stardew Valley
         else: # Modo Realista
             self.appids_to_process = None
             
@@ -47,8 +47,8 @@ class PipelineIngest:
 
     def run(self):
         logging.info(f"Iniciando ingesta de juegos, reviews y news en ApiSteam…")
-        steam = ApiSteam(self.trusted_client,self.appids_to_process)
-        nombre_juegos = steam.run()
+        # steam = ApiSteam(self.trusted_client,self.appids_to_process)
+        # nombre_juegos = steam.run()
         scraper_main(self.appids_to_process) # Historico
 
 
@@ -64,17 +64,17 @@ class PipelineLandingtoTrusted:
             self.mongo_db_trusted = mongo_db_trusted
 
     def run(self):
-        spark = (
-        SparkSession.builder
-            .appName("TrustedZone")
-            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
-            .config("spark.mongodb.output.uri", f"{self.mongo_uri}/{self.mongo_db_trusted}.juegos_steam")
-            .getOrCreate()
-        )
-        trusted_client = MongoDBClient(uri=self.mongo_uri, db_name=self.mongo_db_trusted)
-        pipelineLT = PipelineLandingToTrustedSteam(spark,trusted_client)
-        pipelineLT.run()
-        pipelineLT.stop()
+        # spark = (
+        # SparkSession.builder
+        #     .appName("TrustedZone")
+        #     .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1")
+        #     .config("spark.mongodb.output.uri", f"{self.mongo_uri}/{self.mongo_db_trusted}.juegos_steam")
+        #     .getOrCreate()
+        # )
+        # trusted_client = MongoDBClient(uri=self.mongo_uri, db_name=self.mongo_db_trusted)
+        # pipelineLT = PipelineLandingToTrustedSteam(spark,trusted_client)
+        # pipelineLT.run()
+        # pipelineLT.stop()
 
         # Historico
         cleaner_main()
@@ -87,22 +87,22 @@ class PipelineTustedExplotationZone:
 
     def run(self):
 
-        logging.info(f"Comienza la extraccion de trusted_zone para mover a exploitation_zone")
-        spark = (
-            SparkSession.builder
-            .appName("TrustedToExploitation") \
-            .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
-            .config("spark.sql.shuffle.partitions", "128") \
-            .config("spark.driver.memory", "4g") \
-            .config("spark.executor.memory", "4g") \
-            .config("spark.memory.fraction", "0.6") \
-            .config("spark.memory.offHeap.enabled", "true") \
-            .config("spark.memory.offHeap.size", "1g") \
-            .getOrCreate()
-        )
-        job = TrustedToExploitation(spark, self.trusted_client, self.explo_client)
-        job.run()
-        spark.stop()
+        # logging.info(f"Comienza la extraccion de trusted_zone para mover a exploitation_zone")
+        # spark = (
+        #     SparkSession.builder
+        #     .appName("TrustedToExploitation") \
+        #     .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:3.0.1") \
+        #     .config("spark.sql.shuffle.partitions", "128") \
+        #     .config("spark.driver.memory", "4g") \
+        #     .config("spark.executor.memory", "4g") \
+        #     .config("spark.memory.fraction", "0.6") \
+        #     .config("spark.memory.offHeap.enabled", "true") \
+        #     .config("spark.memory.offHeap.size", "1g") \
+        #     .getOrCreate()
+        # )
+        # job = TrustedToExploitation(spark, self.trusted_client, self.explo_client)
+        # job.run()
+        # spark.stop()
 
         # Historico
         deployer_main()
@@ -118,11 +118,11 @@ def main():
 
         logging.info("========== INICIO DE PIPELINE APP ==========")
 
-        # # ===== INGESTA DE DATOS  --> LANDING ZONE =====
-        # logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
-        # pipelineI = PipelineIngest(trusted_client)
-        # pipelineI.run()
-        # logging.info("✅ INGESTA ➜ LANDING ")
+        # ===== INGESTA DE DATOS  --> LANDING ZONE =====
+        logging.info("===== INICIO DE PIPELINE DE INGESTA DE DATOS ====")
+        pipelineI = PipelineIngest(trusted_client)
+        pipelineI.run()
+        logging.info("✅ INGESTA ➜ LANDING ")
 
         # ===== LANDING ZONE --> TRUSTED ZONE =====
         logging.info("===== INICIO DE PIPELINE DE LANDING ZONE A TRUSTED ZONE ====")

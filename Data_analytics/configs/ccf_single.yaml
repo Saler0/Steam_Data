@@ -1,9 +1,9 @@
 input_path:
   clusters_parquet: data/processed/_tmp_single_app_clusters.parquet
 mongo_connection:
-  uri: ${MONGO_URI:-mongodb://localhost:27017}
-  database: ${MONGO_DB_REVIEWS:-steam}
-  collection: ${MONGO_COLL_REVIEWS:-reviews}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
 players_data:
   enabled: true
   dir_pattern: data/external/players/{appid}.csv
@@ -41,9 +41,9 @@ ccf_pairs:
 - predictor: players
   target: neg
   name: players_vs_negative_reviews
-- predictor: pos
-  target: neg
-  name: positive_vs_negative_reviews
+- predictor: players
+  target: total_reviews
+  name: players_vs_total_reviews
 ccf_lags: 6
 granger:
   maxlag: 3
@@ -60,3 +60,12 @@ mlflow:
   enabled: true
   experiment: Steam Analytics
   run_name_prefix: ccf_analysis_
+event_mode:
+  enabled: true
+  z_threshold: 2.0
+  window_months: 2
+  max_lag_event: 2
+  permutations: 500
+  alpha_event: 0.1
+  min_drop_1m: -0.15
+  use_negative_pct: true

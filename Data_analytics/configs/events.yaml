@@ -24,9 +24,9 @@ neighbors_min_similarity: 0.4
 # --- CONFIGURACIÓN DE CONEXIONES Y RUTAS DE DATOS ---
 # Conexión a Mongo para leer reseñas de texto en BERTopic (topics)
 mongo_connection:
-  uri: ${MONGO_URI:-mongodb://mongo:27017}
-  database: ${MONGO_DB_REVIEWS:-exploitation_zone}
-  collection: ${MONGO_COLL_REVIEWS:-steam_reviews}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection: steam_reviews
 
 # Configuración para obtener información sobre los DLCs (Contenido Descargable).
 # Esta sección se usa en el script `dlcs.py`.
@@ -34,16 +34,16 @@ dlc:
   enabled: true
   mongo_connection:
     # URL de conexión a la base de datos de MongoDB.
-    uri: ${MONGO_URI:-mongodb://mongo:27017}
-    database: ${MONGO_DB_GAMES:-exploitation_zone}
-    collection: ${MONGO_COLL_GAMES:-juegos_steam}
+    uri: mongodb://host.docker.internal:27017
+    database: exploitation_zone
+    collection: juegos_steam
 
 # CONFIGURACIÓN DE MONGO PARA NOTICIAS
 # Usado por src/insights/news_classifier.py para leer noticias de exploitation_zone.news_games
 mongodb:
-  uri: ${MONGO_URI:-mongodb://mongo:27017}
-  db_name: ${MONGO_DB_EXPLOITATION:-exploitation_zone}
-  collection_name: ${MONGO_COLL_NEWS:-news_games}
+  uri: mongodb://host.docker.internal:27017
+  database: exploitation_zone
+  collection_name: news_games
 
 # Preagregados mensuales opcionales (para escala)
 preaggregated:
