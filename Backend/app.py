@@ -11,6 +11,7 @@ from werkzeug.exceptions import NotFound
 from db.mongodb import MongoDBClient
 from pymongo.errors import PyMongoError
 
+from config import DECISION_RULES
 from services.decision_rules import DecisionRulesService
 from services.neighbor_ratings import NeighborRatingService
 from services.single_game_poc import (
@@ -206,15 +207,45 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to compute neighbor ratings: %s", exc)
                 ratings_map = {}
+        decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
+        has_decision_service = isinstance(decision_rules_service, DecisionRulesService)
+        activity_map: Dict[str, Dict[str, Any]] = {}
+        if has_decision_service and raw_neighbors:
+            try:
+                activity_map = decision_rules_service.evaluate_activity_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate activity rule: %s", exc)
+                activity_map = {}
+        activity_default_label = "sin_datos" if has_decision_service else "sin_servicio"
+        activity_threshold_hours: Optional[float] = None
+        if activity_map:
+            sample_activity = next(iter(activity_map.values()))
+            activity_threshold_hours = sample_activity.get("threshold_hours")
+        elif has_decision_service:
+            cfg_threshold = DECISION_RULES.get("activity_inactive_threshold_hours", 10.0)
+            try:
+                activity_threshold_hours = float(cfg_threshold)
+            except (TypeError, ValueError):
+                activity_threshold_hours = 10.0
         for neighbor in normalized_neighbors:
             appid_key = neighbor.get("appid")
+            raw_appid_str = str(appid_key) if appid_key is not None else ""
+            appid_str = raw_appid_str.strip() if raw_appid_str else ""
             if appid_key is None:
                 neighbor["rating"] = None
-                continue
-            rating = ratings_map.get(str(appid_key)) or ratings_map.get(str(appid_key).strip())
-            neighbor["rating"] = rating
-        decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
-        if isinstance(decision_rules_service, DecisionRulesService):
+            else:
+                rating = ratings_map.get(appid_str) or ratings_map.get(raw_appid_str)
+                neighbor["rating"] = rating
+            activity_info = activity_map.get(appid_str) if appid_str else None
+            if activity_info is None:
+                activity_info = {
+                    "label": activity_default_label,
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": activity_threshold_hours,
+                }
+            neighbor["activity_rule"] = activity_info
+        if has_decision_service:
             try:
                 price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
             except Exception as exc:

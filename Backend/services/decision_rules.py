@@ -454,6 +454,140 @@ class DecisionRulesService:
             "total_neighbors": total_neighbors,
         }
 
+    def evaluate_activity_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Classify neighbors as active/inactive based on recent playtime."""
+        threshold_cfg = DECISION_RULES.get("activity_inactive_threshold_hours", 10.0)
+        try:
+            threshold_hours = float(threshold_cfg)
+        except (TypeError, ValueError):
+            threshold_hours = 10.0
+
+        normalized_ids: Dict[str, str] = {}
+        str_ids: set[str] = set()
+        int_ids: set[int] = set()
+        for entry in neighbor_appids:
+            candidate = entry.get("appid") if isinstance(entry, dict) else entry
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            normalized_ids[text_id] = text_id
+            str_ids.add(text_id)
+            try:
+                int_ids.add(int(text_id))
+            except ValueError:
+                continue
+
+        if not normalized_ids:
+            return {}
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            int_list = list(int_ids)
+            query_clauses.append({"appid": {"$in": int_list}})
+            query_clauses.append({"app_id": {"$in": int_list}})
+        if str_ids:
+            str_list = list(str_ids)
+            query_clauses.append({"appid": {"$in": str_list}})
+            query_clauses.append({"app_id": {"$in": str_list}})
+
+        if not query_clauses:
+            return {
+                appid: {
+                    "label": "sin_datos",
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": threshold_hours,
+                }
+                for appid in normalized_ids
+            }
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        projection = {
+            "appid": 1,
+            "app_id": 1,
+            "author.playtime_last_two_weeks": 1,
+            "author_playtime_last_two_weeks": 1,
+            "_id": 0,
+        }
+
+        def _safe_float(value: Any) -> Optional[float]:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                try:
+                    return float(text)
+                except ValueError:
+                    return None
+            return None
+
+        sums: Dict[str, float] = {appid: 0.0 for appid in normalized_ids}
+        counts: Dict[str, int] = {appid: 0 for appid in normalized_ids}
+
+        try:
+            collection = self.mongo_client.get_collection("steam_reviews")
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return {
+                appid: {
+                    "label": "sin_datos",
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": threshold_hours,
+                }
+                for appid in normalized_ids
+            }
+
+        for doc in cursor:
+            appid_value = doc.get("appid", doc.get("app_id"))
+            if appid_value is None:
+                continue
+            appid_key = str(appid_value).strip()
+            if not appid_key or appid_key not in normalized_ids:
+                continue
+            author = doc.get("author") or {}
+            playtime = author.get("playtime_last_two_weeks")
+            if playtime is None:
+                playtime = doc.get("author_playtime_last_two_weeks")
+            hours = _safe_float(playtime)
+            if hours is None:
+                continue
+            sums[appid_key] += hours
+            counts[appid_key] += 1
+
+        results: Dict[str, Dict[str, Any]] = {}
+        for appid_key in normalized_ids:
+            samples = counts.get(appid_key, 0)
+            average = None
+            if samples > 0:
+                average = round(sums[appid_key] / samples, 2)
+            if average is None:
+                label = "sin_datos"
+            elif average < threshold_hours:
+                label = "inactive game"
+            else:
+                label = "active game"
+            results[appid_key] = {
+                "label": label,
+                "average_playtime_hours": average,
+                "samples": samples,
+                "threshold_hours": threshold_hours,
+            }
+        return results
+
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
         unique_ids: List[str] = []
