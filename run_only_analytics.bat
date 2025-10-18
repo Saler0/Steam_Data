@@ -461,17 +461,30 @@ if "!RUN_PLAYERS_PG!"=="1" (
 
 rem Opcional: ejecutar preagregados antes si se pidió
 if "!RUN_PREAGG_BEFORE!"=="1" (
-    echo [INFO] Ejecutando preagg_reviews y preagg_players antes del subset...
-    call :RunSingleStage preagg_reviews
+    echo [INFO] Regenerando reviews_monthly antes del subset (Mongo/.env)...
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
     if errorlevel 1 goto :neighbors_failed
-    call :RunSingleStage preagg_players
-    if errorlevel 1 goto :neighbors_failed
+    if "!RUN_PLAYERS_PG!"=="1" (
+        echo [INFO] Regenerando players_monthly desde Postgres antes del subset...
+        set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
+        if defined PG_TABLE (
+            set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
+        )
+        docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+          exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+        if errorlevel 1 goto :neighbors_failed
+    ) else (
+        docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+          exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/players_monthly.py --out data/warehouse/players_monthly.parquet
+        if errorlevel 1 goto :neighbors_failed
+    )
 )
 
 rem Ejecutar eventos -> tópicos para el subset (a menos que se pida continuar desde noticias)
 if not "!RUN_FROM_NEWS!"=="1" (
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+      exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
     if errorlevel 1 goto :neighbors_failed
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
       exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
@@ -496,12 +509,12 @@ if "!RUN_SPARK_BACKEND!"=="1" (
   if errorlevel 1 (
     echo [WARN] events_spark fallo; usando backend local
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+      exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
     if errorlevel 1 goto :neighbors_failed
   )
 ) else (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
   if errorlevel 1 goto :neighbors_failed
 )
 
