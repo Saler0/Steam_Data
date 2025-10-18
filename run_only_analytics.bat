@@ -461,7 +461,7 @@ if "!RUN_PLAYERS_PG!"=="1" (
 
 rem Opcional: ejecutar preagregados antes si se pidió
 if "!RUN_PREAGG_BEFORE!"=="1" (
-    echo [INFO] Regenerando reviews_monthly antes del subset (Mongo/.env)...
+    echo [INFO] Regenerando reviews_monthly antes del subset - Mongo/.env
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
       exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
     if errorlevel 1 goto :neighbors_failed
@@ -525,7 +525,7 @@ if errorlevel 1 goto :neighbors_failed
 
 rem (Opcional) Generar columna topics_summary legible a partir de 'topics'
 if "!RUN_TOPICS_SUMMARY!"=="1" (
-  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
+  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' provider=!TOPICS_SUMMARY_PROVIDER!
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/topics.parquet ]; then sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/summarize_topics_column.py --in outputs/events/topics.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe topics.parquet; omitiendo resumen de topics.'; fi"
   rem Exportar topics_summary a Postgres si existe y hay conexión
@@ -649,14 +649,14 @@ if defined APPID_LIST (
 )
 
 rem Correr SIEMPRE preagregados antes (fuera de DVC) y con .env cargado
-echo [INFO] Regenerando reviews_monthly desde Mongo (segun configs/ccf_analysis.yaml)...
+echo [INFO] Regenerando reviews_monthly desde Mongo - segun configs/ccf_analysis.yaml
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
 if errorlevel 1 goto :offline_failed
 
 echo [INFO] Regenerando players_monthly...
 if "!RUN_PLAYERS_PG!"=="1" (
-  echo [INFO] Generando players_monthly desde Postgres (variables de .env)...
+  echo [INFO] Generando players_monthly desde Postgres - variables de .env
   set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
   if defined PG_TABLE (
       set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
@@ -704,7 +704,7 @@ if errorlevel 1 goto :offline_failed
 
 rem (Opcional) Generar y exportar topics_summary en offline-all
 if "!RUN_TOPICS_SUMMARY!"=="1" (
-  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
+  echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' provider=!TOPICS_SUMMARY_PROVIDER!
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
   if errorlevel 1 goto :offline_failed
