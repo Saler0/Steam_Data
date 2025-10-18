@@ -635,28 +635,50 @@ if defined APPID_LIST (
     goto :run_neighbors
 )
 
-rem (Opcional) correr preagregados antes
-call :RunSingleStage preagg_reviews
+rem Correr SIEMPRE preagregados antes (fuera de DVC) y con .env cargado
+echo [INFO] Regenerando reviews_monthly desde Mongo (segun configs/ccf_analysis.yaml)...
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
 if errorlevel 1 goto :offline_failed
-call :RunSingleStage preagg_players
-if errorlevel 1 goto :offline_failed
+
+echo [INFO] Regenerando players_monthly...
+if "!RUN_PLAYERS_PG!"=="1" (
+  echo [INFO] Generando players_monthly desde Postgres (variables de .env)...
+  set "PG_ARGS=--postgres-host $POSTGRES_HOST --postgres-port $POSTGRES_PORT --postgres-user $POSTGRES_USER --postgres-password $POSTGRES_PASSWORD --postgres-db $POSTGRES_DB"
+  if defined PG_TABLE (
+      set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
+  )
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+  if errorlevel 1 goto :offline_failed
+) else (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python src/pipelines/preaggregations/players_monthly.py --out data/warehouse/players_monthly.parquet
+  if errorlevel 1 goto :offline_failed
+)
 
 rem Ejecutar stages base (SIN embeddings/clustering, se asume artefactos ya existen)
 if not "!RUN_FROM_NEWS!"=="1" (
+    rem Ejecutar eventos y topicos con Python directo y .env (evita defaults de contenedor)
     if "!RUN_SPARK_BACKEND!"=="1" (
-        call :RunSingleStage events_spark
+        docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+          exec -w /app/Data_analytics analytics python src/pipelines/event_detection/events_spark.py --config configs/events.yaml
         if errorlevel 1 (
-            echo [WARN] events_spark fallo; retrocediendo a events local
-            call :RunSingleStage events
+            echo [WARN] events_spark fallo; usando backend local
+            docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+              exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
             if errorlevel 1 goto :offline_failed
         )
     ) else (
-        call :RunSingleStage events
+        docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+          exec -w /app/Data_analytics analytics bash -lc "set -a; source <(sed 's/\r$//' .env); set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
         if errorlevel 1 goto :offline_failed
     )
-    call :RunSingleStage topics
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events.yaml
     if errorlevel 1 goto :offline_failed
-    call :RunSingleStage topics_relevance
+    docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+      exec -w /app/Data_analytics analytics python src/insights/score_topics_with_ccf.py --config configs/events.yaml
     if errorlevel 1 goto :offline_failed
 )
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
