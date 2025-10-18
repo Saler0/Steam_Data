@@ -30,9 +30,14 @@ from src.utils.io import read_parquet_any, write_parquet_any, path_exists
 from src.utils.timeseries import dlog
 import re
 
+DEBUG_APPID = os.environ.get('DEBUG_APPID')
+
+
 def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str, date_filter: dict | None = None) -> pd.DataFrame | None:
     try:
         dfs = []
+        rv_len = 0
+        pl_len = 0
         if reviews_path and path_exists(reviews_path):
             rv = None
             try:
@@ -50,6 +55,7 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 rv = read_parquet_any(reviews_path)
                 rv = rv[rv['appid'].astype(str) == str(appid)].copy()
             if not rv.empty:
+                rv_len = int(len(rv))
                 dfs.append(rv[['year_month', 'pos', 'neg', 'total_reviews']] if 'total_reviews' in rv.columns else rv[['year_month','pos','neg']])
         if players_path and path_exists(players_path):
             pl = None
@@ -68,13 +74,19 @@ def _read_preagg(players_path: str | None, reviews_path: str | None, appid: str,
                 pl = read_parquet_any(players_path)
                 pl = pl[pl['appid'].astype(str) == str(appid)].copy()
             if not pl.empty:
+                pl_len = int(len(pl))
                 dfs.append(pl[['year_month', 'players']])
         if not dfs:
+            if DEBUG_APPID and DEBUG_APPID == str(appid):
+                print(f"[DEBUG] appid={appid} preagg not found or empty. paths players={players_path} reviews={reviews_path}")
             return None
         out = None
         for d in dfs:
             out = d if out is None else pd.merge(out, d, on='year_month', how='outer')
-        return out.sort_values('year_month').fillna(0)
+        out = out.sort_values('year_month').fillna(0)
+        if DEBUG_APPID and DEBUG_APPID == str(appid):
+            print(f"[DEBUG] appid={appid} preagg rows: players={pl_len} reviews={rv_len} merged={len(out)} cols={list(out.columns)}")
+        return out
     except Exception:
         return None
 
@@ -205,8 +217,12 @@ def _detect_events_for_game_sync(args: tuple) -> pd.DataFrame:
     z_thresh = float(cfg['detection']['zscore_threshold'])
     
     df_ts = load_data_for_appid(appid, cfg_players, cfg_reviews, cfg.get('preaggregated'), date_filter=cfg.get('date_filter'))
-    
+
     if df_ts is None or df_ts.empty or len(df_ts) < 12:
+        if DEBUG_APPID and DEBUG_APPID == str(appid):
+            msg = "empty" if (df_ts is None or df_ts.empty) else f"too_short(n={len(df_ts)})"
+            cols = [] if (df_ts is None or df_ts.empty) else list(df_ts.columns)
+            print(f"[DEBUG] appid={appid} events skipped: {msg}; columns={cols}")
         return pd.DataFrame()
     
     if 'year_month' in df_ts.columns and df_ts['year_month'].duplicated().any():

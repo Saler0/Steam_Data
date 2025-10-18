@@ -298,6 +298,15 @@ set "LABELS_PNG_OPT="
 if defined OUT_PNG (
     set "LABELS_PNG_OPT=--out-png !OUT_PNG!"
 )
+rem Instalar dependencias opcionales si se pidio PNG o WordCloud
+if defined OUT_PNG (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python -c "import pkgutil,sys,subprocess; m='kaleido'; pkgutil.find_loader(m) or subprocess.call([sys.executable,'-m','pip','install','kaleido'])"
+)
+if defined OUT_WC (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python -c "import pkgutil,sys,subprocess; m='wordcloud'; pkgutil.find_loader(m) or subprocess.check_call([sys.executable,'-m','pip','install','wordcloud'])"
+)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python scripts/plot_topics_labels.py --topics outputs/clustering/cluster_topics.json --out-html !LABELS_HTML! !LABELS_PNG_OPT!
 if defined OUT_WC (
