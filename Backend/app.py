@@ -141,7 +141,6 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                     "detailed_description": document["detailed_description"],
                     "genres": document["genres"],
                     "categories": document["categories"],
-                    "price": document["precio"],
                 },
                 neighbors=20,
                 min_similarity=0.0,
