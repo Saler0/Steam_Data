@@ -409,7 +409,7 @@ exit /b 1
 rem Ejecuta un stage. Para reglas de decisión, llama directamente al script con --stage
 rem Las reglas de decisión han sido movidas al backend; no se ejecutan aquí
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -c "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; dvc repro --single-item %1"
+  exec -w /app/Data_analytics analytics bash -c "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; dvc repro --single-item %1"
 exit /b %errorlevel%
 
 :run_neighbors
@@ -455,7 +455,7 @@ if "!RUN_PLAYERS_PG!"=="1" (
         set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
     )
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+      exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
     if errorlevel 1 goto :neighbors_failed
 )
 
@@ -472,7 +472,7 @@ if "!RUN_PREAGG_BEFORE!"=="1" (
             set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
         )
         docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-          exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+          exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
         if errorlevel 1 goto :neighbors_failed
     ) else (
         docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
@@ -484,7 +484,7 @@ if "!RUN_PREAGG_BEFORE!"=="1" (
 rem Ejecutar eventos -> tópicos para el subset (a menos que se pida continuar desde noticias)
 if not "!RUN_FROM_NEWS!"=="1" (
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
+      exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
     if errorlevel 1 goto :neighbors_failed
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
       exec -w /app/Data_analytics analytics python src/insights/topic_motives.py --config configs/events_subset.yaml
@@ -498,7 +498,7 @@ if not "!RUN_FROM_NEWS!"=="1" (
 rem Clasificar noticias SOLO para los appids del subset (si LLM habilitado)
 for %%I in (!APPID_LIST!) do (
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
+      exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/insights/news_classifier.py --config configs/events_subset.yaml --appid %%I"
     if errorlevel 1 goto :neighbors_failed
 )
 
@@ -509,12 +509,12 @@ if "!RUN_SPARK_BACKEND!"=="1" (
   if errorlevel 1 (
     echo [WARN] events_spark fallo; usando backend local
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-      exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
+      exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
     if errorlevel 1 goto :neighbors_failed
   )
 ) else (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events_subset.yaml"
   if errorlevel 1 goto :neighbors_failed
 )
 
@@ -527,10 +527,10 @@ rem (Opcional) Generar columna topics_summary legible a partir de 'topics'
 if "!RUN_TOPICS_SUMMARY!"=="1" (
   echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/topics.parquet ]; then sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/summarize_topics_column.py --in outputs/events/topics.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe topics.parquet; omitiendo resumen de topics.'; fi"
+  exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/topics.parquet ]; then sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/summarize_topics_column.py --in outputs/events/topics.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe topics.parquet; omitiendo resumen de topics.'; fi"
   rem Exportar topics_summary a Postgres si existe y hay conexión
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/export_topics_summary_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_summary_to_postgres.py"
   if errorlevel 1 goto :neighbors_failed
 )
 
@@ -586,10 +586,10 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics python scripts/export_abandon_rates_by_experience.py --reviews data/warehouse/reviews_with_segments_subset.parquet --out outputs/events/abandon_rates_by_experience.csv --freq M --window 1 --min-samples 5 --abandon-column abandon_general
 if "!RUN_PG_RECREATE!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; export POSTGRES_RECREATE=1; set +a; python scripts/export_abandon_rates_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; export POSTGRES_RECREATE=1; set +a; python scripts/export_abandon_rates_to_postgres.py"
 ) else (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/export_abandon_rates_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_abandon_rates_to_postgres.py"
 )
 
 rem Exportar tópicos por experiencia (CSV con appid) y opcional a Postgres (USANDO SUBSET)
@@ -597,10 +597,10 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -w /app/Data_analytics analytics python scripts/export_topics_by_experience.py --reviews data/warehouse/reviews_with_segments_subset.parquet --topics outputs/events/reviews_topics_subset.parquet --out outputs/events/topics_by_experience.csv --top-n 5
 if "!RUN_PG_RECREATE!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; export POSTGRES_RECREATE=1; set +a; python scripts/export_topics_by_experience_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; export POSTGRES_RECREATE=1; set +a; python scripts/export_topics_by_experience_to_postgres.py"
 ) else (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/export_topics_by_experience_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_by_experience_to_postgres.py"
 )
 
 rem Generar reportes por juego (uno por APPID del subset) usando la config del subset
@@ -662,7 +662,7 @@ if "!RUN_PLAYERS_PG!"=="1" (
       set "PG_ARGS=!PG_ARGS! --postgres-table $PG_TABLE"
   )
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/preaggregations/players_monthly.py !PG_ARGS! --out data/warehouse/players_monthly.parquet"
   if errorlevel 1 goto :offline_failed
 ) else (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
@@ -679,12 +679,12 @@ if not "!RUN_FROM_NEWS!"=="1" (
         if errorlevel 1 (
             echo [WARN] events_spark fallo; usando backend local
             docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-              exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
+              exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
             if errorlevel 1 goto :offline_failed
         )
     ) else (
         docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-          exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
+          exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python src/pipelines/event_detection/detect_events.py --config configs/events.yaml"
         if errorlevel 1 goto :offline_failed
     )
     docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
@@ -706,10 +706,10 @@ rem (Opcional) Generar y exportar topics_summary en offline-all
 if "!RUN_TOPICS_SUMMARY!"=="1" (
   echo [INFO] Resumiendo columna 'topics' -> 'topics_summary' (provider=!TOPICS_SUMMARY_PROVIDER!)
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
+    exec -w /app/Data_analytics analytics bash -lc "if [ -f outputs/events/enriched_events.parquet ]; then sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/summarize_topics_column.py --in outputs/events/enriched_events.parquet --out outputs/events/enriched_events_with_topics_summary.parquet --topics-col topics --summary-col topics_summary --provider !TOPICS_SUMMARY_PROVIDER!; else echo '[INFO] No existe enriched_events.parquet; omitiendo resumen de topics.'; fi"
   if errorlevel 1 goto :offline_failed
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -w /app/Data_analytics analytics bash -lc "sed 's/\r$//' .env > /tmp/env; set -a; . /tmp/env; set +a; python scripts/export_topics_summary_to_postgres.py"
+    exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_summary_to_postgres.py"
   if errorlevel 1 goto :offline_failed
 )
 call :RunSingleStage reviews_with_segments
