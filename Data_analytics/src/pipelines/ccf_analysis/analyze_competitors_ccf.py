@@ -118,9 +118,13 @@ def _read_players(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
             ds_pl = ds.dataset(preagg_path, format='parquet')
             tbl = ds_pl.to_table(filter=ds.field('appid') == str(appid))
             df = tbl.to_pandas()
+            # Fallback if filter returned empty due to dtype mismatch (str vs int)
+            if df is None or df.empty:
+                raise ValueError('empty_after_arrow_filter')
         except Exception:
             df = read_parquet_any(preagg_path)
-            df = df[df['appid'].astype(str) == str(appid)].copy()
+            if 'appid' in df.columns:
+                df = df[df['appid'].astype(str) == str(appid)].copy()
         if df is not None and not df.empty:
             if 'date' in df.columns:
                 df['year_month'] = pd.to_datetime(df['date']).dt.to_period('M').dt.to_timestamp()
@@ -153,9 +157,12 @@ def _read_reviews(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
             ds_rv = ds.dataset(preagg_path, format='parquet')
             tbl = ds_rv.to_table(filter=ds.field('appid') == str(appid))
             df = tbl.to_pandas()
+            if df is None or df.empty:
+                raise ValueError('empty_after_arrow_filter')
         except Exception:
             df = read_parquet_any(preagg_path)
-            df = df[df['appid'].astype(str) == str(appid)].copy()
+            if 'appid' in df.columns:
+                df = df[df['appid'].astype(str) == str(appid)].copy()
         if df is not None and not df.empty:
             return df[['year_month','pos','neg','total_reviews']].sort_values('year_month') if 'total_reviews' in df.columns else df[['year_month','pos','neg']].sort_values('year_month')
     cli = MongoClient(cfg['uri'])

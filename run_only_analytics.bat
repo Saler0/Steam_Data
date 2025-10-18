@@ -55,6 +55,7 @@ set "RUN_TOPICS_SUMMARY=0"
 set "TOPICS_SUMMARY_PROVIDER=heuristic"
 set "RUN_TOPICS_LABELS=0"
 set "OUT_PNG="
+set "OUT_WC="
 set "RUN_SPARK_BACKEND=0"
 set "FEATURIZER="
 set "EMB_MODEL="
@@ -85,6 +86,7 @@ for %%A in (%*) do (
     if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
     if /I "!ARG!"=="topics-labels" set "RUN_TOPICS_LABELS=1"
     if /I "!ARG:~0,8!"=="out-png=" set "OUT_PNG=!ARG:~8!"
+    if /I "!ARG:~0,7!"=="out-wc=" set "OUT_WC=!ARG:~7!"
     if /I "!ARG!"=="spark-backend" set "RUN_SPARK_BACKEND=1"
     if /I "!ARG:~0,11!"=="featurizer=" set "FEATURIZER=!ARG:~11!"
     if /I "!ARG:~0,10!"=="emb-model=" set "EMB_MODEL=!ARG:~10!"
@@ -298,6 +300,10 @@ if defined OUT_PNG (
 )
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
   exec -w /app/Data_analytics analytics python scripts/plot_topics_labels.py --topics outputs/clustering/cluster_topics.json --out-html !LABELS_HTML! !LABELS_PNG_OPT!
+if defined OUT_WC (
+  docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+    exec -w /app/Data_analytics analytics python scripts/plot_topics_labels.py --topics outputs/clustering/cluster_topics.json --out-html !LABELS_HTML! --out-wordcloud !OUT_WC!
+)
 if errorlevel 1 (
   echo [ERROR] Fallo la generacion de etiquetas de topicos.
   pause
@@ -306,6 +312,7 @@ if errorlevel 1 (
 )
 echo [OK] Grafico generado: !LABELS_HTML!
 if defined OUT_PNG echo [OK] PNG: !OUT_PNG!
+if defined OUT_WC echo [OK] WordCloud: !OUT_WC!
 pause
 endlocal
 exit /b 0

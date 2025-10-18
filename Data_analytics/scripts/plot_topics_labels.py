@@ -18,7 +18,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import plotly.graph_objs as go
@@ -30,8 +30,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--topics", default="outputs/clustering/cluster_topics.json", help="Input cluster topics JSON")
     ap.add_argument("--out-html", default="outputs/clustering/cluster_topics_labels.html", help="Output HTML plot path")
     ap.add_argument("--out-png", default=None, help="Optional PNG output path (tries Plotly+kaleido; falls back to Matplotlib)")
+    ap.add_argument("--out-wordcloud", dest="out_wordcloud", default=None, help="Optional Word Cloud PNG output path")
     ap.add_argument("--top", type=int, default=50, help="Max topics to plot, sorted by representative docs")
     ap.add_argument("--words", type=int, default=3, help="Number of keywords to include in label if no name is present")
+    ap.add_argument("--wc-max-words", type=int, default=100, help="Max words in the word cloud")
     return ap.parse_args()
 
 
@@ -44,11 +46,16 @@ def _sanitize_label(text: str) -> str:
     return t
 
 
+def _strip_leading_index(name: str) -> str:
+    # Remove patterns like '0_foo_bar' or '12_topic_xyz' -> 'foo_bar' or 'topic_xyz'
+    return re.sub(r"^\d+_", "", name)
+
+
 def _build_label(row: Dict[str, Any], max_words: int) -> str:
     # Prefer explicit name from BERTopic if present
     name = row.get("name")
     if isinstance(name, str) and name.strip():
-        return _sanitize_label(name)
+        return _sanitize_label(_strip_leading_index(name))
     # Fallback to keywords
     kws = row.get("keywords") or []
     if isinstance(kws, list) and kws:
@@ -168,6 +175,82 @@ def main() -> None:
                 print(f"[WARN] Could not export PNG (missing kaleido/matplotlib?): {exc}")
         if not saved:
             print("[HINT] Install 'kaleido' (for Plotly) or 'matplotlib' to enable PNG export.")
+
+    # Optional Word Cloud export (PNG)
+    if args.out_wordcloud:
+        png_wc = Path(args.out_wordcloud)
+        png_wc.parent.mkdir(parents=True, exist_ok=True)
+        # Build word frequencies from labels weighted by topic weight
+        def tokens_from_label(label: str) -> List[str]:
+            toks = [t for t in label.split("_") if t]
+            # remove numeric tokens and very short tokens
+            toks = [t for t in toks if not t.isdigit() and len(t) >= 2]
+            # drop generic artifacts
+            drop = {"topic", "cluster", "and", "the", "vs", "de", "la", "el", "los", "las", "con"}
+            toks = [t for t in toks if t not in drop]
+            return toks
+
+        freqs: Dict[str, float] = {}
+        for rec in rows:
+            for tok in tokens_from_label(rec["label"]):
+                freqs[tok] = freqs.get(tok, 0.0) + float(rec.get("weight", 0) or 0)
+
+        if not freqs:
+            print("[WARN] No tokens available for word cloud.")
+        else:
+            # Keep top N words
+            items = sorted(freqs.items(), key=lambda kv: kv[1], reverse=True)[: max(1, int(args.wc_max_words))]
+            freqs = dict(items)
+            saved_wc = False
+            # Try wordcloud library first
+            try:
+                from wordcloud import WordCloud  # type: ignore
+
+                wc = WordCloud(width=1200, height=800, background_color="white")
+                wc = wc.generate_from_frequencies(freqs)
+                wc.to_file(str(png_wc))
+                print(f"[OK] Saved Word Cloud via wordcloud -> {png_wc}")
+                saved_wc = True
+            except Exception:
+                pass
+
+            if not saved_wc:
+                # Fallback: rudimentary Matplotlib scatter-text layout
+                try:
+                    import math
+                    import random
+                    import matplotlib.pyplot as plt  # type: ignore
+
+                    # Normalize sizes between 10 and 48
+                    vals = list(freqs.values())
+                    vmin, vmax = min(vals), max(vals)
+                    def size(v: float) -> float:
+                        if vmax == vmin:
+                            return 24.0
+                        return 10.0 + 38.0 * ((v - vmin) / (vmax - vmin))
+
+                    plt.figure(figsize=(12, 8))
+                    plt.axis('off')
+                    random.seed(42)
+                    # Simple grid placement to reduce overlaps
+                    grid_w, grid_h = 6, 6
+                    cells = [(i, j) for i in range(grid_w) for j in range(grid_h)]
+                    random.shuffle(cells)
+                    idx = 0
+                    for word, val in items:
+                        if idx >= len(cells):
+                            break
+                        cx, cy = cells[idx]
+                        idx += 1
+                        x = (cx + 0.5) / grid_w
+                        y = (cy + 0.5) / grid_h
+                        plt.text(x, y, word, fontsize=size(val), ha='center', va='center', transform=plt.gca().transAxes)
+                    plt.tight_layout()
+                    plt.savefig(str(png_wc), dpi=150, bbox_inches='tight')
+                    plt.close()
+                    print(f"[OK] Saved Word Cloud via Matplotlib -> {png_wc}")
+                except Exception as exc:
+                    print(f"[WARN] Could not export Word Cloud: {exc}")
 
 
 if __name__ == "__main__":
