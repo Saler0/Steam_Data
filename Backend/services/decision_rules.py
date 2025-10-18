@@ -1020,6 +1020,8 @@ class DecisionRulesService:
                 "%Y-%m-%dT%H:%M:%S",
                 "%Y-%m-%d %H:%M:%S",
                 "%Y/%m/%d",
+                "%B %Y",
+                "%b %Y",
                 "%d/%m/%Y",
                 "%b %d, %Y",
                 "%B %d, %Y",
