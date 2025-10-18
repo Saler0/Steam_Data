@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import json
 import os
 from pathlib import Path
@@ -47,6 +48,26 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
         s = val.strip()
         if not s:
             return []
+        # Pre-clean numpy-style arrays: array([...], dtype=object) -> [...]
+        def _preclean_numpy_arrays(txt: str) -> str:
+            # Replace any numpy-like array(...) with just its list payload
+            # Examples handled:
+            #   array(['a','b'], dtype=object)
+            #   array(["a", "b"])  (no dtype)
+            #   'Representation': array([...], dtype=object)
+            pattern = re.compile(r"array\(\s*(\[[\s\S]*?\])\s*(?:,\s*dtype=object)?\s*\)")
+            return pattern.sub(r"\1", txt)
+
+        # Optionally drop very large doc blobs to ease parsing (Representative_Docs, top_docs)
+        def _drop_heavy_doc_blobs(txt: str) -> str:
+            # Remove key: Representative_Docs: <anything balanced up to next '],'> heuristically
+            txt = re.sub(r"'Representative_Docs'\s*:\s*\[[\s\S]*?\](\s*,)?", "", txt)
+            txt = re.sub(r'"Representative_Docs"\s*:\s*\[[\s\S]*?\](\s*,)?', "", txt)
+            txt = re.sub(r"'top_docs'\s*:\s*\[[\s\S]*?\](\s*,)?", "", txt)
+            txt = re.sub(r'"top_docs"\s*:\s*\[[\s\S]*?\](\s*,)?', "", txt)
+            return txt
+
+        s = _drop_heavy_doc_blobs(_preclean_numpy_arrays(s))
         # Try JSON first
         try:
             obj = json.loads(s)
@@ -60,7 +81,26 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
             if isinstance(obj, list):
                 return [x for x in obj if isinstance(x, dict)]
         except Exception:
-            return []
+            # Last resort: best-effort extraction of Name/Representation via regex
+            try:
+                items: List[Dict[str, Any]] = []
+                # Extract {'Name': '...', 'Representation': [...]} pairs
+                for m in re.finditer(r"[\{,]\s*'Name'\s*:\s*([^,\}]+)\s*,[\s\S]*?'Representation'\s*:\s*(\[[\s\S]*?\])", s):
+                    name_raw = m.group(1).strip()
+                    if name_raw.startswith("'") or name_raw.startswith('"'):
+                        name = json.loads(name_raw.replace("'", '"')) if '"' in name_raw or '"' in name_raw else name_raw.strip("'\"")
+                    else:
+                        name = str(name_raw)
+                    rep_txt = _preclean_numpy_arrays(m.group(2))
+                    try:
+                        rep_list = ast.literal_eval(rep_txt)
+                        if isinstance(rep_list, list):
+                            items.append({'Name': name, 'Representation': rep_list, 'Count': None})
+                    except Exception:
+                        items.append({'Name': name, 'Count': None})
+                return items
+            except Exception:
+                return []
     return []
 
 
