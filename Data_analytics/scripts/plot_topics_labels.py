@@ -33,7 +33,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--out-wordcloud", dest="out_wordcloud", default=None, help="Optional Word Cloud PNG output path")
     ap.add_argument("--top", type=int, default=50, help="Max topics to plot, sorted by representative docs")
     ap.add_argument("--words", type=int, default=3, help="Number of keywords to include in label if no name is present")
-    ap.add_argument("--wc-max-words", type=int, default=100, help="Max words in the word cloud")
+    ap.add_argument("--wc-max-words", type=int, default=100, help="Max entries in the word cloud")
+    ap.add_argument(
+        "--wc-mode",
+        choices=["labels", "words"],
+        default="labels",
+        help="labels: use full labels like 'zombies_adventure_space' as single tokens; words: split by '_'",
+    )
     return ap.parse_args()
 
 
@@ -182,11 +188,14 @@ def main() -> None:
         png_wc.parent.mkdir(parents=True, exist_ok=True)
         # Build word frequencies from labels weighted by topic weight
         def tokens_from_label(label: str) -> List[str]:
+            # labels mode: keep the whole label as a single token, e.g., 'zombies_adventure_space'
+            if args.wc_mode == "labels":
+                drop_full = {"game", "games", "players", "player", "world"}
+                return [] if (label in drop_full or not label) else [label]
+            # words mode: split by underscore and filter stopwords/noise
             toks = [t for t in label.split("_") if t]
-            # remove numeric tokens and very short tokens
             toks = [t for t in toks if not t.isdigit() and len(t) >= 2]
-            # drop generic artifacts
-            drop = {"topic", "cluster", "and", "the", "vs", "de", "la", "el", "los", "las", "con"}
+            drop = {"topic", "cluster", "and", "the", "vs", "de", "la", "el", "los", "las", "con", "game", "games", "players", "player", "play", "world"}
             toks = [t for t in toks if t not in drop]
             return toks
 
@@ -206,7 +215,7 @@ def main() -> None:
             try:
                 from wordcloud import WordCloud  # type: ignore
 
-                wc = WordCloud(width=1200, height=800, background_color="white")
+                wc = WordCloud(width=1200, height=800, background_color="white", collocations=False, regexp=r"[A-Za-z0-9_]+")
                 wc = wc.generate_from_frequencies(freqs)
                 wc.to_file(str(png_wc))
                 print(f"[OK] Saved Word Cloud via wordcloud -> {png_wc}")
