@@ -27,11 +27,11 @@ class DecisionRulesService:
     ) -> PriceRuleResult:
         """Classify the client price compared to neighbor prices."""
         result: PriceRuleResult = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_price": client_price,
             "neighbor_median_price": None,
             "neighbor_prices_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_price is None:
@@ -63,14 +63,14 @@ class DecisionRulesService:
             include_full_content = full_content_included != 0
 
         if client_price < cheap_threshold:
-            label = "barato"
+            label = "cheap"
         elif client_price <= normal_threshold:
-            label = "normal"
+            label = "fair"
         else:
-            label = "caro"
+            label = "expensive"
 
-        if label == "caro" and include_full_content:
-            label = "alto justificado"
+        if label == "expensive" and include_full_content:
+            label = "expensive justified"
 
         result.update(
             {
@@ -82,13 +82,13 @@ class DecisionRulesService:
             }
         )
         tag_by_label = {
-            "barato": "fortaleza",
-            "alto justificado": "fortaleza",
-            "caro": "debilidad",
-            "normal": "neutro",
-            "sin_datos": "neutro",
+            "cheap": "advantage",
+            "expensive justified": "advantage",
+            "expensive": "weakness",
+            "fair": "neutral",
+            "no data": "neutral",
         }
-        result["tag"] = tag_by_label.get(label, "neutro")
+        result["tag"] = tag_by_label.get(label, "neutral")
         return result
 
     def evaluate_platform_rule(
@@ -101,14 +101,14 @@ class DecisionRulesService:
         neighbor_counts = self._fetch_neighbor_platform_counts(neighbor_appids)
 
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_platforms_count": client_count,
             "total_neighbors": len(neighbor_counts),
             "neighbors_with_more_platforms": 0,
             "neighbors_with_equal_platforms": 0,
             "neighbors_with_less_platforms": 0,
             "neighbor_max_platforms": max(neighbor_counts) if neighbor_counts else None,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if not neighbor_counts:
@@ -123,11 +123,11 @@ class DecisionRulesService:
         result["neighbors_with_less_platforms"] = less
 
         if more > (len(neighbor_counts) / 2):
-            result["label"] = "soporte limitado"
-            result["tag"] = "debilidad"
+            result["label"] = "limited support"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "soporte bueno"
-            result["tag"] = "fortaleza"
+            result["label"] = "good support"
+            result["tag"] = "advantage"
 
         return result
 
@@ -138,11 +138,11 @@ class DecisionRulesService:
     ) -> PriceRuleResult:
         """Compare client RAM requirement against the neighbor median."""
         result: PriceRuleResult = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_ram_gb": client_ram_gb,
             "neighbor_median_ram_gb": None,
             "neighbor_ram_values_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_ram_gb in (None, ""):
@@ -162,8 +162,8 @@ class DecisionRulesService:
 
         neighbor_median = median(neighbor_ram_values)
         result["neighbor_median_ram_gb"] = neighbor_median
-        result["label"] = "barrera tecnica" if client_ram_value > neighbor_median else "sin barrera tecnica"
-        result["tag"] = "debilidad" if result["label"] == "barrera tecnica" else "fortaleza"
+        result["label"] = "technical barrier" if client_ram_value > neighbor_median else "no technical barrier"
+        result["tag"] = "weakness" if result["label"] == "technical barrier" else "advantage"
 
         return result
 
@@ -174,11 +174,11 @@ class DecisionRulesService:
     ) -> Dict[str, Any]:
         """Classify the install size compared to neighbor requirements with context."""
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no_data",
             "client_install_size_gb": None,
             "neighbor_percentile_75": None,
             "neighbor_sizes_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_install_size_gb in (None, ""):
@@ -201,11 +201,11 @@ class DecisionRulesService:
 
         result["neighbor_percentile_75"] = percentile_75
         if client_size_value > percentile_75:
-            result["label"] = "juego muy pesado"
-            result["tag"] = "debilidad"
+            result["label"] = "very heavy game"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "juego liviano"
-            result["tag"] = "fortaleza"
+            result["label"] = "lightweight game"
+            result["tag"] = "advantage"
 
         return result
 
@@ -216,11 +216,11 @@ class DecisionRulesService:
     ) -> Dict[str, Any]:
         """Evaluate visibility advantage based on Steam Deck compatibility."""
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_steam_deck": None,
             "neighbors_total": 0,
             "neighbors_with_steam_deck": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         client_flag: Optional[bool] = None
@@ -241,8 +241,8 @@ class DecisionRulesService:
 
         result["client_steam_deck"] = client_flag
         if client_flag:
-            result["label"] = "mayor visibilidad"
-            result["tag"] = "fortaleza"
+            result["label"] = "higher visibility"
+            result["tag"] = "advantage"
             return result
 
         neighbor_flags = self._fetch_neighbor_steam_deck_flags(neighbor_appids)
@@ -255,11 +255,11 @@ class DecisionRulesService:
         result["neighbors_with_steam_deck"] = with_steam_deck
 
         if with_steam_deck > 0:
-            result["label"] = "menor visibilidad"
-            result["tag"] = "debilidad"
+            result["label"] = "lower visibility"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "vecinos sin steam deck"
-            result["tag"] = "neutro"
+            result["label"] = "neighbors without steam deck"
+            result["tag"] = "neutral"
 
         return result
 
@@ -304,15 +304,15 @@ class DecisionRulesService:
         }
 
         if total_reviews < 1000:
-            result["label"] = "Tamaño de muestra bajo"
+            result["label"] = "sample size low"
             return result
 
         avg_value = average_pct if average_pct is not None else 0.0
         if avg_value < 70.0:
-            result["label"] = "Mala reputación histórica del segmento"
+            result["label"] = "segment historically negative"
             return result
 
-        result["label"] = "Alta exigencia del segmento"
+        result["label"] = "segment high expectations"
         return result
 
     def evaluate_competencia_rule(
@@ -322,14 +322,14 @@ class DecisionRulesService:
         """Evaluate recent competitive activity based on neighbor release dates."""
         release_map = self._fetch_neighbor_release_dates(neighbor_appids)
         if not release_map:
-            return "Desinteres del mercado"
+            return "market disinterest"
 
         today = date.today()
         cutoff_date = today - timedelta(days=365)
         for rel_date in release_map.values():
             if rel_date and rel_date >= cutoff_date:
-                return "Alta competencia reciente"
-        return "Desinteres del mercado"
+                return "recent high competition"
+        return "market disinterest"
 
     def build_release_info_map(
         self,
@@ -377,7 +377,7 @@ class DecisionRulesService:
         release_map = self._fetch_neighbor_release_dates(neighbor_appids)
         if not release_map:
             return {
-                "label": "Desinteres del mercado",
+                "label": "market disinterest",
                 "average_age_years": None,
                 "neighbor_count": len(neighbor_appids),
             }
@@ -401,23 +401,23 @@ class DecisionRulesService:
 
         if average_age_years is None:
             if neighbor_count >= 20:
-                result["label"] = "Segmento poco saturado y envejecido"
+                result["label"] = "underfilled mature segment"
             else:
-                result["label"] = "Segmento emergente"
+                result["label"] = "emerging segment"
             return result
 
         if neighbor_count >= 20:
             if average_age_years >= 6:
-                result["label"] = "Segmento muy saturado y envejecido"
+                result["label"] = "overcrowded mature segment"
             else:
-                result["label"] = "Segmento poco saturado y envejecido"
+                result["label"] = "underfilled mature segment"
             return result
 
         if average_age_years >= 6:
-            result["label"] = "Segmento emergente"
+            result["label"] = "emerging segment"
             return result
 
-        result["label"] = "Segmento muy saturado y reciente"
+        result["label"] = "overcrowded recent segment"
         return result
 
 
@@ -428,7 +428,7 @@ class DecisionRulesService:
         """Determine publisher concentration among neighbors."""
         total_neighbors = len(neighbor_appids)
         if total_neighbors == 0:
-            return {"label": "sin_datos", "top_publishers": [], "total_neighbors": 0}
+            return {"label": "no data", "top_publishers": [], "total_neighbors": 0}
 
         publisher_counts = self._aggregate_company_counts(neighbor_appids, field="publishers")
         top_publishers = sorted(
@@ -444,12 +444,12 @@ class DecisionRulesService:
             reverse=True,
         )
 
-        label = "sin_datos"
+        label = "no data"
         if top_publishers:
             if top_publishers[0]["share"] >= 0.5:
-                label = f"Concentrado en {top_publishers[0]['publisher']}"
+                label = f"concentrated on {top_publishers[0]['publisher']}"
             else:
-                label = "Diversificado"
+                label = "diversified"
 
         return {
             "label": label,
@@ -464,7 +464,7 @@ class DecisionRulesService:
         """Determine developer concentration among neighbors."""
         total_neighbors = len(neighbor_appids)
         if total_neighbors == 0:
-            return {"label": "sin_datos", "top_developers": [], "total_neighbors": 0}
+            return {"label": "no data", "top_developers": [], "total_neighbors": 0}
 
         developer_counts = self._aggregate_company_counts(neighbor_appids, field="developers")
         top_devs = sorted(
@@ -480,12 +480,12 @@ class DecisionRulesService:
             reverse=True,
         )
 
-        label = "sin_datos"
+        label = "no data"
         if top_devs:
             if top_devs[0]["share"] >= 0.5:
-                label = f"Concentrado en {top_devs[0]['developer']}"
+                label = f"concentrated on {top_devs[0]['developer']}"
             else:
-                label = "Diversificado"
+                label = "diversified"
 
         return {
             "label": label,
@@ -537,7 +537,7 @@ class DecisionRulesService:
         if not query_clauses:
             return {
                 appid: {
-                    "label": "sin_datos",
+                    "label": "no data",
                     "average_playtime_hours": None,
                     "samples": 0,
                     "threshold_hours": threshold_hours,
@@ -582,7 +582,7 @@ class DecisionRulesService:
         except PyMongoError:
             return {
                 appid: {
-                    "label": "sin_datos",
+                    "label": "no data",
                     "average_playtime_hours": None,
                     "samples": 0,
                     "threshold_hours": threshold_hours,
@@ -614,7 +614,7 @@ class DecisionRulesService:
             if samples > 0:
                 average = round(sums[appid_key] / samples, 2)
             if average is None:
-                label = "sin_datos"
+                label = "no data"
             elif average < threshold_hours:
                 label = "inactive game"
             else:
