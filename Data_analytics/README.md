@@ -1,6 +1,6 @@
 # Steam Game Analytics – Pipeline y Storytelling
 
-Resumen del pipeline de analytics para juegos de Steam: embeddings -> clustering -> eventos/tópicos/CCF/noticias -> enriquecimiento -> reportes y vistas. Incluye orquestación con DVC y soporte Docker.
+Resumen del pipeline de analytics para juegos de Steam: embeddings -> clustering -> eventos/tópicos/CCF/noticias -> enriquecimiento -> reportes y vistas. Incluye orquestación con DVC y soporte Docker. Se documentan los detalles de construcción del grafo (k‑NN, mutual k‑NN y SNN con Jaccard) y el flujo LLM → dataset → modelo local (SVM/DT/RF/MLP/LDA/LR/NB) para reducir costes.
 
 ## Narrativa y Storytelling de Insights
 
@@ -33,6 +33,39 @@ Novedades clave (validación de tópicos con CCF)
 
 
 Esta estructura vive en `dvc.yaml` y puede ejecutarse completa con `dvc repro` o en atajos como `run_only_analytics.bat`, asegurando reproducibilidad y versionado de cada capitulo.
+
+## Clustering (Leiden y KMeans)
+
+- Construcción del grafo (Leiden):
+  - Vecinos: k‑NN con FAISS (`graph_leiden.k_neighbors`).
+  - Filtro por similitud: se descartan aristas con similitud < `graph_leiden.sim_threshold`.
+  - Mutual k‑NN: si `graph_leiden.mutual_knn: true`, la arista solo existe si i ∈ N(j) y j ∈ N(i).
+  - SNN (Shared Nearest Neighbors): si `graph_leiden.snn.enabled: true`, se exige `min_shared_neighbors` y la arista se re‑pondera con `snn.method`:
+    - `jaccard`: |N(i) ∩ N(j)| / |N(i) ∪ N(j)| (lo usamos para dar peso a las aristas cuando SNN está activo).
+    - `overlap`: |∩| / min(|N(i)|, |N(j)|) o `count`: |∩|.
+  - Notas: si los filtros dejan el grafo vacío, el pipeline relaja criterios de forma defensiva hasta asegurar conectividad mínima.
+- Particionado: Leiden (`leidenalg`) con `resolution` y opción de consenso. Se soporta `soft_membership` (probabilidades por cluster) y detección de `borderline` por percentil o umbral de `confidence_margin`.
+- KMeans local/Spark: si el tamaño del dataset supera `kmeans.threshold_spark`, se fuerza KMeans Spark con selección de K por silueta; si no, scikit‑learn local con `n_clusters`. En “modo big data” puede usarse `configs/clustering_spark.yaml` para forzar Spark.
+
+Referencias:
+- Implementación grafo y SNN: `src/pipelines/run_clustering.py` (secciones mutual_kNN, SNN y weighting por Jaccard).
+- Config: `configs/clustering.yaml` (`graph_leiden.*`, `kmeans.*`, `post_analysis.*`).
+
+Respuesta breve: sí, Jaccard lo usamos para dar pesos a las aristas (no para umbralizarlas) cuando `graph_leiden.snn.enabled: true`; los filtros de existencia son `sim_threshold`, `mutual_knn` opcional y `min_shared_neighbors`.
+
+## Clasificador de noticias: LLM → dataset → modelo local
+
+- Objetivo: reducir costes de inferencia LLM generando un dataset etiquetado una vez y entrenando un modelo local.
+- Flujo:
+  - Etiquetado inicial con LLM: `src/insights/news_classifier.py` siguiendo `configs/events.yaml: llm.*` produce `outputs/events/news_classified.parquet`.
+  - Auto‑entrenamiento: `src/insights/train_news_classifier_auto.py` entrena y compara varios modelos locales sobre TF‑IDF o SBERT:
+    - Modelos: SVM, Logistic Regression (LR), Naive Bayes (NB), Decision Tree (DT), Random Forest (RF), Linear Discriminant Analysis (LDA), MLP.
+    - Selección: métrica configurable (`--scoring f1_macro|accuracy|f1_weighted`) y CV opcional (`--cv`). Guarda `models/news_best.joblib` y `models/news_best_meta.json`.
+  - Conmutación a modelo local: el stage `news_model_select` genera `configs/llm_override.yaml` para que `news_classifier.py` use el mejor modelo local en lugar del provider LLM (ahorro de coste/latencia en producción).
+- Configs relevantes:
+  - `configs/events.yaml: llm.*` (provider, batch, taxonomy, temperature) y override automático si existe `configs/llm_override.yaml`.
+  - `src/insights/train_news_classifier_auto.py: --models` admite `all` o una lista (svm,logreg,nb,dt,rf,lda,mlp); `--featurizer tfidf|sbert`.
+
 
 ## Modos de Ejecución: MVP vs Big Data
 
