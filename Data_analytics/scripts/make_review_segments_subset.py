@@ -32,11 +32,23 @@ def main() -> None:
     cfg = yaml.safe_load(base.read_text(encoding='utf-8')) or {}
     cfg.setdefault('mongo', {})
 
-    apps = [a for a in (os.getenv('APPIDS') or '').split() if a]
-    if not apps:
+    apps_str = [a for a in (os.getenv('APPIDS') or '').split() if a]
+    if not apps_str:
         raise SystemExit('APPIDS env var is empty; nothing to subset')
 
-    q: dict = {'appid': {'$in': apps}}
+    apps_int = []
+    for a in apps_str:
+        try:
+            apps_int.append(int(a))
+        except (ValueError, TypeError):
+            pass
+
+    # Build a query that can match appid as a string or an integer.
+    q: dict
+    if apps_int:
+        q = {'$or': [{'appid': {'$in': apps_str}}, {'appid': {'$in': apps_int}}]}
+    else:
+        q = {'appid': {'$in': apps_str}}
     ge = ym_to_ts(os.getenv('SEG_FROM'))
     lt = ym_to_ts(os.getenv('SEG_TO'))
     if ge is not None or lt is not None:

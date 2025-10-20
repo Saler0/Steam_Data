@@ -451,35 +451,7 @@ if errorlevel 1 goto :neighbors_failed
 rem Si se solicita, generar subset de reviews_with_segments limitado a APPIDs (evita full-scan)
 if "!RUN_SEGMENTS_SUBSET!"=="1" (
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-    exec -e APPIDS="!APPID_LIST!" -e SEG_FROM="!SEG_FROM!" -e SEG_TO="!SEG_TO!" -w /app/Data_analytics analytics bash -lc "python - <<'PY'
-import os, yaml, datetime as dt
-apps=[a for a in os.getenv('APPIDS','').split() if a]
-cfg=yaml.safe_load(open('configs/review_segments.yaml','r',encoding='utf-8'))
-cfg['mongo']=cfg.get('mongo') or {}
-q={'appid': {'$in': apps}}
-sf=os.getenv('SEG_FROM') or ''
-st=os.getenv('SEG_TO') or ''
-def ym_to_ts(s):
-    try:
-        y,m=map(int,s.split('-'))
-        return int(dt.datetime(y,m,1).timestamp())
-    except Exception:
-        return None
-ge=ym_to_ts(sf); lt=ym_to_ts(st)
-if ge or lt:
-    qr={}
-    if ge is not None: qr['$gte']=ge
-    if lt is not None: qr['$lt']=lt
-    q['timestamp_created']=qr
-cfg['mongo']['query']=q
-cfg['mongo']['projection']={
-  'appid':1,'recommendationid':1,'review_clean':1,'timestamp_created':1,'voted_up':1,
-  'author.playtime_at_review':1,'author.playtime_forever':1,'author.playtime_last_two_weeks':1,
-  'votes_up':1,'votes_funny':1,'comment_count':1,'weighted_vote_score':1
-}
-open('configs/review_segments_subset.yaml','w',encoding='utf-8').write(yaml.safe_dump(cfg,sort_keys=False,allow_unicode=True))
-print('[OK] review_segments_subset.yaml')
-PY"
+    exec -e APPIDS="!APPID_LIST!" -e SEG_FROM="!SEG_FROM!" -e SEG_TO="!SEG_TO!" -w /app/Data_analytics analytics python scripts/make_review_segments_subset.py
   if errorlevel 1 goto :neighbors_failed
   docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
     exec -w /app/Data_analytics analytics python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments_subset.yaml

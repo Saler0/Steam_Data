@@ -107,7 +107,7 @@ services:
       - mlflow_data:/mlruns
     command: ["/bin/bash", "-lc", "sleep infinity"]
     # Aumentar memoria compartida para Ray (/dev/shm) y evitar que use /tmp
-    shm_size: "4g"
+    shm_size: "8g"
 
 volumes:
   mongo_data:
