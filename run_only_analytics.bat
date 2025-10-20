@@ -54,6 +54,7 @@ set "RUN_NEWS_TRAIN=0"
 set "RUN_TOPICS_SUMMARY=0"
 set "TOPICS_SUMMARY_PROVIDER=heuristic"
 set "RUN_TOPICS_LABELS=0"
+set "RUN_REVIEWS_TOPICS_LABELS=0"
 set "OUT_PNG="
 set "OUT_WC="
 set "RUN_SEGMENTS_SUBSET=0"
@@ -88,6 +89,7 @@ for %%A in (%*) do (
     if /I "!ARG!"=="topics-summary" set "RUN_TOPICS_SUMMARY=1"
     if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
     if /I "!ARG!"=="topics-labels" set "RUN_TOPICS_LABELS=1"
+    if /I "!ARG!"=="reviews-topics-labels" set "RUN_REVIEWS_TOPICS_LABELS=1"
     if /I "!ARG:~0,8!"=="out-png=" set "OUT_PNG=!ARG:~8!"
     if /I "!ARG:~0,7!"=="out-wc=" set "OUT_WC=!ARG:~7!"
     if /I "!ARG!"=="segments-subset" set "RUN_SEGMENTS_SUBSET=1"
@@ -157,6 +159,7 @@ if "!RUN_POC_CLIENT!"=="1" goto :run_poc_client
 if "!RUN_OFFLINE_ALL!"=="1" goto :run_offline_all
 if "!RUN_NEWS_TRAIN!"=="1" goto :run_news_train
 if "!RUN_TOPICS_LABELS!"=="1" goto :run_topics_labels
+if "!RUN_REVIEWS_TOPICS_LABELS!"=="1" goto :run_reviews_topics_labels
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -290,6 +293,34 @@ echo ============================
 echo Listo. Revisa:
 echo   outputs/ccf_analysis/single_%APPID%/
 echo ============================
+pause
+endlocal
+exit /b 0
+
+:run_reviews_topics_labels
+echo.
+echo ============================
+echo Humanizando labels de BERTopic por resena y exportando a Postgres...
+echo ============================
+rem Generar mapping de labels (DeepSeek si hay API key; si no, heuristico)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/reviews_topics.parquet ]; then python scripts/humanize_reviews_topics.py --in outputs/events/reviews_topics.parquet --out outputs/events/reviews_topics_labels.csv --provider auto --lang es; else echo '[ERROR] No existe outputs/events/reviews_topics.parquet; ejecuta review_segments primero.'; exit 1; fi"
+if errorlevel 1 (
+  echo [ERROR] Fallo el humanizado de labels de BERTopic.
+  pause
+  endlocal
+  exit /b 1
+)
+rem Exportar topics_by_experience usando el mapping generado (si Postgres configurado)
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_by_experience_to_postgres.py"
+if errorlevel 1 (
+  echo [ERROR] Fallo la exportacion de topics_by_experience a Postgres.
+  pause
+  endlocal
+  exit /b 1
+)
+echo [OK] Labels humanizados y exportados (si Postgres estaba configurado).
 pause
 endlocal
 exit /b 0

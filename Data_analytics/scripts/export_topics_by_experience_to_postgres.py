@@ -41,6 +41,28 @@ def export_to_postgres():
         print('[INFO] CSV vacío; omitiendo export')
         sys.exit(0)
 
+    # Si existe un mapping de labels humanizados, hacer merge para sustituir topic_name
+    # Espera outputs/events/reviews_topics_labels.csv con columnas: topic_id,label
+    labels_csv = 'outputs/events/reviews_topics_labels.csv'
+    try:
+        if os.path.exists(labels_csv):
+            mapping = pd.read_csv(labels_csv)
+            if {'topic_id', 'label'}.issubset(mapping.columns):
+                # Asegurar tipos string para el join
+                df['topic_id'] = df['topic_id'].astype(str)
+                mapping['topic_id'] = mapping['topic_id'].astype(str)
+                df = df.merge(mapping[['topic_id', 'label']], on='topic_id', how='left')
+                # Reemplazar topic_name con label si está disponible
+                df['topic_name'] = df['label'].fillna(df['topic_name'])
+                df = df.drop(columns=['label'])
+                print(f"[INFO] Aplicado mapping de labels humanizados: {labels_csv}")
+            else:
+                print('[WARN] Mapping de labels no tiene columnas requeridas {topic_id,label}; se omite.')
+        else:
+            print('[INFO] No existe mapping de labels humanizados; se exporta tal cual.')
+    except Exception as e:
+        print(f"[WARN] No se pudo aplicar mapping de labels: {e}")
+
     schema = os.getenv('POSTGRES_SCHEMA', 'public')
     table_name = 'topics_by_experience'
     if_exists_mode = 'append'
