@@ -40,6 +40,8 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
     - Already a list of dicts
     Returns [] on failure.
     """
+    if hasattr(val, 'tolist'):
+        val = val.tolist()
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return []
     if isinstance(val, list):
@@ -147,38 +149,72 @@ def _heuristic_summary(topics: List[Dict[str, Any]], max_items: int = 3, max_key
     return "; ".join([c for c in chunks if c])
 
 
+def _debug_log(message: str):
+    # The root of the project is mounted at /app in the container.
+    # Writing to /app/summary_debug.log will create the file in the user's project root.
+    with open("/app/summary_debug.log", "a", encoding="utf-8") as f:
+        import datetime
+        f.write(f"{datetime.datetime.now()}: {message}\n")
+
+
 def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] = None, model: Optional[str] = None) -> Optional[str]:
     """Optional DeepSeek call. Requires requests installed and network.
     Resiliently falls back to None on any error.
     """
+    _debug_log("Attempting to call DeepSeek API...")
     api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
     if not api_key:
+        _debug_log("DEEPSEEK_API_KEY environment variable not found. Cannot use LLM provider.")
         return None
+    
+    _debug_log("DEEPSEEK_API_KEY found.")
+    
     try:
-        import requests  # type: ignore
-    except Exception:
+        import requests
+    except ImportError:
+        _debug_log("The 'requests' library is not installed. Please install it. Cannot use LLM provider.")
         return None
+
     api_base = api_base or os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
     model = model or os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
-    url = api_base.rstrip('/') + '/v1/chat/completions'
+    url = f"{api_base.rstrip('/')}/v1/chat/completions"
+    
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Produce exactly three words in English, Title Case, no punctuation."},
+            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Provide a concise summary in English of about 3 words. The summary should capture the main themes of the topics."},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
         "max_tokens": 128,
     }
+
+    _debug_log(f"Sending request to {url} with model {model}.")
+    
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        _debug_log(f"API response status: {resp.status_code}")
         if resp.status_code != 200:
+            _debug_log(f"API call failed. Response text: {resp.text}")
             return None
+        
         data = resp.json()
+        _debug_log(f"API response data: {data}")
         text = data.get('choices', [{}])[0].get('message', {}).get('content')
-        return (text or '').strip() if isinstance(text, str) else None
-    except Exception:
+        
+        if not text or not isinstance(text, str):
+            _debug_log("No summary text received from API.")
+            return None
+            
+        _debug_log(f"Received summary: '{text.strip()}'")
+        return text.strip()
+        
+    except requests.exceptions.RequestException as e:
+        _debug_log(f"A network error occurred during API call: {e}")
+        return None
+    except Exception as e:
+        _debug_log(f"An unexpected error occurred during API call: {e}")
         return None
 
 
@@ -196,16 +232,28 @@ def _to_three_word_title(s: str) -> str:
 def summarize_row(topics_raw: Any, provider: str = 'heuristic', max_items: int = 3) -> str:
     topics = _safe_parse_topics(topics_raw)
     if provider == 'deepseek':
-        # Enforce a strict three-word, Title Case output for deepseek provider
-        prompt = (
-            "Create a three-word Title Case topic name summarizing these topics. "
-            "Return only the three words.\n" + json.dumps(topics)[:3000]
-        )
-        out = _call_deepseek(prompt, api_key=os.getenv('DEEPSEEK_API_KEY'))
-        if out:
-            return _to_three_word_title(out)
-        # Fallback to heuristic if LLM not available, but still enforce 3-word Title Case
-        return _to_three_word_title(_heuristic_summary(topics, max_items=max_items))
+        # Create a prompt from the topics
+        prompt_chunks = []
+        for t in topics:
+            name = _clean_name(str(t.get('Name') or t.get('name') or ''))
+            rep = t.get('Representation')
+            if isinstance(rep, (list, tuple)):
+                kws = [str(x) for x in rep if str(x).strip()]
+                prompt_chunks.append(f"Topic '{name}': {', '.join(kws)}")
+        
+        prompt = ". ".join(prompt_chunks)
+
+        # Call DeepSeek API
+        summary = _call_deepseek(prompt, api_key=None) # api_key will be read from env var
+
+        # Fallback to heuristic if API call fails
+        if summary:
+            return summary
+        else:
+            # The user wants a three-word title, so we'll use the heuristic summary and format it.
+            heuristic_summary = _heuristic_summary(topics, max_items=max_items)
+            return _to_three_word_title(heuristic_summary)
+
     # Heuristic provider: keep original format
     return _heuristic_summary(topics, max_items=max_items)
 

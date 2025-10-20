@@ -94,6 +94,8 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
 
             top_n = topic_cfg.get('top_n_topics', 3)
             main_topics = topic_info[topic_info.Topic != -1].head(top_n)
+            if 'Representative_Docs' in main_topics.columns:
+                main_topics = main_topics.drop(columns=['Representative_Docs'])
 
             # Opcional: adjuntar documentos representativos sin duplicados (por ponderación)
             want_docs = bool(topic_cfg.get('attach_top_docs', True))
@@ -125,6 +127,11 @@ def _process_event_group(appid: str, group: pd.DataFrame, cfg: Dict[str, Any]) -
                     # Si no se puede calcular representativos, omitir sin romper flujo
                     for row in topic_rows:
                         row.setdefault('top_docs', [])
+            
+            # Eliminar campos pesados antes de guardar
+            for row in topic_rows:
+                row.pop('top_docs', None)
+
             if GENSIM_AVAILABLE and topic_rows:
                 try:
                     analyzer = vectorizer_model.build_analyzer()
@@ -194,8 +201,7 @@ def load_reviews_for_window(appid: str, start_date: pd.Timestamp, end_date: pd.T
     end_ts = int(end_date.timestamp())
     query = {
         "appid": {"$in": [appid, int(appid)]},
-        "timestamp_created": {"$gte": start_ts, "$lt": end_ts},
-        "language": "english"
+        "timestamp_created": {"$gte": start_ts, "$lt": end_ts}
     }
     projection = {"review": 1, "votes_up": 1, "votes_helpful": 1, "helpful": 1, "_id": 0}
     docs = list(col.find(query, projection))
@@ -359,3 +365,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
