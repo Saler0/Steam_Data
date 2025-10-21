@@ -400,24 +400,18 @@ class DecisionRulesService:
         }
 
         if average_age_years is None:
-            if neighbor_count >= 20:
-                result["label"] = "underfilled mature segment"
-            else:
-                result["label"] = "emerging segment"
+            result["label"] = "insufficient_data"
             return result
 
-        if neighbor_count >= 20:
-            if average_age_years >= 6:
-                result["label"] = "overcrowded mature segment"
-            else:
-                result["label"] = "underfilled mature segment"
-            return result
+        if neighbor_count >= 20 and average_age_years >= 6:
+            result["label"] = "Very saturated and aged segment"
+        elif neighbor_count >= 20 and average_age_years < 6:
+            result["label"] = "Very saturated and new segment"
+        elif neighbor_count < 20 and average_age_years >= 6:
+            result["label"] = "Low saturated and aged segment"
+        else:
+            result["label"] = "Low saturated and new segment"
 
-        if average_age_years >= 6:
-            result["label"] = "emerging segment"
-            return result
-
-        result["label"] = "overcrowded recent segment"
         return result
 
 
