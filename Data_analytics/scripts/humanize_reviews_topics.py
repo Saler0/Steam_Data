@@ -1,28 +1,34 @@
 #!/usr/bin/env python
-"""Humaniza etiquetas (labels) para tópicos de BERTopic por reseña.
+"""Humaniza etiquetas (labels) para tópicos de BERTopic.
 
-Lee `outputs/events/reviews_topics.parquet` (por defecto) y genera un mapping
-`outputs/events/reviews_topics_labels.csv` con columnas:
-  - topic_id (str)
-  - label (str)               → etiqueta humanizada final
-  - topic_name_original (str) → nombre original (si existía)
-  - provider (str)            → deepseek|heuristic
-  - lang (str)                → es|en
-  - samples (int)             → nº de reseñas usadas para el prompt
+Lee `outputs/topics.parquet` (por defecto), que contiene tópicos anidados,
+y genera un mapping `outputs/events/humanized_topics.csv` con columnas:
+  - appid (str)
+  - year_month (datetime)
+  - topic_id (int)
+  - label (str)               → etiqueta humanizada final en inglés
+  - topic_name_original (str) → nombre original (ej. 0_ships_ai_races_like)
+  - coherence_cv (float)
+  - c_topics (int)
+  - provider (str)
 
 Si está configurada la variable de entorno `DEEPSEEK_API_KEY` y hay red,
 utiliza la API de DeepSeek; si no, usa un heurístico que limpia y titula.
+
+Este script es RESUMABLE: si se interrumpe, continuará donde se quedó.
 """
 from __future__ import annotations
 
 import argparse
 import os
 import re
+import csv
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
+from tqdm import tqdm
 
 
 def _read_any(path: str | Path) -> pd.DataFrame:
@@ -33,12 +39,13 @@ def _read_any(path: str | Path) -> pd.DataFrame:
     if suf == ".csv":
         return pd.read_csv(p)
     if suf == ".json":
-        return pd.read_json(p)
+        return pd.read_json(p, lines=True)
     return pd.read_parquet(p)
 
 
 def _to_title_2_4_words(s: str, min_words: int = 2, max_words: int = 4) -> str:
-    tokens = [t for t in re.split(r"\W+", str(s)) if t]
+    s = re.sub(r"^\d+_", "", s)
+    tokens = [t for t in re.split(r"_|\W+", str(s)) if t]
     if not tokens:
         return ""
     words = tokens[: max(min_words, min(max_words, len(tokens)))]
@@ -46,7 +53,7 @@ def _to_title_2_4_words(s: str, min_words: int = 2, max_words: int = 4) -> str:
     return title.strip()
 
 
-def _call_deepseek(prompt: str, lang: str = "es") -> Optional[str]:
+def _call_deepseek(prompt: str) -> Optional[str]:
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         return None
@@ -58,20 +65,15 @@ def _call_deepseek(prompt: str, lang: str = "es") -> Optional[str]:
     base = os.getenv("DEEPSEEK_BASE_URL") or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com/v1"
     url = f"{base.rstrip('/')}/chat/completions" if base.endswith("/v1") else f"{base.rstrip('/')}/v1/chat/completions"
 
-    system_es = (
-        "Eres experto etiquetando tópicos de reseñas de videojuegos. "
-        "Devuelve solo una etiqueta breve (2-4 palabras, Title Case) en español, sin comillas."
-    )
     system_en = (
-        "You label topics from video game reviews. "
+        "You label video game topics based on their keywords. "
         "Return only a short 2-4 word Title Case label in English, no quotes."
     )
-    system = system_es if str(lang).lower().startswith("es") else system_en
 
     payload = {
         "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "messages": [
-            {"role": "system", "content": system},
+            {"role": "system", "content": system_en},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
@@ -80,131 +82,147 @@ def _call_deepseek(prompt: str, lang: str = "es") -> Optional[str]:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     try:
-        # Compatibilidad con /v1/chat/completions y sin /v1
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         if resp.status_code != 200:
             return None
         data = resp.json()
-        text = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content")
-        )
+        text = data.get("choices", [{}])[0].get("message", {}).get("content")
         if not isinstance(text, str) or not text.strip():
             return None
-        return text.strip()
+        return text.strip().strip("'\"")
     except Exception:
         return None
 
 
-def _build_prompt(topic_id: str, name: str, snippets: List[str], max_snippets: int = 6) -> str:
-    snips = [s for s in snippets if isinstance(s, str) and s.strip()][:max_snippets]
-    joined = "\n- ".join(snips)
+def _build_prompt(topic_name: str, keywords: List[str], max_keywords: int = 10) -> str:
+    kw_list = [str(k) for k in keywords if isinstance(k, str) and k.strip()][:max_keywords]
+    joined = ", ".join(kw_list)
     return (
-        f"Topic ID: {topic_id}\n"
-        f"Original name: {name}\n"
-        f"Representative review snippets (bulleted):\n- {joined}\n"
-        "Label with 2-4 words."
+        f"Original topic name: {topic_name}\n"
+        f"Keywords: {joined}\n"
+        "Suggest a 2-4 word human-readable label for this topic."
     )
 
 
-def _heuristic_label(name: str, snippets: List[str]) -> str:
+def _heuristic_label(name: str, keywords: List[str]) -> str:
     base = name or ""
-    if not base and snippets:
-        # usa tokens frecuentes de snippets como respaldo
-        tokens = re.findall(r"\w+", " ".join(snippets).lower())
-        common = [w for w, _ in Counter(tokens).most_common(4)]
-        base = " ".join(common)
+    if not base and keywords:
+        base = " ".join(keywords)
     return _to_title_2_4_words(base)
 
 
 def humanize_labels(
     topics_path: str | Path,
     out_csv: str | Path,
-    lang: str = "es",
     provider: str = "auto",
-    max_snippets_per_topic: int = 6,
+    max_keywords_per_topic: int = 10,
 ) -> Path:
     df = _read_any(topics_path)
     if df.empty:
-        raise SystemExit("Dataset de tópicos por reseña vacío.")
+        raise SystemExit("Dataset de tópicos vacío.")
 
-    # columnas mínimas
-    if "topic_id" not in df.columns:
-        # permitir fallback cuando solo existe topic_name
-        df = df.copy()
-        df["topic_id"] = df.get("topic_name", pd.Series(range(len(df)))).astype(str)
-    if "topic_name" not in df.columns:
-        df = df.copy()
-        df["topic_name"] = df["topic_id"].astype(str)
+    # --- Preparación de Datos ---
+    df['c_topics'] = df['topics'].str.len()
+    df_exploded = df.explode('topics').reset_index(drop=True)
+    df_normalized = pd.json_normalize(df_exploded['topics'])
+    df_flat = pd.concat([df_exploded.drop(columns=['topics']), df_normalized], axis=1)
 
-    # agrupar por topic_id y construir prompts
-    grouped = (
-        df.groupby("topic_id", dropna=False)
-        .agg(
-            topic_name_original=("topic_name", lambda s: str(s.dropna().iloc[0]) if len(s.dropna()) else ""),
-            snippets=("snippet", lambda s: [x for x in s.dropna().astype(str).tolist()][:max_snippets_per_topic]),
-        )
-        .reset_index()
-    )
+    df_flat = df_flat.rename(columns={
+        'Name': 'topic_name_original',
+        'Topic': 'topic_id',
+        'Representation': 'keywords'
+    })
+    df_flat['appid'] = df_flat['appid'].astype(str)
+    df_flat['topic_id'] = df_flat['topic_id'].astype(int)
 
-    labels: List[Dict[str, Any]] = []
-    use_llm = (provider == "deepseek") or (provider == "auto" and bool(os.getenv("DEEPSEEK_API_KEY")))
-
-    for _, row in grouped.iterrows():
-        tid = str(row["topic_id"])
-        name = str(row["topic_name_original"]) if row["topic_name_original"] else ""
-        snippets: List[str] = row["snippets"] if isinstance(row["snippets"], list) else []
-
-        label: Optional[str] = None
-        used = "heuristic"
-        if use_llm:
-            prompt = _build_prompt(tid, name, snippets, max_snippets=max_snippets_per_topic)
-            label = _call_deepseek(prompt, lang=lang)
-            used = "deepseek" if label else "heuristic"
-        if not label:
-            label = _heuristic_label(name, snippets)
-
-        labels.append(
-            {
-                "topic_id": tid,
-                "label": label,
-                "topic_name_original": name,
-                "provider": used,
-                "lang": lang,
-                "samples": len(snippets),
-            }
-        )
-
+    # --- Lógica de Reanudación ---
     out_path = Path(out_csv)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(labels).to_csv(out_path, index=False)
-    print(f"[OK] Labels humanizadas -> {out_path} ({len(labels)})")
+    processed_keys = set()
+    write_header = not out_path.exists() or out_path.stat().st_size == 0
+
+    if not write_header:
+        try:
+            df_processed = pd.read_csv(out_path)
+            df_processed['_key'] = df_processed['appid'].astype(str) + "_" + df_processed['year_month'].astype(str) + "_" + df_processed['topic_id'].astype(str)
+            processed_keys = set(df_processed['_key'])
+            print(f"Se encontraron {len(processed_keys)} filas ya procesadas. Reanudando...")
+        except Exception as e:
+            print(f"Warning: No se pudo leer el archivo de salida existente. Se sobreescribirá. Error: {e}")
+            write_header = True
+
+    df_flat['_key'] = df_flat['appid'].astype(str) + "_" + df_flat['year_month'].astype(str) + "_" + df_flat['topic_id'].astype(str)
+    df_todo = df_flat[~df_flat['_key'].isin(processed_keys)].drop(columns=['_key'])
+
+    if df_todo.empty:
+        print("No hay tópicos nuevos que procesar.")
+        return out_path
+
+    print(f"Faltan {len(df_todo)}/{len(df_flat)} filas por procesar.")
+
+    # --- Procesamiento con Cache para el LLM ---
+    use_llm = (provider == "deepseek") or (provider == "auto" and bool(os.getenv("DEEPSEEK_API_KEY")))
+    label_cache = {}
+    results = []
+
+    for _, row in tqdm(df_todo.iterrows(), total=len(df_todo), desc="Humanizando tópicos"):
+        name = row["topic_name_original"]
+        keywords: List[str] = row["keywords"] if isinstance(row["keywords"], list) else []
+        
+        label = label_cache.get(name)
+        used = "cache"
+
+        if label is None:
+            if use_llm:
+                prompt = _build_prompt(name, keywords, max_keywords=max_keywords_per_topic)
+                label = _call_deepseek(prompt)
+                used = "deepseek" if label else "heuristic"
+            
+            if not label:
+                label = _heuristic_label(name, keywords)
+            
+            label_cache[name] = label
+
+        results.append({
+            "appid": row["appid"],
+            "year_month": row["year_month"],
+            "topic_id": row["topic_id"],
+            "label": label,
+            "topic_name_original": name,
+            "coherence_cv": row.get("coherence_cv"),
+            "c_topics": row.get("c_topics"),
+            "provider": used,
+        })
+
+    # --- Escritura Robusta con Pandas ---
+    if results:
+        df_results = pd.DataFrame(results)
+        df_results.to_csv(out_path, mode='a', header=write_header, index=False, quoting=csv.QUOTE_ALL)
+
+    print(f"[OK] Proceso finalizado. {len(results)} nuevas filas guardadas en -> {out_path}")
     return out_path
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="Humaniza etiquetas de tópicos de BERTopic por reseña")
+    ap = argparse.ArgumentParser(description="Humaniza etiquetas de tópicos de BERTopic.")
     ap.add_argument(
         "--in",
         dest="topics_path",
-        default="outputs/events/reviews_topics.parquet",
-        help="Parquet/CSV/JSON con columnas: review_id, topic_id, topic_name, snippet",
+        default="outputs/events/topics.parquet",
+        help="Parquet/JSONL con tópicos anidados (schema: appid, year_month, topics: list)",
     )
     ap.add_argument(
         "--out",
         dest="out_csv",
-        default="outputs/events/reviews_topics_labels.csv",
-        help="CSV de salida con mapping de labels por topic_id",
+        default="outputs/events/humanized_topics.csv",
+        help="CSV de salida con etiquetas humanizadas para cada tópico.",
     )
-    ap.add_argument("--lang", default="es", choices=["es", "en"], help="Idioma de la etiqueta devuelta")
     ap.add_argument(
         "--provider",
         default="auto",
         choices=["auto", "deepseek", "heuristic"],
         help="Proveedor de etiquetas (auto → usa DeepSeek si hay API key)",
     )
-    ap.add_argument("--max-snippets", type=int, default=6, help="Nº máximo de snippets por tópico para el prompt")
+    ap.add_argument("--max-keywords", type=int, default=10, help="Nº máximo de keywords por tópico para el prompt")
     return ap.parse_args(list(argv) if argv is not None else None)
 
 
@@ -213,12 +231,10 @@ def main(argv: Iterable[str] | None = None) -> None:
     humanize_labels(
         topics_path=args.topics_path,
         out_csv=args.out_csv,
-        lang=args.lang,
         provider=args.provider,
-        max_snippets_per_topic=max(1, args.max_snippets),
+        max_keywords_per_topic=max(1, args.max_keywords),
     )
 
 
 if __name__ == "__main__":
     main()
-

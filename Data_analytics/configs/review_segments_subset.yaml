@@ -20,10 +20,10 @@ mongo:
     $or:
     - appid:
         $in:
-        - '281990'
+        - '1357210'
     - appid:
         $in:
-        - 281990
+        - 1357210
   projection:
     appid: 1
     recommendationid: 1

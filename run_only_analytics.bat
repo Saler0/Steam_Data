@@ -300,11 +300,11 @@ exit /b 0
 :run_reviews_topics_labels
 echo.
 echo ============================
-echo Humanizando labels de BERTopic por resena y exportando a Postgres...
+echo Humanizando labels de BERTopic (desde topics.parquet)...
 echo ============================
 rem Generar mapping de labels (DeepSeek si hay API key; si no, heuristico)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/reviews_topics.parquet ]; then python scripts/humanize_reviews_topics.py --in outputs/events/reviews_topics.parquet --out outputs/events/reviews_topics_labels.csv --provider auto --lang es; else echo '[ERROR] No existe outputs/events/reviews_topics.parquet; ejecuta review_segments primero.'; exit 1; fi"
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/topics.parquet ]; then python scripts/humanize_reviews_topics.py --in outputs/events/topics.parquet --provider auto; else echo '[ERROR] No existe outputs/events/topics.parquet.'; exit 1; fi"
 if errorlevel 1 (
   echo [ERROR] Fallo el humanizado de labels de BERTopic.
   pause
