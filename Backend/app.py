@@ -222,7 +222,7 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to build release info map: %s", exc)
                 release_info_map = {}
-        activity_default_label = "sin_datos" if has_decision_service else "sin_servicio"
+        activity_default_label = "no_data" if has_decision_service else "no_service"
         activity_threshold_hours: Optional[float] = None
         if activity_map:
             sample_activity = next(iter(activity_map.values()))
@@ -264,27 +264,27 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
             except Exception as exc:
                 app.logger.exception("Failed to evaluate price rule: %s", exc)
-                price_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                price_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 platform_rule = decision_rules_service.evaluate_platform_rule(document.get("platforms"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate platform rule: %s", exc)
-                platform_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                platform_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 ram_rule = decision_rules_service.evaluate_ram_rule(document.get("ram_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate RAM rule: %s", exc)
-                ram_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                ram_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 size_rule = decision_rules_service.evaluate_size_rule(document.get("install_size_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate size rule: %s", exc)
-                size_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                size_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 steam_deck_rule = decision_rules_service.evaluate_steam_deck_rule(document.get("steam_deck_compatible"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate steam deck rule: %s", exc)
-                steam_deck_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                steam_deck_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 segment_rule = decision_rules_service.evaluate_segment_rule(normalized_neighbors)
             except Exception as exc:
@@ -312,16 +312,16 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 app.logger.exception("Failed to evaluate developer rule: %s", exc)
                 dev_rule = {"label": "error", "top_developers": [], "total_neighbors": 0, "details": str(exc)}
         else:
-            price_rule = {"label": "sin_servicio", "tag": "neutro"}
-            platform_rule = {"label": "sin_servicio", "tag": "neutro"}
-            ram_rule = {"label": "sin_servicio", "tag": "neutro"}
-            size_rule = {"label": "sin_servicio", "tag": "neutro"}
-            steam_deck_rule = {"label": "sin_servicio", "tag": "neutro"}
-            segment_rule = {"label": "sin_servicio"}
-            competencia_rule = "sin_servicio"
-            segm_satu_edad_rule = {"label": "sin_servicio"}
-            publisher_rule = {"label": "sin_servicio", "top_publishers": [], "total_neighbors": 0}
-            dev_rule = {"label": "sin_servicio", "top_developers": [], "total_neighbors": 0}
+            price_rule = {"label": "no_service", "tag": "neutral"}
+            platform_rule = {"label": "no_service", "tag": "neutral"}
+            ram_rule = {"label": "no_service", "tag": "neutral"}
+            size_rule = {"label": "no_service", "tag": "neutral"}
+            steam_deck_rule = {"label": "no_service", "tag": "neutral"}
+            segment_rule = {"label": "no_service"}
+            competencia_rule = "no_service"
+            segm_satu_edad_rule = {"label": "no_service"}
+            publisher_rule = {"label": "no_service", "top_publishers": [], "total_neighbors": 0}
+            dev_rule = {"label": "no_service", "top_developers": [], "total_neighbors": 0}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:
