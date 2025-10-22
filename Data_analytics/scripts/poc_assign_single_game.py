@@ -510,6 +510,7 @@ def main() -> None:
         default=None,
         help="Umbral mínimo de similitud coseno para mostrar vecinos. Si no se indica, se infiere de params.yaml (neighbor_strategy.min_score o min_similarity_in).",
     )
+    parser.add_argument("--min-score", type=float, default=None, help="Override de neighbor_strategy.min_score para la seleccin basada en score.")
     parser.add_argument("--params-config", default="configs/params.yaml", help="YAML con neighbor_strategy para defaults y pesos del re-ranking.")
     parser.add_argument("--embeddings", default="data/processed/embeddings/embeddings.parquet", help="Ruta a embeddings.parquet con columnas appid y embedding.")
     parser.add_argument("--clusters", default="data/processed/clusters.parquet", help="Ruta a clusters.parquet para mapear appid -> cluster_id.")
@@ -566,6 +567,12 @@ def main() -> None:
         faiss_index_path = params_cfg.get("faiss_index_path")
     if not faiss_ids_path:
         faiss_ids_path = params_cfg.get("faiss_ids_path")
+
+    if args.min_score is not None:
+        try:
+            strategy_cfg['min_score'] = float(args.min_score)
+        except Exception:
+            pass
 
     if args.neighbors is None:
         args.neighbors = int(strategy_cfg.get('target_total', DEFAULT_CONFIG.get('target_total', 20)))
