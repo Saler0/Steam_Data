@@ -935,6 +935,9 @@ def select_competitor_neighbors(
     epsilon = float(rerank_cfg.get('epsilon_mode_match', 0.05))
     zeta = float(rerank_cfg.get('zeta_name_penalty', zeta_name_penalty))
 
+    debug_breakdown = bool(cfg.get('debug_breakdown', False))
+    debug_n_candidates = int(cfg.get('debug_n_candidates', 10))
+
     def compute_score(entry: Dict[str, Any]) -> float:
         similarity = entry['similarity']
         candidate_meta = entry['meta']
@@ -950,7 +953,7 @@ def select_competitor_neighbors(
                 candidate_signature = _build_name_signature(candidate_meta.name, name_penalty_cfg)
                 entry['name_signature'] = candidate_signature
             name_penalty_value = _compute_name_penalty(query_name_signature, candidate_signature, name_penalty_cfg)
-        return (
+        score_val = (
             alpha * similarity
             - beta * cluster_penalty
             + gamma * tag_overlap
@@ -958,6 +961,21 @@ def select_competitor_neighbors(
             + epsilon * mode_overlap
             - zeta * name_penalty_value
         )
+        if debug_breakdown:
+            entry['score_terms'] = {
+                'similarity': float(similarity),
+                'cluster_penalty': float(cluster_penalty),
+                'tag_overlap': float(tag_overlap),
+                'monetization_bonus': float(monetization_bonus),
+                'mode_overlap': float(mode_overlap),
+                'name_penalty': float(name_penalty_value),
+                'weights': {
+                    'alpha': float(alpha), 'beta': float(beta), 'gamma': float(gamma),
+                    'delta': float(delta), 'epsilon': float(epsilon), 'zeta': float(zeta)
+                },
+                'score': float(score_val),
+            }
+        return score_val
 
     for cand in in_candidates:
         cand['source'] = 'intra'
@@ -1068,6 +1086,20 @@ def select_competitor_neighbors(
         'fallback_used': fallback_used,
         'faiss_used': embeddings.uses_faiss,
     }
+
+    if debug_breakdown and pool:
+        dbg = []
+        for cand in pool[:max(1, debug_n_candidates)]:
+            dbg.append({
+                'appid': cand.get('appid'),
+                'source': cand.get('source'),
+                'cluster_id': cand.get('cluster_id'),
+                'score': float(cand.get('score', 0.0)),
+                'similarity': float(cand.get('similarity', 0.0)),
+                'terms': cand.get('score_terms', {}),
+                'name': cand.get('meta').name if hasattr(cand.get('meta'), 'name') else None,
+            })
+        diagnostics['debug_candidates'] = dbg
 
     return output_neighbors, diagnostics
 

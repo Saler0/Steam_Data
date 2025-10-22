@@ -574,6 +574,17 @@ def main() -> None:
         except Exception:
             pass
 
+    # Si el usuario quiere ver diagnósticos en consola, activar desglose de score
+    if args.show_diagnostics:
+        strategy_cfg['debug_breakdown'] = True
+        strategy_cfg['debug_n_candidates'] = 10
+
+    if args.min_score is not None:
+        try:
+            strategy_cfg['min_score'] = float(args.min_score)
+        except Exception:
+            pass
+
     if args.neighbors is None:
         args.neighbors = int(strategy_cfg.get('target_total', DEFAULT_CONFIG.get('target_total', 20)))
     strategy_cfg['target_total'] = int(args.neighbors)
@@ -716,8 +727,9 @@ def main() -> None:
     )
 
     if not strategy_neighbors:
+        # Mantener diag si vino vacío por min_score alto; fallback imprime similitud sin score
         strategy_neighbors = _find_neighbors(sample_vec, emb_df, clusters_df, metadata_df, args.neighbors, args.min_similarity)
-        diagnostics = {}
+        diagnostics = diagnostics or {}
 
     if mlflow_run_active and log_mlflow_metrics:
         metrics = {
@@ -768,7 +780,20 @@ def main() -> None:
     if args.show_diagnostics and diagnostics:
         print('\n[Diag] estrategia de vecinos:')
         for key, value in diagnostics.items():
-            print(f" - {key}: {value}")
+            if key != 'debug_candidates':
+                print(f" - {key}: {value}")
+        dbg = diagnostics.get('debug_candidates')
+        if isinstance(dbg, list) and dbg:
+            print('\n[Diag] top candidatos por score (antes de aplicar min_score):')
+            print(f"{'appid':<12}{'score':<8}{'sim':<8}{'src':<8}{'cluster':<10}name  [alpha*cos - beta*cp + gamma*tags + delta*free + eps*modes - zeta*name]")
+            for rec in dbg:
+                sc = rec.get('score'); sim = rec.get('similarity'); src = rec.get('source') or '-'
+                cid = rec.get('cluster_id'); name = rec.get('name') or ''
+                print(f"{str(rec.get('appid')):<12}{(sc if sc is not None else 0):<8.4f}{(sim if sim is not None else 0):<8.4f}{src:<8}{str(cid):<10}{name}")
+                terms = rec.get('terms') or {}
+                if terms:
+                    w = terms.get('weights', {})
+                    print(f"   terms: sim={terms.get('similarity'):.4f}, cp={terms.get('cluster_penalty'):.4f}, tags={terms.get('tag_overlap')}, free={terms.get('monetization_bonus')}, modes={terms.get('mode_overlap')}, namep={terms.get('name_penalty')}; w={{alpha={w.get('alpha')}, beta={w.get('beta')}, gamma={w.get('gamma')}, delta={w.get('delta')}, eps={w.get('epsilon')}, zeta={w.get('zeta')}}}")
 
     if mlflow_run_active and mlflow:
         try:
