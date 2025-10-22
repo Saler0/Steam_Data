@@ -30,7 +30,7 @@ def export_to_postgres():
     if not uri or not SQLA:
         print('[INFO] Postgres no configurado; omitiendo export de topics_by_experience')
         sys.exit(0)
-
+    
     path_csv = 'outputs/events/topics_by_experience.csv'
     if not os.path.exists(path_csv):
         print(f'[INFO] No existe CSV de topics_by_experience ({path_csv}); omitiendo export')
@@ -42,7 +42,7 @@ def export_to_postgres():
         sys.exit(0)
 
     # Si existe un mapping de labels humanizados, hacer merge para sustituir topic_name
-    # Espera outputs/events/reviews_topics_labels.csv con columnas: topic_id,label
+    # Espera outputs/events/reviews_topics_labels.csv con columnas: topic_id,label 
     labels_csv = 'outputs/events/reviews_topics_labels.csv'
     try:
         if os.path.exists(labels_csv):

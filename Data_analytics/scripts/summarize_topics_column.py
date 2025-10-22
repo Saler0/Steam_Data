@@ -129,7 +129,7 @@ def _heuristic_summary(topics: List[Dict[str, Any]], max_items: int = 3, max_key
     chunks: List[str] = []
     for t in sorted_topics:
         name = _clean_name(str(t.get('Name') or t.get('name') or ''))
-        cnt = _count(t)
+        kws = []
         rep = t.get('Representation')
         # Accept numpy arrays as well
         try:
@@ -142,10 +142,7 @@ def _heuristic_summary(topics: List[Dict[str, Any]], max_items: int = 3, max_key
         else:
             kws = []
         part = name or ", ".join(kws)
-        if cnt:
-            chunks.append(f"{part} (n={cnt}; kw: {', '.join(kws)})")
-        else:
-            chunks.append(f"{part} (kw: {', '.join(kws)})")
+        chunks.append(part)
     return "; ".join([c for c in chunks if c])
 
 
@@ -166,9 +163,7 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
     if not api_key:
         _debug_log("DEEPSEEK_API_KEY environment variable not found. Cannot use LLM provider.")
         return None
-    
     _debug_log("DEEPSEEK_API_KEY found.")
-    
     try:
         import requests
     except ImportError:
@@ -179,18 +174,20 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
     model = model or os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
     url = f"{api_base.rstrip('/')}/v1/chat/completions"
     
+    system_prompt = "Your only task is to create a short, 2-4 word in English that summarizes the given Representation keyword about a video game."
+    
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Provide a concise summary in English of about 3 words. The summary should capture the main themes of the topics."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "max_tokens": 128,
     }
 
-    _debug_log(f"Sending request to {url} with model {model}.")
+    _debug_log(f"Sending request to {url} with model {model}. Prompt: {prompt}")
     
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
@@ -207,8 +204,9 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
             _debug_log("No summary text received from API.")
             return None
             
-        _debug_log(f"Received summary: '{text.strip()}'")
-        return text.strip()
+        summary = text.strip("'\"")
+        _debug_log(f"Received summary: '{summary}'")
+        return summary
         
     except requests.exceptions.RequestException as e:
         _debug_log(f"A network error occurred during API call: {e}")
@@ -218,41 +216,38 @@ def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] 
         return None
 
 
-def _to_three_word_title(s: str) -> str:
-    # Keep letters/numbers, split on whitespace, take first 3 tokens
-    tokens = [t for t in str(s).replace('\n', ' ').split(' ') if t.strip()]
-    if not tokens:
-        return ''
-    words = tokens[:3]
-    title = ' '.join(w.capitalize() for w in words)
-    # Remove stray punctuation and trim
-    return ''.join(ch for ch in title if ch.isalnum() or ch.isspace()).strip()
-
-
 def summarize_row(topics_raw: Any, provider: str = 'heuristic', max_items: int = 3) -> str:
     topics = _safe_parse_topics(topics_raw)
+    if not topics:
+        return ""
+
     if provider == 'deepseek':
         # Create a prompt from the topics
         prompt_chunks = []
         for t in topics:
             name = _clean_name(str(t.get('Name') or t.get('name') or ''))
             rep = t.get('Representation')
+            kws = []
             if isinstance(rep, (list, tuple)):
                 kws = [str(x) for x in rep if str(x).strip()]
-                prompt_chunks.append(f"Topic '{name}': {', '.join(kws)}")
-        
-        prompt = ". ".join(prompt_chunks)
+            
+            chunk = name or ", ".join(kws)
+            if chunk:
+                prompt_chunks.append(f"- Topic '{chunk}'")
 
-        # Call DeepSeek API
-        summary = _call_deepseek(prompt, api_key=None) # api_key will be read from env var
+        if not prompt_chunks:
+            return _heuristic_summary(topics, max_items=max_items)
 
-        # Fallback to heuristic if API call fails
+        prompt = (
+            "KEYWORDS FROM VIDEO GAME REVIEWS:\n"
+            + "\n".join(prompt_chunks)
+            + "\n\nGenerate a single, 2-4 word summary title for all the topics listed above."
+        )
+
+        summary = _call_deepseek(prompt, api_key=None)
+
         if summary:
             return summary
-        else:
-            # The user wants a three-word title, so we'll use the heuristic summary and format it.
-            heuristic_summary = _heuristic_summary(topics, max_items=max_items)
-            return _to_three_word_title(heuristic_summary)
 
     # Heuristic provider: keep original format
     return _heuristic_summary(topics, max_items=max_items)
@@ -265,7 +260,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     ap.add_argument('--topics-col', default='topics', help='Column name containing topics')
     ap.add_argument('--summary-col', default='topics_summary', help='Output column name')
     ap.add_argument('--provider', default='heuristic', choices=['heuristic','deepseek'], help='Summarization provider')
-    ap.add_argument('--max-items', type=int, default=3, help='Max topics to include')
+    ap.add_argument('--max-items', type=int, default=3, help='Max topics to include in heuristic summary')
     return ap.parse_args(list(argv) if argv is not None else None)
 
 

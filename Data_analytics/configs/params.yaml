@@ -205,4 +205,3 @@ bertopic:
 social:
   analysis_mode: peak_micro_daily
   daily_window_days: 14
-

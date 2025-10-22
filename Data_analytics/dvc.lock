@@ -201,8 +201,8 @@ stages:
       size: 401770527
     - path: outputs/events/events.parquet
       hash: md5
-      md5: b7ea3393cca071e3270464d4c4abbe8a
-      size: 6121
+      md5: 59423e0221403332750c6e45789e3cda
+      size: 10498
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: c75b4cbd97fd36a017336da70bc93c49
@@ -215,8 +215,8 @@ stages:
     outs:
     - path: outputs/events/review_segments.parquet
       hash: md5
-      md5: fe3cbb7c00e9155d0b0404ab69601ee6
-      size: 42708
+      md5: 85803b2f535387aa262e6af3b38b7054
+      size: 104437
   prepare:
     cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare 
       --config configs/params.yaml

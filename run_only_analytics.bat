@@ -52,9 +52,10 @@ set "CLIENT_FILE="
 set "RUN_OFFLINE_ALL=0"
 set "RUN_NEWS_TRAIN=0"
 set "RUN_TOPICS_SUMMARY=0"
-set "TOPICS_SUMMARY_PROVIDER=heuristic"
+set "TOPICS_SUMMARY_PROVIDER=deepseek"
 set "RUN_TOPICS_LABELS=0"
 set "RUN_REVIEWS_TOPICS_LABELS=0"
+set "RUN_HUMANIZE_EXPLANATIONS=0"
 set "OUT_PNG="
 set "OUT_WC="
 set "RUN_SEGMENTS_SUBSET=0"
@@ -90,6 +91,7 @@ for %%A in (%*) do (
     if /I "!ARG:~0,17!"=="summary-provider=" set "TOPICS_SUMMARY_PROVIDER=!ARG:~17!"
     if /I "!ARG!"=="topics-labels" set "RUN_TOPICS_LABELS=1"
     if /I "!ARG!"=="reviews-topics-labels" set "RUN_REVIEWS_TOPICS_LABELS=1"
+    if /I "!ARG!"=="humanize-explanations" set "RUN_HUMANIZE_EXPLANATIONS=1"
     if /I "!ARG:~0,8!"=="out-png=" set "OUT_PNG=!ARG:~8!"
     if /I "!ARG:~0,7!"=="out-wc=" set "OUT_WC=!ARG:~7!"
     if /I "!ARG!"=="segments-subset" set "RUN_SEGMENTS_SUBSET=1"
@@ -160,6 +162,7 @@ if "!RUN_OFFLINE_ALL!"=="1" goto :run_offline_all
 if "!RUN_NEWS_TRAIN!"=="1" goto :run_news_train
 if "!RUN_TOPICS_LABELS!"=="1" goto :run_topics_labels
 if "!RUN_REVIEWS_TOPICS_LABELS!"=="1" goto :run_reviews_topics_labels
+if "!RUN_HUMANIZE_EXPLANATIONS!"=="1" goto :run_humanize_explanations
 
 if defined APPID_LIST (
     set "APPID_LIST=!APPID_LIST:,= !"
@@ -300,27 +303,73 @@ exit /b 0
 :run_reviews_topics_labels
 echo.
 echo ============================
-echo Humanizando labels de BERTopic (desde topics.parquet)...
+echo Humanizando y exportando tópicos...
 echo ============================
-rem Generar mapping de labels (DeepSeek si hay API key; si no, heuristico)
+set "LABELS_FILE=outputs/events/humanized_topics.csv"
+
+rem 1. Humanizar labels (si es necesario)
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/topics.parquet ]; then python scripts/humanize_reviews_topics.py --in outputs/events/topics.parquet --provider auto; else echo '[ERROR] No existe outputs/events/topics.parquet.'; exit 1; fi"
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/topics.parquet ]; then python scripts/humanize_reviews_topics.py --out !LABELS_FILE!; else echo '[ERROR] No existe outputs/events/topics.parquet.'; exit 1; fi"
 if errorlevel 1 (
   echo [ERROR] Fallo el humanizado de labels de BERTopic.
   pause
   endlocal
   exit /b 1
 )
-rem Exportar topics_by_experience usando el mapping generado (si Postgres configurado)
+
+rem -- PASO 2 DESACTIVADO --
+rem docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+rem   exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_by_experience_to_postgres.py --labels-csv !LABELS_FILE!"
+rem if errorlevel 1 (
+rem   echo [ERROR] Fallo la exportacion de topics_by_experience a Postgres.
+rem   pause
+rem   endlocal
+rem   exit /b 1
+rem )
+
+rem 3. Exportar las propias labels humanizadas a su tabla
 docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
-  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_topics_by_experience_to_postgres.py"
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_humanized_topics_to_postgres.py --in !LABELS_FILE!"
 if errorlevel 1 (
-  echo [ERROR] Fallo la exportacion de topics_by_experience a Postgres.
+  echo [ERROR] Fallo la exportacion de las labels humanizadas a Postgres.
   pause
   endlocal
   exit /b 1
 )
-echo [OK] Labels humanizados y exportados (si Postgres estaba configurado).
+
+echo [OK] Proceso de tópicos finalizado y exportado a Postgres.
+pause
+endlocal
+exit /b 0
+
+:run_humanize_explanations
+echo.
+echo ============================
+echo Humanizando y exportando explicaciones...
+echo ============================
+set "EXPLANATIONS_FILE=outputs/events/humanized_explanations.csv"
+
+rem 1. Humanizar explicaciones
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; if [ -f outputs/events/explanations.parquet ]; then python scripts/humanize_explanations.py --out !EXPLANATIONS_FILE!; else echo '[ERROR] No existe outputs/events/explanations.parquet.'; exit 1; fi"
+if errorlevel 1 (
+  echo [ERROR] Fallo el humanizado de explicaciones.
+  pause
+  endlocal
+  exit /b 1
+)
+
+rem 2. Exportar explicaciones humanizadas a Postgres
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics bash -lc "sed -i 's/\r$//' .env; set -a; . ./.env; set +a; python scripts/export_humanized_explanations_to_postgres.py --in !EXPLANATIONS_FILE!"
+if errorlevel 1 (
+  echo [ERROR] Fallo la exportacion de las explicaciones humanizadas a Postgres.
+  pause
+  endlocal
+  exit /b 1
+)
+
+echo [OK] Proceso de explicaciones finalizado y exportado a Postgres.
 pause
 endlocal
 exit /b 0

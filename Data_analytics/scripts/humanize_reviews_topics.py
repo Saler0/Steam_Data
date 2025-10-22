@@ -122,10 +122,10 @@ def humanize_labels(
         raise SystemExit("Dataset de tópicos vacío.")
 
     # --- Preparación de Datos ---
-    df['c_topics'] = df['topics'].str.len()
     df_exploded = df.explode('topics').reset_index(drop=True)
     df_normalized = pd.json_normalize(df_exploded['topics'])
     df_flat = pd.concat([df_exploded.drop(columns=['topics']), df_normalized], axis=1)
+    df_flat['c_topics'] = df_flat['Count']
 
     df_flat = df_flat.rename(columns={
         'Name': 'topic_name_original',
