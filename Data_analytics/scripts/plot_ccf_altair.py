@@ -289,9 +289,21 @@ def main(argv: Iterable[str] | None = None) -> None:
     charts = [facets.properties(title=f'AppID {args.appid} - Original vs Estacionaria ({", ".join([f"{k}:{v}" for k,v in chosen.items()])})')]
 
     if not tests.empty:
-        # Proportion stationary by series (ok==True)
-        df_ok = tests.copy()
-        if 'ok' in df_ok.columns:
+        # Usar filas 'selected' y deduplicar por (appid, series[, freq]) para no inflar conteos
+        base = tests.copy()
+        if 'selected' in base.columns:
+            base = base[base['selected'] == True].copy()
+        keys = ['appid', 'series'] + (['freq'] if 'freq' in base.columns else [])
+        if all(k in base.columns for k in keys):
+            base = base.sort_values(keys + (['method'] if 'method' in base.columns else []))
+            base = base.drop_duplicates(subset=keys, keep='first')
+        try:
+            print(f"[INFO] plot_ccf_altair: stationarity_tests únicos usados = {len(base)} (keys={keys})")
+        except Exception:
+            pass
+        # Proporción stationary por serie
+        if 'ok' in base.columns:
+            df_ok = base.copy()
             df_ok['ok'] = df_ok['ok'].astype(bool)
             agg = df_ok.groupby(['series'])['ok'].mean().reset_index()
             bar_ok = alt.Chart(agg).mark_bar(color='#10b981').encode(
@@ -300,16 +312,16 @@ def main(argv: Iterable[str] | None = None) -> None:
                 tooltip=[alt.Tooltip('ok:Q', format='.1%'), 'series']
             ).properties(title='Proporción de series estacionarias')
             charts.append(bar_ok)
-        # ADF/KPSS p-value distributions
-        if 'p_adf' in tests.columns:
-            hist_adf = alt.Chart(tests).mark_bar(color='#6366f1', opacity=0.8).encode(
+        # ADF/KPSS p-value distributions sobre base deduplicada
+        if 'p_adf' in base.columns:
+            hist_adf = alt.Chart(base.dropna(subset=['p_adf'])).mark_bar(color='#6366f1', opacity=0.8).encode(
                 x=alt.X('p_adf:Q', bin=alt.Bin(maxbins=30), title='p-valor ADF'),
                 y=alt.Y('count()', title='Conteo'),
                 tooltip=['count()']
             ).properties(title='Distribución p-valores ADF')
             charts.append(hist_adf)
-        if 'p_kpss' in tests.columns:
-            hist_kpss = alt.Chart(tests.dropna(subset=['p_kpss'])).mark_bar(color='#f59e0b', opacity=0.8).encode(
+        if 'p_kpss' in base.columns:
+            hist_kpss = alt.Chart(base.dropna(subset=['p_kpss'])).mark_bar(color='#f59e0b', opacity=0.8).encode(
                 x=alt.X('p_kpss:Q', bin=alt.Bin(maxbins=30), title='p-valor KPSS'),
                 y=alt.Y('count()', title='Conteo'),
                 tooltip=['count()']
