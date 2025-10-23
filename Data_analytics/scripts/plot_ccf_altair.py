@@ -201,16 +201,17 @@ def _load_quality_tables(ccf_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     # stationarity_tests.csv and summary.parquet
     tests = pd.DataFrame()
     summary = pd.DataFrame()
-    cand_tests = [ccf_dir / 'stationarity_tests.csv']
-    cand_summary = [ccf_dir / 'summary.parquet']
-    # Also consider subset output dir
     subset_dir = ccf_dir / 'subset_neighbors'
-    cand_tests.append(subset_dir / 'stationarity_tests.csv')
-    cand_summary.append(subset_dir / 'summary.parquet')
+    # Preferir resultados del subset si existen; luego el global
+    cand_tests = [subset_dir / 'stationarity_tests.csv', ccf_dir / 'stationarity_tests.csv']
+    cand_summary = [subset_dir / 'summary.parquet', ccf_dir / 'summary.parquet']
+    chosen_tests = None
+    chosen_summary = None
     for p in cand_tests:
         if p.exists():
             try:
                 tests = pd.read_csv(p)
+                chosen_tests = p
                 break
             except Exception:
                 pass
@@ -218,9 +219,17 @@ def _load_quality_tables(ccf_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         if p.exists():
             try:
                 summary = pd.read_parquet(p)
+                chosen_summary = p
                 break
             except Exception:
                 pass
+    if chosen_tests is not None or chosen_summary is not None:
+        try:
+            src_t = f"tests={chosen_tests}" if chosen_tests else "tests=None"
+            src_s = f"summary={chosen_summary}" if chosen_summary else "summary=None"
+            print(f"[INFO] plot_ccf_altair: usando {src_t}; {src_s}")
+        except Exception:
+            pass
     return tests, summary
 
 
