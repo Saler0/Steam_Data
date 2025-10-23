@@ -711,6 +711,12 @@ docker compose -f "docker-compose.yml" --project-directory . --profile analytics
   exec -e APPIDS="!APPID_LIST!" -w /app/Data_analytics analytics bash -lc "for id in $APPIDS; do echo $id; done > outputs/tmp_neighbors_appids.txt && python scripts/persist_reports_to_mongo.py --reports-dir outputs/reports --appids-file outputs/tmp_neighbors_appids.txt --mongo-coll app_reports --drop-fields provenance,rules_analysis"
 if errorlevel 1 goto :neighbors_failed
 
+rem Reporte global de calidad CCF/Granger (ADF/KPSS/Ljung/FDR) para el subset
+echo [INFO] Generando reporte de calidad CCF/Granger (subset)...
+docker compose -f "docker-compose.yml" --project-directory . --profile analytics --profile mlflow ^
+  exec -w /app/Data_analytics analytics python scripts/plot_ccf_quality.py --base-dir outputs/ccf_analysis/subset_neighbors --out-dir outputs/ccf_analysis/subset_neighbors/quality
+if errorlevel 1 goto :neighbors_failed
+
 echo.
 echo ===============================================
 echo Subset (vecinos) ejecutado correctamente y reportes por juego almacenados en Mongo.

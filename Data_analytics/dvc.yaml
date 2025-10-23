@@ -11,7 +11,7 @@ vars:
 
 stages:
   preagg_reviews:
-    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/  cf_analysis.yaml
     deps:
       - src/pipelines/preaggregations/reviews_monthly.py
       - configs/ccf_analysis.yaml
