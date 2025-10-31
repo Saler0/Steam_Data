@@ -57,7 +57,22 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
     rv = _read_parquet_filter_app(rv_pq, appid)
     pl = _read_parquet_filter_app(pl_pq, appid)
     if rv.empty and pl.empty:
-        return pd.DataFrame()
+        # Fallback: intentar CSV individual con players si hay patrón
+        players_cfg = cfg.get('players_data') or {}
+        patt = players_cfg.get('dir_pattern')
+        if patt:
+            from pathlib import Path as _P
+            p = _P(str(patt).format(appid=str(appid)))
+            if p.exists():
+                try:
+                    tmp = pd.read_csv(p)
+                    tmp['year_month'] = _to_month(tmp['date'] if 'date' in tmp.columns else tmp.iloc[:,0])
+                    tmp = tmp[['year_month', 'players']].copy()
+                    pl = tmp
+                except Exception:
+                    pass
+        if rv.empty and pl.empty:
+            return pd.DataFrame()
     out = None
     if not pl.empty:
         pl = pl.copy()
@@ -75,6 +90,12 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
         rv = rv[['year_month'] + cols]
         out = rv if out is None else pd.merge(out, rv, on='year_month', how='outer')
     out = out.sort_values('year_month').reset_index(drop=True).fillna(0)
+    # Completar total_reviews si falta y hay pos/neg
+    if ('total_reviews' not in out.columns) and ('pos' in out.columns) and ('neg' in out.columns):
+        try:
+            out['total_reviews'] = out[['pos','neg']].sum(axis=1)
+        except Exception:
+            pass
     return out
 
 
@@ -144,6 +165,22 @@ def _build_series_layers(df: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, dic
     base = df.copy()
     base = base.set_index(pd.to_datetime(base['year_month'])).drop(columns=['year_month'])
     vars_ = [c for c in ['players','pos','neg','total_reviews'] if c in base.columns]
+    vnames = {
+        'players': 'Jugadores Activos',
+        'pos': 'Reseñas Positivas',
+        'neg': 'Reseñas Negativas',
+        'total_reviews': 'Reseñas Totales',
+    }
+    mnames = {
+        'dlog': 'Diferencia logarítmica',
+        'diff': 'Diferenciación',
+        'diff2': 'Diferenciación 2ª',
+        'sqrt': 'Raíz cuadrada',
+        'sqrt_diff': 'Raíz cuadrada + diferencia',
+        'log1p_diff': 'log1p + diferencia',
+        'seasonal_diff': 'Diferenciación estacional',
+        'fallback': 'Transformación alternativa',
+    }
     chosen: dict[str,str] = {}
     rows: list[dict] = []
     for v in vars_:
@@ -152,10 +189,10 @@ def _build_series_layers(df: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, dic
         chosen[v] = name
         # Original
         for ts, val in s.items():
-            rows.append({'date': pd.to_datetime(ts), 'variable': v, 'kind': 'Original', 'value': float(val)})
-        # Stationary
+            rows.append({'date': pd.to_datetime(ts), 'variable': vnames.get(v, v), 'kind': 'Original', 'value': float(val)})
+        # Stationary (en castellano)
         for ts, val in t.items():
-            rows.append({'date': pd.to_datetime(ts), 'variable': v, 'kind': f'Stationary ({name})', 'value': float(val)})
+            rows.append({'date': pd.to_datetime(ts), 'variable': vnames.get(v, v), 'kind': f'Estacionaria ({mnames.get(name, name)})', 'value': float(val)})
     long = pd.DataFrame(rows)
     return long, chosen
 
@@ -164,16 +201,17 @@ def _load_quality_tables(ccf_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     # stationarity_tests.csv and summary.parquet
     tests = pd.DataFrame()
     summary = pd.DataFrame()
-    cand_tests = [ccf_dir / 'stationarity_tests.csv']
-    cand_summary = [ccf_dir / 'summary.parquet']
-    # Also consider subset output dir
     subset_dir = ccf_dir / 'subset_neighbors'
-    cand_tests.append(subset_dir / 'stationarity_tests.csv')
-    cand_summary.append(subset_dir / 'summary.parquet')
+    # Preferir resultados del subset si existen; luego el global
+    cand_tests = [subset_dir / 'stationarity_tests.csv', ccf_dir / 'stationarity_tests.csv']
+    cand_summary = [subset_dir / 'summary.parquet', ccf_dir / 'summary.parquet']
+    chosen_tests = None
+    chosen_summary = None
     for p in cand_tests:
         if p.exists():
             try:
                 tests = pd.read_csv(p)
+                chosen_tests = p
                 break
             except Exception:
                 pass
@@ -181,9 +219,17 @@ def _load_quality_tables(ccf_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         if p.exists():
             try:
                 summary = pd.read_parquet(p)
+                chosen_summary = p
                 break
             except Exception:
                 pass
+    if chosen_tests is not None or chosen_summary is not None:
+        try:
+            src_t = f"tests={chosen_tests}" if chosen_tests else "tests=None"
+            src_s = f"summary={chosen_summary}" if chosen_summary else "summary=None"
+            print(f"[INFO] plot_ccf_altair: usando {src_t}; {src_s}")
+        except Exception:
+            pass
     return tests, summary
 
 
@@ -193,6 +239,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     ap.add_argument('--appid', required=True)
     ap.add_argument('--out', default=None)
     ap.add_argument('--ccf-dir', default='outputs/ccf_analysis')
+    ap.add_argument('--png', action='store_true', help='Also save a PNG copy of the dashboard (requires altair_saver + vl-convert or selenium)')
+    ap.add_argument('--png-out', default=None, help='Optional PNG output path (defaults to outputs/ccf_analysis/plots/altair_{appid}.png)')
     return ap.parse_args(list(argv) if argv is not None else None)
 
 
@@ -220,52 +268,64 @@ def main(argv: Iterable[str] | None = None) -> None:
     )
     color = alt.Color('kind:N', scale=alt.Scale(scheme='set1'))
     tooltip = [
-        alt.Tooltip('date:T', title='Date'),
-        alt.Tooltip('variable:N', title='Series'),
-        alt.Tooltip('kind:N', title='Type'),
-        alt.Tooltip('value:Q', title='Value', format='.3f'),
+        alt.Tooltip('date:T', title='Fecha'),
+        alt.Tooltip('variable:N', title='Serie'),
+        alt.Tooltip('kind:N', title='Tipo'),
+        alt.Tooltip('value:Q', title='Valor', format='.3f'),
     ]
     line = base.mark_line(point=False, interpolate='monotone').encode(
-        x=alt.X('date:T', title='Date'),
-        y=alt.Y('value:Q', title='Value'),
+        x=alt.X('date:T', title='Fecha'),
+        y=alt.Y('value:Q', title='Valor'),
         color=color,
         tooltip=tooltip,
     )
     facets = line.facet(
-        row=alt.Row('variable:N', header=alt.Header(title='Series', labelLimit=200)),
+        row=alt.Row('variable:N', header=alt.Header(title='Serie', labelLimit=200)),
         columns=2,
     ).resolve_scale(y='independent')
 
     # Quality panels (if available)
     tests, summary = _load_quality_tables(Path(args.ccf_dir))
-    charts = [facets.properties(title=f'AppID {args.appid} — Original vs Stationary ({", ".join([f"{k}:{v}" for k,v in chosen.items()])})')]
+    charts = [facets.properties(title=f'AppID {args.appid} - Original vs Estacionaria ({", ".join([f"{k}:{v}" for k,v in chosen.items()])})')]
 
     if not tests.empty:
-        # Proportion stationary by series (ok==True)
-        df_ok = tests.copy()
-        if 'ok' in df_ok.columns:
+        # Usar filas 'selected' y deduplicar por (appid, series[, freq]) para no inflar conteos
+        base = tests.copy()
+        if 'selected' in base.columns:
+            base = base[base['selected'] == True].copy()
+        keys = ['appid', 'series'] + (['freq'] if 'freq' in base.columns else [])
+        if all(k in base.columns for k in keys):
+            base = base.sort_values(keys + (['method'] if 'method' in base.columns else []))
+            base = base.drop_duplicates(subset=keys, keep='first')
+        try:
+            print(f"[INFO] plot_ccf_altair: stationarity_tests únicos usados = {len(base)} (keys={keys})")
+        except Exception:
+            pass
+        # Proporción stationary por serie
+        if 'ok' in base.columns:
+            df_ok = base.copy()
             df_ok['ok'] = df_ok['ok'].astype(bool)
             agg = df_ok.groupby(['series'])['ok'].mean().reset_index()
             bar_ok = alt.Chart(agg).mark_bar(color='#10b981').encode(
-                x=alt.X('series:N', title='Series'),
-                y=alt.Y('ok:Q', title='Stationary %', axis=alt.Axis(format='%')),
+                x=alt.X('series:N', title='Serie'),
+                y=alt.Y('ok:Q', title='% Estacionarias', axis=alt.Axis(format='%')),
                 tooltip=[alt.Tooltip('ok:Q', format='.1%'), 'series']
-            ).properties(title='Stationarity Rate by Series')
+            ).properties(title='Proporción de series estacionarias')
             charts.append(bar_ok)
-        # ADF/KPSS p-value distributions
-        if 'p_adf' in tests.columns:
-            hist_adf = alt.Chart(tests).mark_bar(color='#6366f1', opacity=0.8).encode(
-                x=alt.X('p_adf:Q', bin=alt.Bin(maxbins=30), title='ADF p-value'),
-                y=alt.Y('count()', title='Count'),
+        # ADF/KPSS p-value distributions sobre base deduplicada
+        if 'p_adf' in base.columns:
+            hist_adf = alt.Chart(base.dropna(subset=['p_adf'])).mark_bar(color='#6366f1', opacity=0.8).encode(
+                x=alt.X('p_adf:Q', bin=alt.Bin(maxbins=30), title='p-valor ADF'),
+                y=alt.Y('count()', title='Conteo'),
                 tooltip=['count()']
-            ).properties(title='ADF p-value distribution')
+            ).properties(title='Distribución p-valores ADF')
             charts.append(hist_adf)
-        if 'p_kpss' in tests.columns:
-            hist_kpss = alt.Chart(tests.dropna(subset=['p_kpss'])).mark_bar(color='#f59e0b', opacity=0.8).encode(
-                x=alt.X('p_kpss:Q', bin=alt.Bin(maxbins=30), title='KPSS p-value'),
-                y=alt.Y('count()', title='Count'),
+        if 'p_kpss' in base.columns:
+            hist_kpss = alt.Chart(base.dropna(subset=['p_kpss'])).mark_bar(color='#f59e0b', opacity=0.8).encode(
+                x=alt.X('p_kpss:Q', bin=alt.Bin(maxbins=30), title='p-valor KPSS'),
+                y=alt.Y('count()', title='Conteo'),
                 tooltip=['count()']
-            ).properties(title='KPSS p-value distribution')
+            ).properties(title='Distribución p-valores KPSS')
             charts.append(hist_kpss)
 
     if not summary.empty:
@@ -283,11 +343,11 @@ def main(argv: Iterable[str] | None = None) -> None:
             ]
         })
         bar_sig = alt.Chart(overall).mark_bar().encode(
-            x=alt.X('metric:N', title='Metric'),
-            y=alt.Y('rate:Q', title='Share', axis=alt.Axis(format='%')),
+            x=alt.X('metric:N', title='Métrica'),
+            y=alt.Y('rate:Q', title='Proporción', axis=alt.Axis(format='%')),
             color=alt.Color('metric:N', legend=None, scale=alt.Scale(scheme='tableau10')),
             tooltip=[alt.Tooltip('rate:Q', format='.1%'), 'metric']
-        ).properties(title='Granger significance (overall)')
+        ).properties(title='Significancia de Granger (global)')
         charts.append(bar_sig)
 
     # Compose
@@ -298,6 +358,25 @@ def main(argv: Iterable[str] | None = None) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     dashboard.save(str(out))
     print(f'[OK] Dashboard Altair -> {out}')
+
+    # Optional PNG export
+    if args.png:
+        png_path = Path(args.png_out) if args.png_out else (out.with_suffix('.png'))
+        try:
+            # Prefer vl-convert if available
+            method = None
+            try:
+                import vl_convert  # type: ignore
+                method = 'vl-convert'
+            except Exception:
+                method = None
+            if method is None:
+                # Fallback to selenium if installed
+                method = 'selenium'
+            dashboard.save(str(png_path), format='png', method=method, scale_factor=2)
+            print(f'[OK] PNG export -> {png_path} (method={method})')
+        except Exception as e:
+            print(f'[WARN] No se pudo exportar PNG de Altair: {e}. Instala altair_saver y vl-convert-python o selenium dentro del contenedor.')
 
 
 if __name__ == '__main__':

@@ -164,7 +164,24 @@ def _export_section_pg(table: str, appid: str, records: list[dict], schema: str 
         return
     try:
         engine = create_engine(uri)
-        df.to_sql(table, engine, schema=schema or os.getenv('POSTGRES_SCHEMA', 'public'), if_exists='append', index=False)
+        # Normalizaciones de columnas comunes
+        if 'event_year_month' in df.columns and 'year_month' not in df.columns:
+            try:
+                df = df.rename(columns={'event_year_month': 'year_month'})
+            except Exception:
+                pass
+        # Asegurar tipo fecha si existe year_month como texto
+        if 'year_month' in df.columns:
+            try:
+                df['year_month'] = pd.to_datetime(df['year_month'], errors='coerce')
+            except Exception:
+                pass
+        # Modo recrear tabla opcional (como otros exportadores): POSTGRES_RECREATE=1
+        if_exists_mode = 'append'
+        recreate = str(os.getenv('POSTGRES_RECREATE', '0')).strip().lower() in ('1', 'true', 'yes')
+        if recreate:
+            if_exists_mode = 'replace'
+        df.to_sql(table, engine, schema=schema or os.getenv('POSTGRES_SCHEMA', 'public'), if_exists=if_exists_mode, index=False)
         print(f"[OK] Exportado {len(df)} filas -> {schema or os.getenv('POSTGRES_SCHEMA', 'public')}.{table}")
     except Exception as exc:
         print(f"[WARN] Fallo exportando '{table}' a PostgreSQL: {exc}")

@@ -27,11 +27,11 @@ class DecisionRulesService:
     ) -> PriceRuleResult:
         """Classify the client price compared to neighbor prices."""
         result: PriceRuleResult = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_price": client_price,
             "neighbor_median_price": None,
             "neighbor_prices_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_price is None:
@@ -63,14 +63,14 @@ class DecisionRulesService:
             include_full_content = full_content_included != 0
 
         if client_price < cheap_threshold:
-            label = "barato"
+            label = "cheap"
         elif client_price <= normal_threshold:
-            label = "normal"
+            label = "fair"
         else:
-            label = "caro"
+            label = "expensive"
 
-        if label == "caro" and include_full_content:
-            label = "alto justificado"
+        if label == "expensive" and include_full_content:
+            label = "expensive justified"
 
         result.update(
             {
@@ -82,13 +82,13 @@ class DecisionRulesService:
             }
         )
         tag_by_label = {
-            "barato": "fortaleza",
-            "alto justificado": "fortaleza",
-            "caro": "debilidad",
-            "normal": "neutro",
-            "sin_datos": "neutro",
+            "cheap": "advantage",
+            "expensive justified": "advantage",
+            "expensive": "weakness",
+            "fair": "neutral",
+            "no data": "neutral",
         }
-        result["tag"] = tag_by_label.get(label, "neutro")
+        result["tag"] = tag_by_label.get(label, "neutral")
         return result
 
     def evaluate_platform_rule(
@@ -101,14 +101,14 @@ class DecisionRulesService:
         neighbor_counts = self._fetch_neighbor_platform_counts(neighbor_appids)
 
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_platforms_count": client_count,
             "total_neighbors": len(neighbor_counts),
             "neighbors_with_more_platforms": 0,
             "neighbors_with_equal_platforms": 0,
             "neighbors_with_less_platforms": 0,
             "neighbor_max_platforms": max(neighbor_counts) if neighbor_counts else None,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if not neighbor_counts:
@@ -123,11 +123,11 @@ class DecisionRulesService:
         result["neighbors_with_less_platforms"] = less
 
         if more > (len(neighbor_counts) / 2):
-            result["label"] = "soporte limitado"
-            result["tag"] = "debilidad"
+            result["label"] = "limited support"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "soporte bueno"
-            result["tag"] = "fortaleza"
+            result["label"] = "good support"
+            result["tag"] = "advantage"
 
         return result
 
@@ -138,11 +138,11 @@ class DecisionRulesService:
     ) -> PriceRuleResult:
         """Compare client RAM requirement against the neighbor median."""
         result: PriceRuleResult = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_ram_gb": client_ram_gb,
             "neighbor_median_ram_gb": None,
             "neighbor_ram_values_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_ram_gb in (None, ""):
@@ -162,8 +162,8 @@ class DecisionRulesService:
 
         neighbor_median = median(neighbor_ram_values)
         result["neighbor_median_ram_gb"] = neighbor_median
-        result["label"] = "barrera tecnica" if client_ram_value > neighbor_median else "sin barrera tecnica"
-        result["tag"] = "debilidad" if result["label"] == "barrera tecnica" else "fortaleza"
+        result["label"] = "technical barrier" if client_ram_value > neighbor_median else "no technical barrier"
+        result["tag"] = "weakness" if result["label"] == "technical barrier" else "advantage"
 
         return result
 
@@ -174,11 +174,11 @@ class DecisionRulesService:
     ) -> Dict[str, Any]:
         """Classify the install size compared to neighbor requirements with context."""
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no_data",
             "client_install_size_gb": None,
             "neighbor_percentile_75": None,
             "neighbor_sizes_count": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         if client_install_size_gb in (None, ""):
@@ -201,11 +201,11 @@ class DecisionRulesService:
 
         result["neighbor_percentile_75"] = percentile_75
         if client_size_value > percentile_75:
-            result["label"] = "juego muy pesado"
-            result["tag"] = "debilidad"
+            result["label"] = "very heavy game"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "juego liviano"
-            result["tag"] = "fortaleza"
+            result["label"] = "lightweight game"
+            result["tag"] = "advantage"
 
         return result
 
@@ -216,11 +216,11 @@ class DecisionRulesService:
     ) -> Dict[str, Any]:
         """Evaluate visibility advantage based on Steam Deck compatibility."""
         result: Dict[str, Any] = {
-            "label": "sin_datos",
+            "label": "no data",
             "client_steam_deck": None,
             "neighbors_total": 0,
             "neighbors_with_steam_deck": 0,
-            "tag": "neutro",
+            "tag": "neutral",
         }
 
         client_flag: Optional[bool] = None
@@ -241,8 +241,8 @@ class DecisionRulesService:
 
         result["client_steam_deck"] = client_flag
         if client_flag:
-            result["label"] = "mayor visibilidad"
-            result["tag"] = "fortaleza"
+            result["label"] = "higher visibility"
+            result["tag"] = "advantage"
             return result
 
         neighbor_flags = self._fetch_neighbor_steam_deck_flags(neighbor_appids)
@@ -255,11 +255,11 @@ class DecisionRulesService:
         result["neighbors_with_steam_deck"] = with_steam_deck
 
         if with_steam_deck > 0:
-            result["label"] = "menor visibilidad"
-            result["tag"] = "debilidad"
+            result["label"] = "lower visibility"
+            result["tag"] = "weakness"
         else:
-            result["label"] = "vecinos sin steam deck"
-            result["tag"] = "neutro"
+            result["label"] = "neighbors without steam deck"
+            result["tag"] = "neutral"
 
         return result
 
@@ -304,15 +304,15 @@ class DecisionRulesService:
         }
 
         if total_reviews < 1000:
-            result["label"] = "Tamaño de muestra bajo"
+            result["label"] = "sample size low"
             return result
 
         avg_value = average_pct if average_pct is not None else 0.0
         if avg_value < 70.0:
-            result["label"] = "Mala reputación histórica del segmento"
+            result["label"] = "segment historically negative"
             return result
 
-        result["label"] = "Alta exigencia del segmento"
+        result["label"] = "segment high expectations"
         return result
 
     def evaluate_competencia_rule(
@@ -320,30 +320,69 @@ class DecisionRulesService:
         neighbor_appids: Sequence[Any],
     ) -> str:
         """Evaluate recent competitive activity based on neighbor release dates."""
-        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
-        if not release_dates:
-            return "Desinteres del mercado"
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_map:
+            return "market disinterest"
 
-        cutoff_date = date.today() - timedelta(days=365)
-        for rel_date in release_dates:
+        today = date.today()
+        cutoff_date = today - timedelta(days=365)
+        for rel_date in release_map.values():
             if rel_date and rel_date >= cutoff_date:
-                return "Alta competencia reciente"
-        return "Desinteres del mercado"
+                return "recent high competition"
+        return "market disinterest"
+
+    def build_release_info_map(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return release date info and age (in years) per neighbor appid."""
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        today = date.today()
+        info: Dict[str, Dict[str, Any]] = {}
+
+        def _normalized_appid(entry: Any) -> Optional[str]:
+            if isinstance(entry, dict):
+                candidate = entry.get("appid")
+            else:
+                candidate = entry
+            if candidate is None:
+                return None
+            text = str(candidate).strip()
+            return text or None
+
+        for entry in neighbor_appids:
+            appid_key = _normalized_appid(entry)
+            if not appid_key:
+                continue
+            rel_date = release_map.get(appid_key)
+            if rel_date is None:
+                info[appid_key] = {
+                    "release_date": None,
+                    "age_years": None,
+                }
+                continue
+            age_days = (today - rel_date).days
+            age_years = round(max(age_days, 0) / 365.25, 2)
+            info[appid_key] = {
+                "release_date": rel_date.isoformat(),
+                "age_years": age_years,
+            }
+        return info
 
     def evaluate_segment_saturation_age_rule(
         self,
         neighbor_appids: Sequence[Any],
     ) -> Dict[str, Any]:
         """Evaluate saturation vs. age profile for a neighbor cluster."""
-        release_dates = self._fetch_neighbor_release_dates(neighbor_appids)
-        if not release_dates:
+        release_map = self._fetch_neighbor_release_dates(neighbor_appids)
+        if not release_map:
             return {
-                "label": "Desinteres del mercado",
+                "label": "market disinterest",
                 "average_age_years": None,
                 "neighbor_count": len(neighbor_appids),
             }
 
-        valid_dates = [d for d in release_dates if isinstance(d, date)]
+        valid_dates = [d for d in release_map.values() if isinstance(d, date)]
         neighbor_count = len(neighbor_appids)
 
         average_age_years: Optional[float]
@@ -361,24 +400,18 @@ class DecisionRulesService:
         }
 
         if average_age_years is None:
-            if neighbor_count >= 20:
-                result["label"] = "Segmento poco saturado y envejecido"
-            else:
-                result["label"] = "Segmento emergente"
+            result["label"] = "insufficient_data"
             return result
 
-        if neighbor_count >= 20:
-            if average_age_years >= 6:
-                result["label"] = "Segmento muy saturado y envejecido"
-            else:
-                result["label"] = "Segmento poco saturado y envejecido"
-            return result
+        if neighbor_count >= 20 and average_age_years >= 6:
+            result["label"] = "Very saturated and aged segment"
+        elif neighbor_count >= 20 and average_age_years < 6:
+            result["label"] = "Very saturated and new segment"
+        elif neighbor_count < 20 and average_age_years >= 6:
+            result["label"] = "Low saturated and aged segment"
+        else:
+            result["label"] = "Low saturated and new segment"
 
-        if average_age_years >= 6:
-            result["label"] = "Segmento emergente"
-            return result
-
-        result["label"] = "Segmento muy saturado y reciente"
         return result
 
 
@@ -389,7 +422,7 @@ class DecisionRulesService:
         """Determine publisher concentration among neighbors."""
         total_neighbors = len(neighbor_appids)
         if total_neighbors == 0:
-            return {"label": "sin_datos", "top_publishers": [], "total_neighbors": 0}
+            return {"label": "no data", "top_publishers": [], "total_neighbors": 0}
 
         publisher_counts = self._aggregate_company_counts(neighbor_appids, field="publishers")
         top_publishers = sorted(
@@ -405,12 +438,12 @@ class DecisionRulesService:
             reverse=True,
         )
 
-        label = "sin_datos"
+        label = "no data"
         if top_publishers:
             if top_publishers[0]["share"] >= 0.5:
-                label = f"Concentrado en {top_publishers[0]['publisher']}"
+                label = f"concentrated on {top_publishers[0]['publisher']}"
             else:
-                label = "Diversificado"
+                label = "diversified"
 
         return {
             "label": label,
@@ -425,7 +458,7 @@ class DecisionRulesService:
         """Determine developer concentration among neighbors."""
         total_neighbors = len(neighbor_appids)
         if total_neighbors == 0:
-            return {"label": "sin_datos", "top_developers": [], "total_neighbors": 0}
+            return {"label": "no data", "top_developers": [], "total_neighbors": 0}
 
         developer_counts = self._aggregate_company_counts(neighbor_appids, field="developers")
         top_devs = sorted(
@@ -441,18 +474,152 @@ class DecisionRulesService:
             reverse=True,
         )
 
-        label = "sin_datos"
+        label = "no data"
         if top_devs:
             if top_devs[0]["share"] >= 0.5:
-                label = f"Concentrado en {top_devs[0]['developer']}"
+                label = f"concentrated on {top_devs[0]['developer']}"
             else:
-                label = "Diversificado"
+                label = "diversified"
 
         return {
             "label": label,
             "top_developers": top_devs,
             "total_neighbors": total_neighbors,
         }
+
+    def evaluate_activity_rule(
+        self,
+        neighbor_appids: Sequence[Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Classify neighbors as active/inactive based on recent playtime."""
+        threshold_cfg = DECISION_RULES.get("activity_inactive_threshold_hours", 10.0)
+        try:
+            threshold_hours = float(threshold_cfg)
+        except (TypeError, ValueError):
+            threshold_hours = 10.0
+
+        normalized_ids: Dict[str, str] = {}
+        str_ids: set[str] = set()
+        int_ids: set[int] = set()
+        for entry in neighbor_appids:
+            candidate = entry.get("appid") if isinstance(entry, dict) else entry
+            if candidate is None:
+                continue
+            text_id = str(candidate).strip()
+            if not text_id:
+                continue
+            normalized_ids[text_id] = text_id
+            str_ids.add(text_id)
+            try:
+                int_ids.add(int(text_id))
+            except ValueError:
+                continue
+
+        if not normalized_ids:
+            return {}
+
+        query_clauses: List[Dict[str, Any]] = []
+        if int_ids:
+            int_list = list(int_ids)
+            query_clauses.append({"appid": {"$in": int_list}})
+            query_clauses.append({"app_id": {"$in": int_list}})
+        if str_ids:
+            str_list = list(str_ids)
+            query_clauses.append({"appid": {"$in": str_list}})
+            query_clauses.append({"app_id": {"$in": str_list}})
+
+        if not query_clauses:
+            return {
+                appid: {
+                    "label": "no data",
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": threshold_hours,
+                }
+                for appid in normalized_ids
+            }
+
+        if len(query_clauses) == 1:
+            query: Dict[str, Any] = query_clauses[0]
+        else:
+            query = {"$or": query_clauses}
+
+        projection = {
+            "appid": 1,
+            "app_id": 1,
+            "author.playtime_last_two_weeks": 1,
+            "author_playtime_last_two_weeks": 1,
+            "_id": 0,
+        }
+
+        def _safe_float(value: Any) -> Optional[float]:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                try:
+                    return float(text)
+                except ValueError:
+                    return None
+            return None
+
+        sums: Dict[str, float] = {appid: 0.0 for appid in normalized_ids}
+        counts: Dict[str, int] = {appid: 0 for appid in normalized_ids}
+
+        try:
+            collection = self.mongo_client.get_collection("steam_reviews")
+            cursor = collection.find(query, projection)
+        except PyMongoError:
+            return {
+                appid: {
+                    "label": "no data",
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": threshold_hours,
+                }
+                for appid in normalized_ids
+            }
+
+        for doc in cursor:
+            appid_value = doc.get("appid", doc.get("app_id"))
+            if appid_value is None:
+                continue
+            appid_key = str(appid_value).strip()
+            if not appid_key or appid_key not in normalized_ids:
+                continue
+            author = doc.get("author") or {}
+            playtime = author.get("playtime_last_two_weeks")
+            if playtime is None:
+                playtime = doc.get("author_playtime_last_two_weeks")
+            hours = _safe_float(playtime)
+            if hours is None:
+                continue
+            sums[appid_key] += hours
+            counts[appid_key] += 1
+
+        results: Dict[str, Dict[str, Any]] = {}
+        for appid_key in normalized_ids:
+            samples = counts.get(appid_key, 0)
+            average = None
+            if samples > 0:
+                average = round(sums[appid_key] / samples, 2)
+            if average is None:
+                label = "no data"
+            elif average < threshold_hours:
+                label = "inactive game"
+            else:
+                label = "active game"
+            results[appid_key] = {
+                "label": label,
+                "average_playtime_hours": average,
+                "samples": samples,
+                "threshold_hours": threshold_hours,
+            }
+        return results
 
     def _fetch_neighbor_prices(self, neighbor_appids: Sequence[Any]) -> List[float]:
         prices: List[float] = []
@@ -668,8 +835,8 @@ class DecisionRulesService:
             counts.append(self._count_platforms(doc.get("platforms")))
         return [count for count in counts if count is not None]
 
-    def _fetch_neighbor_release_dates(self, neighbor_appids: Sequence[Any]) -> List[Optional[date]]:
-        releases: List[Optional[date]] = []
+    def _fetch_neighbor_release_dates(self, neighbor_appids: Sequence[Any]) -> Dict[str, Optional[date]]:
+        releases: Dict[str, Optional[date]] = {}
         unique_ids: List[str] = []
         for appid in neighbor_appids:
             candidate = appid.get("appid") if isinstance(appid, dict) else appid
@@ -694,8 +861,10 @@ class DecisionRulesService:
         query_clauses: List[Dict[str, Any]] = []
         if int_ids:
             query_clauses.append({"appid": {"$in": int_ids}})
+            query_clauses.append({"app_id": {"$in": int_ids}})
         if str_ids:
             query_clauses.append({"appid": {"$in": str_ids}})
+            query_clauses.append({"app_id": {"$in": str_ids}})
         if not query_clauses:
             return releases
 
@@ -704,7 +873,7 @@ class DecisionRulesService:
         else:
             query = {"$or": query_clauses}
 
-        projection = {"release_date": 1, "_id": 0}
+        projection = {"release_date": 1, "appid": 1, "app_id": 1, "_id": 0}
         collection_name = "juegos_steam"
         try:
             collection = self.mongo_client.get_collection(collection_name)
@@ -713,8 +882,14 @@ class DecisionRulesService:
             return releases
 
         for doc in cursor:
+            appid_value = doc.get("appid", doc.get("app_id"))
+            if appid_value is None:
+                continue
+            appid_key = str(appid_value).strip()
+            if not appid_key:
+                continue
             parsed = self._parse_release_date(doc.get("release_date"))
-            releases.append(parsed)
+            releases[appid_key] = parsed
         return releases
 
     def _count_platforms(self, platforms: Any) -> int:
@@ -807,7 +982,11 @@ class DecisionRulesService:
 
         if isinstance(value, dict):
             # Steam API typically stores release_date as {"coming_soon": bool, "date": "May 1, 2024"}
+            coming_soon = value.get("coming_soon")
             possible = value.get("date")
+            if coming_soon is True and (not possible or not str(possible).strip()):
+                today = date.today()
+                return date(today.year, 12, 31)
             return self._parse_release_date(possible)
 
         if isinstance(value, (int, float)):
@@ -821,11 +1000,22 @@ class DecisionRulesService:
             if not text:
                 return None
             normalized = text.replace("Z", "")
+            lower_text = normalized.lower()
+            if "coming soon" in lower_text:
+                today = date.today()
+                return date(today.year, 12, 31)
+            if len(normalized) == 4 and normalized.isdigit():
+                try:
+                    return date(int(normalized), 1, 1)
+                except ValueError:
+                    return None
             date_formats = [
                 "%Y-%m-%d",
                 "%Y-%m-%dT%H:%M:%S",
                 "%Y-%m-%d %H:%M:%S",
                 "%Y/%m/%d",
+                "%B %Y",
+                "%b %Y",
                 "%d/%m/%Y",
                 "%b %d, %Y",
                 "%B %d, %Y",

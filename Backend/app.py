@@ -11,6 +11,7 @@ from werkzeug.exceptions import NotFound
 from db.mongodb import MongoDBClient
 from pymongo.errors import PyMongoError
 
+from config import DECISION_RULES
 from services.decision_rules import DecisionRulesService
 from services.neighbor_ratings import NeighborRatingService
 from services.single_game_poc import (
@@ -141,7 +142,6 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                     "detailed_description": document["detailed_description"],
                     "genres": document["genres"],
                     "categories": document["categories"],
-                    "price": document["precio"],
                 },
                 neighbors=20,
                 min_similarity=0.0,
@@ -207,40 +207,84 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
             except Exception as exc:
                 app.logger.exception("Failed to compute neighbor ratings: %s", exc)
                 ratings_map = {}
+        decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
+        has_decision_service = isinstance(decision_rules_service, DecisionRulesService)
+        activity_map: Dict[str, Dict[str, Any]] = {}
+        release_info_map: Dict[str, Dict[str, Any]] = {}
+        if has_decision_service and raw_neighbors:
+            try:
+                activity_map = decision_rules_service.evaluate_activity_rule(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to evaluate activity rule: %s", exc)
+                activity_map = {}
+            try:
+                release_info_map = decision_rules_service.build_release_info_map(raw_neighbors)
+            except Exception as exc:
+                app.logger.exception("Failed to build release info map: %s", exc)
+                release_info_map = {}
+        activity_default_label = "no_data" if has_decision_service else "no_service"
+        activity_threshold_hours: Optional[float] = None
+        if activity_map:
+            sample_activity = next(iter(activity_map.values()))
+            activity_threshold_hours = sample_activity.get("threshold_hours")
+        elif has_decision_service:
+            cfg_threshold = DECISION_RULES.get("activity_inactive_threshold_hours", 10.0)
+            try:
+                activity_threshold_hours = float(cfg_threshold)
+            except (TypeError, ValueError):
+                activity_threshold_hours = 10.0
         for neighbor in normalized_neighbors:
             appid_key = neighbor.get("appid")
+            raw_appid_str = str(appid_key) if appid_key is not None else ""
+            appid_str = raw_appid_str.strip() if raw_appid_str else ""
             if appid_key is None:
                 neighbor["rating"] = None
-                continue
-            rating = ratings_map.get(str(appid_key)) or ratings_map.get(str(appid_key).strip())
-            neighbor["rating"] = rating
-        decision_rules_service = app.config.get("DECISION_RULES_SERVICE")
-        if isinstance(decision_rules_service, DecisionRulesService):
+            else:
+                rating = ratings_map.get(appid_str) or ratings_map.get(raw_appid_str)
+                neighbor["rating"] = rating
+            activity_info = activity_map.get(appid_str) if appid_str else None
+            if activity_info is None:
+                activity_info = {
+                    "label": activity_default_label,
+                    "average_playtime_hours": None,
+                    "samples": 0,
+                    "threshold_hours": activity_threshold_hours,
+                }
+            neighbor["activity_rule"] = activity_info
+            release_info = release_info_map.get(appid_str) if appid_str else None
+            if release_info is None:
+                release_info = {
+                    "release_date": None,
+                    "age_years": None,
+                }
+            neighbor["release_date"] = release_info.get("release_date")
+            neighbor["release_age_years"] = release_info.get("age_years")
+        if has_decision_service:
             try:
                 price_rule = decision_rules_service.evaluate_price_rule(document.get("precio"), raw_neighbors, document.get("full_content_included"))
             except Exception as exc:
                 app.logger.exception("Failed to evaluate price rule: %s", exc)
-                price_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                price_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 platform_rule = decision_rules_service.evaluate_platform_rule(document.get("platforms"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate platform rule: %s", exc)
-                platform_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                platform_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 ram_rule = decision_rules_service.evaluate_ram_rule(document.get("ram_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate RAM rule: %s", exc)
-                ram_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                ram_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 size_rule = decision_rules_service.evaluate_size_rule(document.get("install_size_gb"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate size rule: %s", exc)
-                size_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                size_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 steam_deck_rule = decision_rules_service.evaluate_steam_deck_rule(document.get("steam_deck_compatible"), raw_neighbors)
             except Exception as exc:
                 app.logger.exception("Failed to evaluate steam deck rule: %s", exc)
-                steam_deck_rule = {"label": "error", "details": str(exc), "tag": "neutro"}
+                steam_deck_rule = {"label": "error", "details": str(exc), "tag": "neutral"}
             try:
                 segment_rule = decision_rules_service.evaluate_segment_rule(normalized_neighbors)
             except Exception as exc:
@@ -268,16 +312,16 @@ def register_routes(app: Flask, mongo_client: MongoDBClient) -> None:
                 app.logger.exception("Failed to evaluate developer rule: %s", exc)
                 dev_rule = {"label": "error", "top_developers": [], "total_neighbors": 0, "details": str(exc)}
         else:
-            price_rule = {"label": "sin_servicio", "tag": "neutro"}
-            platform_rule = {"label": "sin_servicio", "tag": "neutro"}
-            ram_rule = {"label": "sin_servicio", "tag": "neutro"}
-            size_rule = {"label": "sin_servicio", "tag": "neutro"}
-            steam_deck_rule = {"label": "sin_servicio", "tag": "neutro"}
-            segment_rule = {"label": "sin_servicio"}
-            competencia_rule = "sin_servicio"
-            segm_satu_edad_rule = {"label": "sin_servicio"}
-            publisher_rule = {"label": "sin_servicio", "top_publishers": [], "total_neighbors": 0}
-            dev_rule = {"label": "sin_servicio", "top_developers": [], "total_neighbors": 0}
+            price_rule = {"label": "no_service", "tag": "neutral"}
+            platform_rule = {"label": "no_service", "tag": "neutral"}
+            ram_rule = {"label": "no_service", "tag": "neutral"}
+            size_rule = {"label": "no_service", "tag": "neutral"}
+            steam_deck_rule = {"label": "no_service", "tag": "neutral"}
+            segment_rule = {"label": "no_service"}
+            competencia_rule = "no_service"
+            segm_satu_edad_rule = {"label": "no_service"}
+            publisher_rule = {"label": "no_service", "top_publishers": [], "total_neighbors": 0}
+            dev_rule = {"label": "no_service", "top_developers": [], "total_neighbors": 0}
 
         best_similarity = poc_result.get("best_cluster_similarity") if isinstance(poc_result, dict) else None
         try:

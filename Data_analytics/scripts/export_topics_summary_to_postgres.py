@@ -46,13 +46,13 @@ def export_topics_summary(path_in: str = 'outputs/events/enriched_events_with_to
 
     p = Path(path_in)
     if not p.exists():
-        print(f'[ERROR] No se encontró el archivo de entrada {p}. Omitiendo export de topics_summary.')
-        sys.exit(1)
+        print(f'[INFO] No existe {p}; no hay topics_summary que exportar (salida limpia).')
+        return
 
     df = _read_any(p)
     if df.empty or 'topics_summary' not in df.columns:
-        print('[ERROR] El fichero de entrada está vacío o no contiene la columna "topics_summary". No se puede exportar a Postgres.')
-        sys.exit(1)
+        print('[INFO] Entrada vacía o sin "topics_summary"; no se exporta (salida limpia).')
+        return
 
     # Columnas mínimas para exportar
     cols = ['appid', 'year_month', 'topics_summary']

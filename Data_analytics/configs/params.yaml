@@ -18,15 +18,6 @@ report:
   neighbors_top_k: 15
 
 # ----------------------
-# Client report (standalone stage)
-# ----------------------
-client_report:
-  client_id: "poc-stellar"
-  client_file: "configs/clients/poc-stellar.json"
-  neighbors_top_k: 20
-  same_cluster_only: false
-
-# ----------------------
 # Clustering params (for DVC cluster_assign)
 # ----------------------
 clustering:
@@ -205,4 +196,3 @@ bertopic:
 social:
   analysis_mode: peak_micro_daily
   daily_window_days: 14
-

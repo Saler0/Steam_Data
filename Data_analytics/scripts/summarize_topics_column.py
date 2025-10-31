@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,8 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
     - Already a list of dicts
     Returns [] on failure.
     """
+    if hasattr(val, 'tolist'):
+        val = val.tolist()
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return []
     if isinstance(val, list):
@@ -47,6 +50,26 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
         s = val.strip()
         if not s:
             return []
+        # Pre-clean numpy-style arrays: array([...], dtype=object) -> [...]
+        def _preclean_numpy_arrays(txt: str) -> str:
+            # Replace any numpy-like array(...) with just its list payload
+            # Examples handled:
+            #   array(['a','b'], dtype=object)
+            #   array(["a", "b"])  (no dtype)
+            #   'Representation': array([...], dtype=object)
+            pattern = re.compile(r"array\(\s*(\[[\s\S]*?\])\s*(?:,\s*dtype=object)?\s*\)")
+            return pattern.sub(r"\1", txt)
+
+        # Optionally drop very large doc blobs to ease parsing (Representative_Docs, top_docs)
+        def _drop_heavy_doc_blobs(txt: str) -> str:
+            # Remove key: Representative_Docs: <anything balanced up to next '],'> heuristically
+            txt = re.sub(r"'Representative_Docs'\s*:\s*\[[\s\S]*?\](\s*,)?", "", txt)
+            txt = re.sub(r'"Representative_Docs"\s*:\s*\[[\s\S]*?\](\s*,)?', "", txt)
+            txt = re.sub(r"'top_docs'\s*:\s*\[[\s\S]*?\](\s*,)?", "", txt)
+            txt = re.sub(r'"top_docs"\s*:\s*\[[\s\S]*?\](\s*,)?', "", txt)
+            return txt
+
+        s = _drop_heavy_doc_blobs(_preclean_numpy_arrays(s))
         # Try JSON first
         try:
             obj = json.loads(s)
@@ -60,7 +83,26 @@ def _safe_parse_topics(val: Any) -> List[Dict[str, Any]]:
             if isinstance(obj, list):
                 return [x for x in obj if isinstance(x, dict)]
         except Exception:
-            return []
+            # Last resort: best-effort extraction of Name/Representation via regex
+            try:
+                items: List[Dict[str, Any]] = []
+                # Extract {'Name': '...', 'Representation': [...]} pairs
+                for m in re.finditer(r"[\{,]\s*'Name'\s*:\s*([^,\}]+)\s*,[\s\S]*?'Representation'\s*:\s*(\[[\s\S]*?\])", s):
+                    name_raw = m.group(1).strip()
+                    if name_raw.startswith("'") or name_raw.startswith('"'):
+                        name = json.loads(name_raw.replace("'", '"')) if '"' in name_raw or '"' in name_raw else name_raw.strip("'\"")
+                    else:
+                        name = str(name_raw)
+                    rep_txt = _preclean_numpy_arrays(m.group(2))
+                    try:
+                        rep_list = ast.literal_eval(rep_txt)
+                        if isinstance(rep_list, list):
+                            items.append({'Name': name, 'Representation': rep_list, 'Count': None})
+                    except Exception:
+                        items.append({'Name': name, 'Count': None})
+                return items
+            except Exception:
+                return []
     return []
 
 
@@ -87,79 +129,126 @@ def _heuristic_summary(topics: List[Dict[str, Any]], max_items: int = 3, max_key
     chunks: List[str] = []
     for t in sorted_topics:
         name = _clean_name(str(t.get('Name') or t.get('name') or ''))
-        cnt = _count(t)
+        kws = []
         rep = t.get('Representation')
+        # Accept numpy arrays as well
+        try:
+            if hasattr(rep, 'tolist'):
+                rep = rep.tolist()
+        except Exception:
+            pass
         if isinstance(rep, (list, tuple)):
             kws = [str(x) for x in rep if str(x).strip()][:max_keywords]
         else:
             kws = []
         part = name or ", ".join(kws)
-        if cnt:
-            chunks.append(f"{part} (n={cnt}; kw: {', '.join(kws)})")
-        else:
-            chunks.append(f"{part} (kw: {', '.join(kws)})")
+        chunks.append(part)
     return "; ".join([c for c in chunks if c])
+
+
+def _debug_log(message: str):
+    # The root of the project is mounted at /app in the container.
+    # Writing to /app/summary_debug.log will create the file in the user's project root.
+    with open("/app/summary_debug.log", "a", encoding="utf-8") as f:
+        import datetime
+        f.write(f"{datetime.datetime.now()}: {message}\n")
 
 
 def _call_deepseek(prompt: str, api_key: Optional[str], api_base: Optional[str] = None, model: Optional[str] = None) -> Optional[str]:
     """Optional DeepSeek call. Requires requests installed and network.
     Resiliently falls back to None on any error.
     """
+    _debug_log("Attempting to call DeepSeek API...")
     api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
     if not api_key:
+        _debug_log("DEEPSEEK_API_KEY environment variable not found. Cannot use LLM provider.")
         return None
+    _debug_log("DEEPSEEK_API_KEY found.")
     try:
-        import requests  # type: ignore
-    except Exception:
+        import requests
+    except ImportError:
+        _debug_log("The 'requests' library is not installed. Please install it. Cannot use LLM provider.")
         return None
+
     api_base = api_base or os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
     model = model or os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
-    url = api_base.rstrip('/') + '/v1/chat/completions'
+    url = f"{api_base.rstrip('/')}/v1/chat/completions"
+    
+    system_prompt = "Your only task is to create a short, 2-4 word in English that summarizes the given Representation keyword about a video game."
+    
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are an expert in summarizing topics from video game reviews. Produce exactly three words in English, Title Case, no punctuation."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "max_tokens": 128,
     }
+
+    _debug_log(f"Sending request to {url} with model {model}. Prompt: {prompt}")
+    
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        _debug_log(f"API response status: {resp.status_code}")
         if resp.status_code != 200:
+            _debug_log(f"API call failed. Response text: {resp.text}")
             return None
+        
         data = resp.json()
+        _debug_log(f"API response data: {data}")
         text = data.get('choices', [{}])[0].get('message', {}).get('content')
-        return (text or '').strip() if isinstance(text, str) else None
-    except Exception:
+        
+        if not text or not isinstance(text, str):
+            _debug_log("No summary text received from API.")
+            return None
+            
+        summary = text.strip("'\"")
+        _debug_log(f"Received summary: '{summary}'")
+        return summary
+        
+    except requests.exceptions.RequestException as e:
+        _debug_log(f"A network error occurred during API call: {e}")
         return None
-
-
-def _to_three_word_title(s: str) -> str:
-    # Keep letters/numbers, split on whitespace, take first 3 tokens
-    tokens = [t for t in str(s).replace('\n', ' ').split(' ') if t.strip()]
-    if not tokens:
-        return ''
-    words = tokens[:3]
-    title = ' '.join(w.capitalize() for w in words)
-    # Remove stray punctuation and trim
-    return ''.join(ch for ch in title if ch.isalnum() or ch.isspace()).strip()
+    except Exception as e:
+        _debug_log(f"An unexpected error occurred during API call: {e}")
+        return None
 
 
 def summarize_row(topics_raw: Any, provider: str = 'heuristic', max_items: int = 3) -> str:
     topics = _safe_parse_topics(topics_raw)
+    if not topics:
+        return ""
+
     if provider == 'deepseek':
-        # Enforce a strict three-word, Title Case output for deepseek provider
+        # Create a prompt from the topics
+        prompt_chunks = []
+        for t in topics:
+            name = _clean_name(str(t.get('Name') or t.get('name') or ''))
+            rep = t.get('Representation')
+            kws = []
+            if isinstance(rep, (list, tuple)):
+                kws = [str(x) for x in rep if str(x).strip()]
+            
+            chunk = name or ", ".join(kws)
+            if chunk:
+                prompt_chunks.append(f"- Topic '{chunk}'")
+
+        if not prompt_chunks:
+            return _heuristic_summary(topics, max_items=max_items)
+
         prompt = (
-            "Create a three-word Title Case topic name summarizing these topics. "
-            "Return only the three words.\n" + json.dumps(topics)[:3000]
+            "KEYWORDS FROM VIDEO GAME REVIEWS:\n"
+            + "\n".join(prompt_chunks)
+            + "\n\nGenerate a single, 2-4 word summary title for all the topics listed above."
         )
-        out = _call_deepseek(prompt, api_key=os.getenv('DEEPSEEK_API_KEY'))
-        if out:
-            return _to_three_word_title(out)
-        # Fallback to heuristic if LLM not available, but still enforce 3-word Title Case
-        return _to_three_word_title(_heuristic_summary(topics, max_items=max_items))
+
+        summary = _call_deepseek(prompt, api_key=None)
+
+        if summary:
+            return summary
+
     # Heuristic provider: keep original format
     return _heuristic_summary(topics, max_items=max_items)
 
@@ -171,7 +260,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     ap.add_argument('--topics-col', default='topics', help='Column name containing topics')
     ap.add_argument('--summary-col', default='topics_summary', help='Output column name')
     ap.add_argument('--provider', default='heuristic', choices=['heuristic','deepseek'], help='Summarization provider')
-    ap.add_argument('--max-items', type=int, default=3, help='Max topics to include')
+    ap.add_argument('--max-items', type=int, default=3, help='Max topics to include in heuristic summary')
     return ap.parse_args(list(argv) if argv is not None else None)
 
 

@@ -83,7 +83,7 @@ def scrape_steamcharts(session, appid):
             logging.warning(f"[WARNING] No se encontraron tablas para el appid {appid}. Saltando.")
             return None
 
-        df = tables[-1]
+        df = tables[0]
         df = df.dropna(axis=1, how='all')
 
         current_month_str = datetime.now().strftime("%B %Y")

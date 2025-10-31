@@ -11,7 +11,7 @@ vars:
 
 stages:
   preagg_reviews:
-    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/ccf_analysis.yaml
+    cmd: python src/pipelines/preaggregations/reviews_monthly.py --config configs/  cf_analysis.yaml
     deps:
       - src/pipelines/preaggregations/reviews_monthly.py
       - configs/ccf_analysis.yaml
@@ -140,7 +140,13 @@ stages:
       - outputs/events/events.parquet
 
   news_train_auto:
-    cmd: python src/insights/train_news_classifier_auto.py --config configs/news_train.yaml
+    cmd: >
+      python src/insights/train_news_classifier_auto.py
+      --input outputs/events/news_classified.parquet
+      --featurizer sbert
+      --embedding-model all-MiniLM-L6-v2
+      --models "svm,logreg,rf,mlp"
+      --cv 5
     deps:
       - src/insights/train_news_classifier_auto.py
       - configs/news_train.yaml
@@ -148,6 +154,16 @@ stages:
     outs:
       - models/news_best.joblib
       - models/news_best_meta.json
+
+  news_train_plots:
+    cmd: python scripts/plot_news_models.py --meta models/news_best_meta.json --out-dir outputs/events
+    deps:
+      - scripts/plot_news_models.py
+      - models/news_best_meta.json
+    outs:
+      - outputs/events/news_models_bars.png
+      - outputs/events/news_models_heatmap.png
+      - outputs/events/news_models_summary.csv
 
   reviews_with_segments:
     cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py --config configs/review_segments.yaml --output data/warehouse/reviews_with_segments.parquet --topics-output outputs/events/reviews_topics.parquet --allow-empty

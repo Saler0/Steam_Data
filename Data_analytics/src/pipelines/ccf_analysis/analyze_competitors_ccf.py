@@ -37,6 +37,7 @@ from src.utils.io import read_parquet_any, write_parquet_any, write_csv_any, mak
 from src.utils.timeseries import dlog
 from src.utils.config_utils import expand_env_in_obj
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests, kpss
+DEBUG_APPID = os.getenv('DEBUG_APPID')
 from statsmodels.stats.multitest import multipletests
 from statsmodels.stats.diagnostic import acorr_ljungbox
 
@@ -118,13 +119,19 @@ def _read_players(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
             ds_pl = ds.dataset(preagg_path, format='parquet')
             tbl = ds_pl.to_table(filter=ds.field('appid') == str(appid))
             df = tbl.to_pandas()
+            # Fallback if filter returned empty due to dtype mismatch (str vs int)
+            if df is None or df.empty:
+                raise ValueError('empty_after_arrow_filter')
         except Exception:
             df = read_parquet_any(preagg_path)
-            df = df[df['appid'].astype(str) == str(appid)].copy()
+            if 'appid' in df.columns:
+                df = df[df['appid'].astype(str) == str(appid)].copy()
         if df is not None and not df.empty:
             if 'date' in df.columns:
                 df['year_month'] = pd.to_datetime(df['date']).dt.to_period('M').dt.to_timestamp()
                 df = df.drop(columns=['date'])
+            if DEBUG_APPID and DEBUG_APPID == str(appid):
+                print(f"[DEBUG] players preagg rows for {appid}: {len(df)}")
             return df[['year_month','players']].sort_values('year_month')
     pat = cfg.get('dir_pattern')
     fil = cfg.get('file')
@@ -142,6 +149,8 @@ def _read_players(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
     df = df.dropna(subset=['date'])
     df['year_month'] = df['date'].dt.to_period('M').dt.to_timestamp()
     g = df.groupby('year_month')['players'].sum().reset_index()
+    if DEBUG_APPID and DEBUG_APPID == str(appid):
+        print(f"[DEBUG] players from CSV rows for {appid}: {len(g)}")
     return g
 
 def _read_reviews(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.DataFrame:
@@ -153,17 +162,26 @@ def _read_reviews(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
             ds_rv = ds.dataset(preagg_path, format='parquet')
             tbl = ds_rv.to_table(filter=ds.field('appid') == str(appid))
             df = tbl.to_pandas()
+            if df is None or df.empty:
+                raise ValueError('empty_after_arrow_filter')
         except Exception:
             df = read_parquet_any(preagg_path)
-            df = df[df['appid'].astype(str) == str(appid)].copy()
+            if 'appid' in df.columns:
+                df = df[df['appid'].astype(str) == str(appid)].copy()
         if df is not None and not df.empty:
-            return df[['year_month','pos','neg','total_reviews']].sort_values('year_month') if 'total_reviews' in df.columns else df[['year_month','pos','neg']].sort_values('year_month')
+            out = df[['year_month','pos','neg','total_reviews']].sort_values('year_month') if 'total_reviews' in df.columns else df[['year_month','pos','neg']].sort_values('year_month')
+            if DEBUG_APPID and DEBUG_APPID == str(appid):
+                print(f"[DEBUG] reviews preagg rows for {appid}: {len(out)}")
+            return out
     cli = MongoClient(cfg['uri'])
     col = cli[cfg['database']][cfg['collection']]
     cur = col.find({"appid": {"$in": [appid, int(appid)]}}, {"_id": 0, "timestamp_created": 1, "voted_up": 1})
     rows = list(cur)
     cli.close()
-    if not rows: return pd.DataFrame()
+    if not rows:
+        if DEBUG_APPID and DEBUG_APPID == str(appid):
+            print(f"[DEBUG] mongo reviews: no rows for {appid}")
+        return pd.DataFrame()
     
     df = pd.DataFrame(rows)
     df['date'] = pd.to_datetime(df['timestamp_created'], unit='s', errors='coerce')
@@ -172,6 +190,8 @@ def _read_reviews(cfg: dict, appid: str, preagg_path: str | None = None) -> pd.D
     neg = df[df['voted_up'] == False].groupby('year_month').size().rename('neg')
     out = pd.concat([pos, neg], axis=1).fillna(0).reset_index()
     out['total_reviews'] = out['pos'] + out['neg']
+    if DEBUG_APPID and DEBUG_APPID == str(appid):
+        print(f"[DEBUG] mongo reviews monthly rows for {appid}: {len(out)}")
     return out
 
 def _ccf_series(x: pd.Series, y: pd.Series, max_lag: int) -> dict:
@@ -437,6 +457,10 @@ def _process_single_game(appid: str, cfg: Dict[str, Any]) -> Dict[str, List[Dict
                 freq_used = 'Q'
 
         if df_analysis is None or len(df_analysis) < 8:
+            if DEBUG_APPID and DEBUG_APPID == str(appid):
+                n = 0 if df_analysis is None else len(df_analysis)
+                cols = [] if df_analysis is None else list(df_analysis.columns)
+                print(f"[DEBUG] insufficient df_analysis for {appid} {predictor_name}->{target_name}: n={n} cols={cols}")
             print(f"[WARN] {appid} par {predictor_name}->{target_name}: insuficiente tras fallback")
             continue
 

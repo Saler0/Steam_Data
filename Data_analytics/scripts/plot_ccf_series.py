@@ -55,7 +55,22 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
     rv = _read_parquet_filter_app(rv_pq, appid)
     pl = _read_parquet_filter_app(pl_pq, appid)
     if rv.empty and pl.empty:
-        return pd.DataFrame()
+        # Fallback: intentar CSV individual si existe patrón en config
+        players_cfg = cfg.get('players_data') or {}
+        patt = players_cfg.get('dir_pattern')
+        if patt:
+            from pathlib import Path as _P
+            p = _P(str(patt).format(appid=str(appid)))
+            if p.exists():
+                try:
+                    tmp = pd.read_csv(p)
+                    tmp['year_month'] = _to_month(tmp['date'] if 'date' in tmp.columns else tmp.iloc[:,0])
+                    tmp = tmp[['year_month', 'players']].copy()
+                    pl = tmp
+                except Exception:
+                    pass
+        if rv.empty and pl.empty:
+            return pd.DataFrame()
     out = None
     if not pl.empty:
         pl = pl.copy()
@@ -73,6 +88,12 @@ def _series_from_preagg(cfg: dict, appid: str) -> pd.DataFrame:
         rv = rv[['year_month'] + cols]
         out = rv if out is None else pd.merge(out, rv, on='year_month', how='outer')
     out = out.sort_values('year_month').reset_index(drop=True).fillna(0)
+    # Completar total_reviews si faltara y existen pos/neg
+    if ('total_reviews' not in out.columns) and ('pos' in out.columns) and ('neg' in out.columns):
+        try:
+            out['total_reviews'] = out[['pos','neg']].sum(axis=1)
+        except Exception:
+            pass
     return out
 
 
@@ -172,6 +193,23 @@ def main(argv: Iterable[str] | None = None) -> None:
     # Build original + stationarized
     transformed = {}
     chosen = {}
+    # Etiquetas en castellano
+    vnames = {
+        'players': 'Jugadores Activos',
+        'pos': 'Reseñas Positivas',
+        'neg': 'Reseñas Negativas',
+        'total_reviews': 'Reseñas Totales',
+    }
+    mnames = {
+        'dlog': 'Diferencia logarítmica',
+        'diff': 'Diferenciación',
+        'diff2': 'Diferenciación 2ª',
+        'sqrt': 'Raíz cuadrada',
+        'sqrt_diff': 'Raíz cuadrada + diferencia',
+        'log1p_diff': 'log1p + diferencia',
+        'seasonal_diff': 'Diferenciación estacional',
+        'fallback': 'Transformación alternativa',
+    }
     for v in vars_:
         s = pd.Series(df[v].astype(float)).dropna()
         t, name = _stationarize_best(s, methods, adf_alpha, use_kpss, kpss_alpha, season_period)
@@ -190,12 +228,16 @@ def main(argv: Iterable[str] | None = None) -> None:
         # Original
         ax = axes[i, 0]
         df[v].plot(ax=ax, color='#3b82f6', linewidth=1.5)
-        ax.set_title(f"{v} — original")
+        ax.set_title(f"{vnames.get(v, v)} - Original")
+        ax.set_xlabel('Fecha')
+        ax.set_ylabel('Valor')
         ax.grid(True, alpha=0.3)
         # Stationarized
         ax2 = axes[i, 1]
         transformed[v].plot(ax=ax2, color='#ef4444', linewidth=1.2)
-        ax2.set_title(f"{v} — stationarized ({chosen[v]})")
+        ax2.set_title(f"{vnames.get(v, v)} - Estacionaria ({mnames.get(chosen[v], chosen[v])})")
+        ax2.set_xlabel('Fecha')
+        ax2.set_ylabel('Valor')
         ax2.grid(True, alpha=0.3)
     plt.tight_layout()
 

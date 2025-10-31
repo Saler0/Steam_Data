@@ -155,14 +155,14 @@ stages:
     deps:
     - path: src/pipelines/preaggregations/players_monthly.py
       hash: md5
-      md5: c0c51e7dd65a667e3a69b882799cee27
-      size: 8104
+      md5: 8e2bdda85e88ec858201443919f4deeb
+      size: 9541
       isexec: true
     outs:
     - path: data/warehouse/players_monthly.parquet
       hash: md5
-      md5: 2f5901d608238c635ce5e93eae7f5234
-      size: 4771
+      md5: 6abd41de25df6990d1d8372de9be700f
+      size: 5225
   reviews_with_segments:
     cmd: python src/pipelines/review_segments/prepare_reviews_with_segments.py 
       --config configs/review_segments.yaml --output 
@@ -176,14 +176,14 @@ stages:
       isexec: true
     - path: src/pipelines/review_segments/prepare_reviews_with_segments.py
       hash: md5
-      md5: 1fa077978138ecca3f1fa6b26a9913b3
-      size: 28860
+      md5: 6e267f96725c6afcac217f6df7e789c7
+      size: 30349
       isexec: true
     outs:
     - path: data/warehouse/reviews_with_segments.parquet
       hash: md5
-      md5: b90fa4f1f58dea89552f3f2717024b63
-      size: 399961887
+      md5: 397def8a858b66dce6805d7a1d2a92c0
+      size: 401770527
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: c75b4cbd97fd36a017336da70bc93c49
@@ -197,12 +197,12 @@ stages:
     deps:
     - path: data/warehouse/reviews_with_segments.parquet
       hash: md5
-      md5: b90fa4f1f58dea89552f3f2717024b63
-      size: 399961887
+      md5: 397def8a858b66dce6805d7a1d2a92c0
+      size: 401770527
     - path: outputs/events/events.parquet
       hash: md5
-      md5: b5677ddc78e1843d901e53f9541ad8c4
-      size: 7375
+      md5: 59423e0221403332750c6e45789e3cda
+      size: 10498
     - path: outputs/events/reviews_topics.parquet
       hash: md5
       md5: c75b4cbd97fd36a017336da70bc93c49
@@ -215,8 +215,8 @@ stages:
     outs:
     - path: outputs/events/review_segments.parquet
       hash: md5
-      md5: c709b779f738842abaf5c7e464206608
-      size: 598
+      md5: 85803b2f535387aa262e6af3b38b7054
+      size: 104437
   prepare:
     cmd: python src/pipelines/decision_rules/pipeline.py --stage prepare 
       --config configs/params.yaml
@@ -387,3 +387,31 @@ stages:
       hash: md5
       md5: 8f8ae92f9f2835d5ae4a1b4d2d408098
       size: 7311
+  news_train_auto:
+    cmd: "python src/insights/train_news_classifier_auto.py --input outputs/events/news_classified.parquet
+      --featurizer sbert --embedding-model all-MiniLM-L6-v2 --models \"svm,logreg,rf,mlp\"\
+      \ --cv 5\n"
+    deps:
+    - path: configs/news_train.yaml
+      hash: md5
+      md5: 478fe0a4246392ceb7f06c7a3d61b5e9
+      size: 880
+      isexec: true
+    - path: outputs/events/news_classified.parquet
+      hash: md5
+      md5: 75c06f980ae02a0179e1080ddcccccf6
+      size: 8247653
+    - path: src/insights/train_news_classifier_auto.py
+      hash: md5
+      md5: 27fb37ee7a863db8c1fb8e0a13edee13
+      size: 17599
+      isexec: true
+    outs:
+    - path: models/news_best.joblib
+      hash: md5
+      md5: 98e5eaab92abf4e29a3ff71544c7d8f8
+      size: 1261353
+    - path: models/news_best_meta.json
+      hash: md5
+      md5: d9dd7919c2fb0e3b2fea2b1991e68cb3
+      size: 3398

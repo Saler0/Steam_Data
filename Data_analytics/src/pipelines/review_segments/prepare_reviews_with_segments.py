@@ -445,12 +445,42 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         medians = df.groupby("appid")["playtime_at_review"].median().rename("median_playtime_app")
         df = df.merge(medians, on="appid", how="left")
 
-    if experiencia_jugador is not None:
-        df["experience_label"] = df.apply(
-            lambda row: experiencia_jugador(row.get("playtime_at_review"), row.get("median_playtime_app")), axis=1
-        )
-    else:
-        df["experience_label"] = None
+    # Fallback thresholds if reglas_decision is not available
+    def _fallback_exp_label(hours: Optional[float], median: Optional[float]) -> Optional[str]:
+        try:
+            h = float(hours) if hours is not None else None
+            m = float(median) if median is not None else None
+        except Exception:
+            return None
+        if h is None or m is None or m <= 0:
+            return None
+        # Defaults aligned with reglas_decision._load_experience_thresholds
+        th = {"nuevo": 0.1, "intermedio": 0.5, "experto": 1.5}
+        if h <= th["nuevo"] * m:
+            return "Nuevo"
+        elif h <= th["intermedio"] * m:
+            return "Intermedio"
+        elif h <= th["experto"] * m:
+            return "Experto"
+        else:
+            return "Veterano"
+
+    # Compute experience_label using reglas_decision if available; otherwise fallback
+    def _compute_exp_label(row: pd.Series) -> Optional[str]:
+        hours = row.get("playtime_at_review")
+        median = row.get("median_playtime_app")
+        label: Optional[str] = None
+        try:
+            if experiencia_jugador is not None:
+                label = experiencia_jugador(hours, median)
+        except Exception:
+            label = None
+        # If reglas_decision returned an unexpected text, derive with fallback
+        if not label or str(label).strip().lower() not in {"nuevo", "intermedio", "experto", "veterano"}:
+            label = _fallback_exp_label(hours, median)
+        return label
+
+    df["experience_label"] = df.apply(_compute_exp_label, axis=1)
 
     def _experience_key(label: Any) -> Optional[str]:
         mapping = {
@@ -464,6 +494,8 @@ def _prepare_reviews(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
         return mapping.get(str(label).strip().lower())
 
     df["experience_key"] = df["experience_label"].apply(_experience_key)
+    # Replace missing keys with 'unknown' to avoid None buckets en dashboards
+    df["experience_key"] = df["experience_key"].fillna("unknown")
     return df
 def _write_output(df: pd.DataFrame, path: str) -> None:
     out_path = Path(path)
